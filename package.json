@@ -1,0 +1,11 @@
+{
+  "name": "bend-evm",
+  "version": "0.1.0",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "bun scripts/check.js",
+    "test": "bun test ./tests ./yul-u32"
+  }
+}

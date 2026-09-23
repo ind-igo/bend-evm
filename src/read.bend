@@ -1,5 +1,5 @@
 import Base
-import ../../src/core.bend as Core
+import ../vendor/bend-frontend/src/core.bend as Core
 import ./ir.bend as IR
 
 # The reader proposes IR and the generated certificate proves it. A reader bug

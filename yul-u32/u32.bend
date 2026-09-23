@@ -1,5 +1,5 @@
 import Base
-import ../src/core.bend as Core
+import ../vendor/bend-frontend/src/core.bend as Core
 
 # A deliberately small, target-independent arithmetic IR.
 type Expr is Data:

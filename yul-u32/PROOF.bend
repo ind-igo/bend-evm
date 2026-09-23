@@ -1,5 +1,5 @@
 import ./LAWS.bend as Laws
-import ../u32.bend as Source
+import ./u32.bend as Source
 import ./lower.bend as Yul
 
 def Laws.preserves(expr, env):

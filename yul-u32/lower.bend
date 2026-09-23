@@ -1,6 +1,6 @@
 import Base
-import ../../src/core.bend as Core
-import ../u32.bend as Source
+import ../vendor/bend-frontend/src/core.bend as Core
+import ./u32.bend as Source
 
 # Yul's U32 fragment. Add32/Mul32 include the low-32-bit mask;
 # their evaluator is a U32 model, not an interpreter for arbitrary EVM code.

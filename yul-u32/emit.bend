@@ -1,6 +1,6 @@
 import Base
-import ../../src/core.bend as Core
-import ../../src/frontend.bend as Frontend
+import ../vendor/bend-frontend/src/core.bend as Core
+import ../vendor/bend-frontend/src/frontend.bend as Frontend
 import ./lower.bend as Yul
 
 def run(file: String, name: String) -> IO(Unit):
@@ -13,7 +13,7 @@ def run(file: String, name: String) -> IO(Unit):
 def args(values: List<String>) -> IO(Unit):
   match values:
     case Nil{}:
-      run("backends/yul/PROOF.bend", "program.calculate")
+      run("yul-u32/PROOF.bend", "program.calculate")
     case file <> name <> Nil{}:
       run(file, name)
     case _:

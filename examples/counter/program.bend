@@ -1,5 +1,5 @@
 import Base
-import ../Evm.bend as Evm
+import ../../src/Evm.bend as Evm
 
 def owner() -> Nat:
   7n

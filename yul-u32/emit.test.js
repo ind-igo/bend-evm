@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { check, bend } from 'bend-frontend';
+import { check, bend } from '../vendor/bend-frontend/host/adapter.js';
 import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -82,7 +82,7 @@ test('emits checked U32 arithmetic, compiles Yul, and executes it on a local EVM
 }, 60_000);
 
 test('rejects unsupported runtime constructs instead of guessing', async () => {
-  const program = await check(`${import.meta.dir}/../../tests/fixtures/program.bend`);
+  const program = await check(`${import.meta.dir}/../vendor/bend-frontend/tests/fixtures/program.bend`);
   await expect(emitYul(program, 'adder')).rejects.toThrow('U32 result');
   await expect(emitYul(program, 'identity')).rejects.toThrow('U32 arguments');
   await expect(emitYul(program, 'sum')).rejects.toThrow('U32 arguments');
@@ -92,20 +92,19 @@ test('rejects unsupported runtime constructs instead of guessing', async () => {
 test('the universal preservation proof rejects an incorrect lowering', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'bend-lowering-proof-'));
   try {
-    await mkdir(join(dir, 'backends/yul'), { recursive: true });
-    await mkdir(join(dir, 'src'));
-    await copyFile(`${import.meta.dir}/../../src/core.bend`, join(dir, 'src/core.bend'));
-    await copyFile(`${import.meta.dir}/../u32.bend`, join(dir, 'backends/u32.bend'));
-    for (const name of ['lower.bend', 'LAWS.bend', 'PROOF.bend', 'program.bend']) {
-      await copyFile(join(import.meta.dir, name), join(dir, 'backends/yul', name));
+    await mkdir(join(dir, 'yul'));
+    await mkdir(join(dir, 'vendor/bend-frontend/src'), { recursive: true });
+    await copyFile(`${import.meta.dir}/../vendor/bend-frontend/src/core.bend`, join(dir, 'vendor/bend-frontend/src/core.bend'));
+    for (const name of ['u32.bend', 'lower.bend', 'LAWS.bend', 'PROOF.bend', 'program.bend']) {
+      await copyFile(join(import.meta.dir, name), join(dir, 'yul', name));
     }
-    const path = join(dir, 'backends/yul/lower.bend');
+    const path = join(dir, 'yul/lower.bend');
     const source = await readFile(path, 'utf8');
     const wrong = source.replace('a b = lower(left) lower(right)\n      Mul32{a, b}',
       'a b = lower(left) lower(right)\n      Add32{a, b}');
     expect(wrong).not.toBe(source);
     await writeFile(path, wrong);
-    await expect(check(join(dir, 'backends/yul/PROOF.bend'))).rejects.toThrow('Location: LAWS.preserves');
+    await expect(check(join(dir, 'yul/PROOF.bend'))).rejects.toThrow('Location: LAWS.preserves');
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

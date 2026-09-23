@@ -1,5 +1,5 @@
 import ./program.bend as Program
-import ../u32.bend as Source
+import ./u32.bend as Source
 import ./lower.bend as Yul
 
 # The actual lowering, for every IR expression and every input environment.

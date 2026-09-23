@@ -1,5 +1,5 @@
 import Base
-import ../Evm.bend as Evm
+import ../../src/Evm.bend as Evm
 import ./program.bend as Counter
 
 # The owner stores any value; the storage and word limit stay symbolic.

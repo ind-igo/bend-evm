@@ -1,0 +1,3 @@
+[submodule "vendor/bend-frontend"]
+	path = vendor/bend-frontend
+	url = https://github.com/ind-igo/bend-frontend.git
