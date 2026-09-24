@@ -11,10 +11,10 @@ type Cond is Data:
   Eq{left: Expr, right: Expr}
   Lt{left: Expr, right: Expr}
 
-# A storage location: a plain slot or an entry of the mapping at slot.
+# A storage location: a plain slot or an entry of the mapping at base.
 type Loc is Data:
   Plain{slot: Expr}
-  Mapped{slot: Expr, key: Expr}
+  Mapped{base: Loc, key: Expr}
 
 # Word actions return a word; effects return Unit.
 type Word is Data:
@@ -76,8 +76,8 @@ def loc(l: Loc, +env: List<&2, Binding>) -> Evm.Key:
   match l:
     case Plain{slot}:
       Evm.Plain{eval(slot, env)}
-    case Mapped{slot, key}:
-      Evm.Mapped{eval(slot, env), eval(key, env)}
+    case Mapped{base, key}:
+      Evm.Mapped{loc(base, env), eval(key, env)}
 
 def cond(c: Cond, +env: List<&2, Binding>) -> Bool:
   match c:
@@ -157,8 +157,8 @@ def closed.loc(l: Loc, +scope: List<&2, Nat>) -> Bool:
   match l:
     case Plain{slot}:
       closed.expr(slot, scope)
-    case Mapped{slot, key}:
-      closed.two(slot, key, scope)
+    case Mapped{base, key}:
+      Bool.and(closed.loc(base, scope), closed.expr(key, scope))
 
 def closed.word(w: Word, +scope: List<&2, Nat>) -> Bool:
   match w:

@@ -32,8 +32,8 @@ def show.loc(l: IR.Loc) -> String:
   match l:
     case IR.Plain{slot}:
       "IR.Plain{" ++ show.expr(slot) ++ "}"
-    case IR.Mapped{slot, key}:
-      show.two("IR.Mapped", slot, key)
+    case IR.Mapped{base, key}:
+      "IR.Mapped{" ++ show.loc(base) ++ ", " ++ show.expr(key) ++ "}"
 
 def show.word(w: IR.Word) -> String:
   match w:

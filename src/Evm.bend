@@ -2,18 +2,19 @@ import Base
 
 # The contract model. Words are Nat below the state's limit (2^256 on the EVM).
 # Storage is an association list: the newest slot wins, missing slots are zero.
-# A key is a plain slot or a mapping entry. On the EVM an entry lives at
-# keccak256(key . slot), as in Solidity; the model assumes no collisions.
+# A key is a plain slot or an entry of the mapping at base, which may itself
+# be an entry. On the EVM an entry lives at keccak256(key . base), as in
+# Solidity; the model assumes no collisions.
 type Key is Data:
   Plain{slot: Nat}
-  Mapped{slot: Nat, key: Nat}
+  Mapped{base: Key, key: Nat}
 
 def same(a: Key, b: Key) -> Bool:
   match a b:
     case Plain{x} Plain{y}:
       Nat.is_eq(x, y)
     case Mapped{x, k} Mapped{y, j}:
-      Bool.and(Nat.is_eq(x, y), Nat.is_eq(k, j))
+      Bool.and(same(x, y), Nat.is_eq(k, j))
     case Plain{_} Mapped{_, _}:
       False{}
     case Mapped{_, _} Plain{_}:
@@ -91,7 +92,11 @@ def sload(slot: Nat) -> Contract(Nat):
 
 # The value at key in the mapping at slot.
 def load(slot: Nat, key: Nat) -> Contract(Nat):
-  read(Mapped{slot, key})
+  read(Mapped{Plain{slot}, key})
+
+# The value at inner in the mapping at outer in the mapping at slot.
+def load2(slot: Nat, outer: Nat, inner: Nat) -> Contract(Nat):
+  read(Mapped{Mapped{Plain{slot}, outer}, inner})
 
 def write.go(key: Key, value: Nat, s: State) -> State:
   match s:
@@ -105,7 +110,10 @@ def sstore(slot: Nat, value: Nat) -> Contract(Unit):
   write(Plain{slot}, value)
 
 def store(slot: Nat, key: Nat, value: Nat) -> Contract(Unit):
-  write(Mapped{slot, key}, value)
+  write(Mapped{Plain{slot}, key}, value)
+
+def store2(slot: Nat, outer: Nat, inner: Nat, value: Nat) -> Contract(Unit):
+  write(Mapped{Mapped{Plain{slot}, outer}, inner}, value)
 
 def caller() -> Contract(Nat):
   R => k => +s => k(caller.of(s), s)

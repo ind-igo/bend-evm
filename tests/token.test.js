@@ -2,12 +2,15 @@ import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { deploy, must, owner, reverts, run } from './chain.js';
 
 const bob = '0x0000000000000000000000000000000000000b0b';
+const carol = '0x0000000000000000000000000000000000000ca1';
 const topic = must(run('cast', 'keccak', 'Transfer(address,address,uint256)'));
+const approval = must(run('cast', 'keccak', 'Approval(address,address,uint256)'));
 const word = x => '0x' + BigInt(x).toString(16).padStart(64, '0');
 let chain, sender, send;
 
 beforeAll(async () => {
-  chain = await deploy('examples/token/program.bend', ['totalSupply', 'balanceOf', 'transfer', 'mint']);
+  chain = await deploy('examples/token/program.bend',
+    ['totalSupply', 'balanceOf', 'transfer', 'mint', 'allowance', 'approve', 'transferFrom']);
   ({ sender, send } = chain);
 }, 120_000);
 
@@ -15,6 +18,7 @@ afterAll(() => chain?.stop());
 
 const supply = () => chain.word('totalSupply()(uint256)');
 const balance = who => chain.word('balanceOf(address)(uint256)', who);
+const allowance = (holder, spender) => chain.word('allowance(address,address)(uint256)', holder, spender);
 
 // The one log of a transaction, as [topics, data].
 function logged(result) {
@@ -63,4 +67,36 @@ test('an address argument above 160 bits reverts', () => {
   const data = '0x70a08231' + '1' + '0'.repeat(23) + bob.slice(2);
   reverts(chain.cast('call', chain.address, data));
   expect(balance(bob)).toBe(30n);
+});
+
+test('approve sets the allowance at the nested Solidity layout and logs Approval', () => {
+  const [topics, data] = logged(send(sender, '--json', 'approve(address,uint256)', bob, '50'));
+  expect(topics).toEqual([approval, word(sender), word(bob)]);
+  expect(data).toBe(word(50));
+  expect(allowance(sender, bob)).toBe(50n);
+  expect(allowance(bob, sender)).toBe(0n);
+  const inner = must(run('cast', 'index', 'address', sender, '2'));
+  const slot = must(run('cast', 'index', 'address', bob, inner));
+  expect(BigInt(must(chain.cast('storage', chain.address, slot)))).toBe(50n);
+});
+
+test('transferFrom spends the allowance and moves the amount', () => {
+  must(chain.cast('rpc', 'anvil_impersonateAccount', bob));
+  must(chain.cast('rpc', 'anvil_setBalance', bob, '0x56bc75e2d63100000'));
+  const [topics, data] = logged(send(bob, '--json', 'transferFrom(address,address,uint256)', sender, carol, '20'));
+  expect(topics).toEqual([topic, word(sender), word(carol)]);
+  expect(data).toBe(word(20));
+  expect(allowance(sender, bob)).toBe(30n);
+  expect(balance(sender)).toBe(50n);
+  expect(balance(carol)).toBe(20n);
+  expect(supply()).toBe(100n);
+});
+
+test('transferFrom reverts above the allowance or the balance', () => {
+  reverts(send(bob, 'transferFrom(address,address,uint256)', sender, carol, '31'));
+  reverts(send(owner, 'transferFrom(address,address,uint256)', sender, carol, '1'));
+  must(send(sender, 'approve(address,uint256)', bob, '1000'));
+  reverts(send(bob, 'transferFrom(address,address,uint256)', sender, carol, '51'));
+  expect(allowance(sender, bob)).toBe(1000n);
+  expect(balance(sender)).toBe(50n);
 });

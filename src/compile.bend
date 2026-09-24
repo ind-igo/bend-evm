@@ -27,13 +27,13 @@ def atom(e: IR.Expr) -> String:
 def call(name: String, args: List<&2, String>) -> String:
   name ++ "(" ++ String.join(args, ", ") ++ ")"
 
-# A mapping entry lives at keccak256(key . slot), as in Solidity.
+# A mapping entry lives at keccak256(key . base), as in Solidity.
 def loc(l: IR.Loc) -> String:
   match l:
     case IR.Plain{slot}:
       atom(slot)
-    case IR.Mapped{slot, key}:
-      call("mapped", [atom(slot), atom(key)])
+    case IR.Mapped{base, key}:
+      call("mapped", [loc(base), atom(key)])
 
 def exp(e: Yul.Exp) -> String:
   match e:

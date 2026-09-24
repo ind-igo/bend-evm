@@ -68,3 +68,15 @@ The M2 laws had fixed addresses and hypotheses such as `a >= amount`. Bend has n
 - [x] `Contract` is continuation-passing, so each check is a `Bool.pick` at the top of the normal form.
 - [x] The counter and token laws state every outcome from any state: any storage, caller, addresses (a self-transfer too), amounts, limit and logs. Each proof is `{==}`.
 - [x] The preservation law holds for every continuation, and the certificates and tests are unchanged.
+
+## M4: the rest of ERC-20
+
+`allowance(address,address)`, `approve(address,uint256) returns (bool)` and `transferFrom(address,address,uint256) returns (bool)`. `approve` emits `Approval`.
+
+### Done when
+
+- [x] Nested mappings: a storage key is `Plain{slot}` or `Mapped{base, key}`, and the printer puts `Mapped` at `keccak256(key . base)`, the Solidity layout. The allowance of `owner` for `spender` is at `keccak256(spender . keccak256(owner . 2))` (tested with `cast index`).
+- [x] Laws for any state: `approve` sets the allowance and logs `Approval`; `transferFrom` reverts unless the allowance and the balance cover the amount, and otherwise lowers the allowance and moves the amount.
+- [x] The `anvil` test checks the new functions, their events and the storage layout.
+
+Not in M4: the unlimited allowance (`2^256 - 1` is not lowered), which needs branches in contracts.

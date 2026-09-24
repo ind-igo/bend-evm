@@ -212,7 +212,7 @@ def sub(pair: Operands) -> IR.Word:
 def mapped(pair: Operands) -> IR.Loc:
   match pair:
     case Operands{s, k}:
-      IR.Mapped{s, k}
+      IR.Mapped{IR.Plain{s}, k}
 
 def cond(c: Call, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Cond>:
   match c:
@@ -237,6 +237,11 @@ def word(c: Call, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, 
       do Result<&2, &2, String, IR.Word>:
         pair : Operands <- operands(slot, key, decls)
         return IR.SLoad{mapped(pair)}
+    case Call{"Evm.load2", slot <> outer <> inner <> Nil{}}:
+      do Result<&2, &2, String, IR.Word>:
+        pair : Operands <- operands(slot, outer, decls)
+        k : IR.Expr <- expr(inner, decls)
+        return IR.SLoad{IR.Mapped{mapped(pair), k}}
     case Call{"Evm.caller", Nil{}}:
       Done{IR.Caller{}}
     case Call{"Evm.add", left <> right <> Nil{}}:
@@ -262,6 +267,12 @@ def effect(c: Call, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String
         pair : Operands <- operands(slot, key, decls)
         v : IR.Expr <- expr(value, decls)
         return IR.SStore{mapped(pair), v}
+    case Call{"Evm.store2", slot <> outer <> inner <> value <> Nil{}}:
+      do Result<&2, &2, String, IR.Effect>:
+        pair : Operands <- operands(slot, outer, decls)
+        k : IR.Expr <- expr(inner, decls)
+        v : IR.Expr <- expr(value, decls)
+        return IR.SStore{IR.Mapped{mapped(pair), k}, v}
     case Call{"Evm.log", event <> topics <> data <> Nil{}}:
       do Result<&2, &2, String, IR.Effect>:
         e : String <- text(event, decls)

@@ -14,7 +14,7 @@ def totalSupply():
   {==}
 
 def ir.balanceOf() -> IR.Cmd:
-  IR.Tail{IR.SLoad{IR.Mapped{IR.Lit{1n}, IR.Var{0n}}}}
+  IR.Tail{IR.SLoad{IR.Mapped{IR.Plain{IR.Lit{1n}}, IR.Var{0n}}}}
 
 law balanceOf:
   for +p0: Nat
@@ -25,12 +25,12 @@ def balanceOf(p0):
 
 def ir.transfer() -> IR.Cmd:
   IR.Bind{IR.Caller{}, 2n,
-    IR.Bind{IR.SLoad{IR.Mapped{IR.Lit{1n}, IR.Var{2n}}}, 3n,
+    IR.Bind{IR.SLoad{IR.Mapped{IR.Plain{IR.Lit{1n}}, IR.Var{2n}}}, 3n,
     IR.Bind{IR.Sub{IR.Var{3n}, IR.Var{1n}}, 4n,
-    IR.Then{IR.SStore{IR.Mapped{IR.Lit{1n}, IR.Var{2n}}, IR.Var{4n}},
-    IR.Bind{IR.SLoad{IR.Mapped{IR.Lit{1n}, IR.Var{0n}}}, 6n,
+    IR.Then{IR.SStore{IR.Mapped{IR.Plain{IR.Lit{1n}}, IR.Var{2n}}, IR.Var{4n}},
+    IR.Bind{IR.SLoad{IR.Mapped{IR.Plain{IR.Lit{1n}}, IR.Var{0n}}}, 6n,
     IR.Bind{IR.Add{IR.Var{6n}, IR.Var{1n}}, 7n,
-    IR.Then{IR.SStore{IR.Mapped{IR.Lit{1n}, IR.Var{0n}}, IR.Var{7n}},
+    IR.Then{IR.SStore{IR.Mapped{IR.Plain{IR.Lit{1n}}, IR.Var{0n}}, IR.Var{7n}},
     IR.Then{IR.Log{"Transfer(address,address,uint256)", [IR.Var{2n}, IR.Var{0n}], IR.Var{1n}},
     IR.Return{IR.Lit{1n}}}}}}}}}}
 
@@ -48,9 +48,9 @@ def ir.mint() -> IR.Cmd:
     IR.Bind{IR.SLoad{IR.Plain{IR.Lit{0n}}}, 4n,
     IR.Bind{IR.Add{IR.Var{4n}, IR.Var{1n}}, 5n,
     IR.Then{IR.SStore{IR.Plain{IR.Lit{0n}}, IR.Var{5n}},
-    IR.Bind{IR.SLoad{IR.Mapped{IR.Lit{1n}, IR.Var{0n}}}, 7n,
+    IR.Bind{IR.SLoad{IR.Mapped{IR.Plain{IR.Lit{1n}}, IR.Var{0n}}}, 7n,
     IR.Bind{IR.Add{IR.Var{7n}, IR.Var{1n}}, 8n,
-    IR.Then{IR.SStore{IR.Mapped{IR.Lit{1n}, IR.Var{0n}}, IR.Var{8n}},
+    IR.Then{IR.SStore{IR.Mapped{IR.Plain{IR.Lit{1n}}, IR.Var{0n}}, IR.Var{8n}},
     IR.Finish{IR.Log{"Transfer(address,address,uint256)", [IR.Lit{0n}, IR.Var{0n}], IR.Var{1n}}}}}}}}}}}
 
 law mint:
@@ -59,5 +59,53 @@ law mint:
   {IR.call(ir.mint(), IR.Stops{}, [IR.Binding{0n, p0}, IR.Binding{1n, p1}]) == Program.mint(p0, p1) : Evm.Contract(Unit)}
 
 def mint(p0, p1):
+  {==}
+
+def ir.allowance() -> IR.Cmd:
+  IR.Tail{IR.SLoad{IR.Mapped{IR.Mapped{IR.Plain{IR.Lit{2n}}, IR.Var{0n}}, IR.Var{1n}}}}
+
+law allowance:
+  for +p0: Nat
+  for +p1: Nat
+  {IR.call(ir.allowance(), IR.Returns{}, [IR.Binding{0n, p0}, IR.Binding{1n, p1}]) == Program.allowance(p0, p1) : Evm.Contract(Nat)}
+
+def allowance(p0, p1):
+  {==}
+
+def ir.approve() -> IR.Cmd:
+  IR.Bind{IR.Caller{}, 2n,
+    IR.Then{IR.SStore{IR.Mapped{IR.Mapped{IR.Plain{IR.Lit{2n}}, IR.Var{2n}}, IR.Var{0n}}, IR.Var{1n}},
+    IR.Then{IR.Log{"Approval(address,address,uint256)", [IR.Var{2n}, IR.Var{0n}], IR.Var{1n}},
+    IR.Return{IR.Lit{1n}}}}}
+
+law approve:
+  for +p0: Nat
+  for +p1: Nat
+  {IR.call(ir.approve(), IR.Returns{}, [IR.Binding{0n, p0}, IR.Binding{1n, p1}]) == Program.approve(p0, p1) : Evm.Contract(Nat)}
+
+def approve(p0, p1):
+  {==}
+
+def ir.transferFrom() -> IR.Cmd:
+  IR.Bind{IR.Caller{}, 3n,
+    IR.Bind{IR.SLoad{IR.Mapped{IR.Mapped{IR.Plain{IR.Lit{2n}}, IR.Var{0n}}, IR.Var{3n}}}, 4n,
+    IR.Bind{IR.Sub{IR.Var{4n}, IR.Var{2n}}, 5n,
+    IR.Then{IR.SStore{IR.Mapped{IR.Mapped{IR.Plain{IR.Lit{2n}}, IR.Var{0n}}, IR.Var{3n}}, IR.Var{5n}},
+    IR.Bind{IR.SLoad{IR.Mapped{IR.Plain{IR.Lit{1n}}, IR.Var{0n}}}, 7n,
+    IR.Bind{IR.Sub{IR.Var{7n}, IR.Var{2n}}, 8n,
+    IR.Then{IR.SStore{IR.Mapped{IR.Plain{IR.Lit{1n}}, IR.Var{0n}}, IR.Var{8n}},
+    IR.Bind{IR.SLoad{IR.Mapped{IR.Plain{IR.Lit{1n}}, IR.Var{1n}}}, 10n,
+    IR.Bind{IR.Add{IR.Var{10n}, IR.Var{2n}}, 11n,
+    IR.Then{IR.SStore{IR.Mapped{IR.Plain{IR.Lit{1n}}, IR.Var{1n}}, IR.Var{11n}},
+    IR.Then{IR.Log{"Transfer(address,address,uint256)", [IR.Var{0n}, IR.Var{1n}], IR.Var{2n}},
+    IR.Return{IR.Lit{1n}}}}}}}}}}}}}
+
+law transferFrom:
+  for +p0: Nat
+  for +p1: Nat
+  for +p2: Nat
+  {IR.call(ir.transferFrom(), IR.Returns{}, [IR.Binding{0n, p0}, IR.Binding{1n, p1}, IR.Binding{2n, p2}]) == Program.transferFrom(p0, p1, p2) : Evm.Contract(Nat)}
+
+def transferFrom(p0, p1, p2):
   {==}
 
