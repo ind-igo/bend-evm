@@ -58,7 +58,7 @@ def call(-A: Data, show: A -> String, m: Evm.Contract(A), +who: Nat, s: Evm.Stat
 def one(name: String, +who: Nat, +a: Nat, +b: Nat, +c: Nat, s: Evm.State) -> Step:
   match name:
     case "init":
-      call(Unit, show.unit, Token.init(), who, s)
+      call(Unit, show.unit, Token.init(a), who, s)
     case "owner":
       call(Nat, show.word, Token.owner(), who, s)
     case "transferOwnership":

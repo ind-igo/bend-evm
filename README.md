@@ -25,7 +25,7 @@ bun run build examples/counter/program.bend get increment decrement set > build/
 solc --strict-assembly --evm-version shanghai --bin build/Counter.yul
 ```
 
-[tests/counter.test.js](tests/counter.test.js) and [tests/token.test.js](tests/token.test.js) deploy the examples on `anvil` and call them through the standard ABI. The token's functions are `init owner transferOwnership totalSupply balanceOf transfer mint allowance approve transferFrom`. An entry named `init` is the constructor: it takes no parameters, returns `Unit`, and runs in the deploy code, so the deployer is `caller()`.
+[tests/counter.test.js](tests/counter.test.js) and [tests/token.test.js](tests/token.test.js) deploy the examples on `anvil` and call them through the standard ABI. The token's functions are `init owner transferOwnership totalSupply balanceOf transfer mint allowance approve transferFrom`. An entry named `init` is the constructor: it returns `Unit` and runs in the deploy code, so the deployer is `caller()`. Its parameters are the ABI words that follow the deploy code, as in Solidity; the token's `init(supply)` gives the initial supply to the deployer.
 
 The frontend is a submodule at `vendor/bend-frontend`, and it pins Bend at `vendor/bend-frontend/vendor/bend`. Its `host/run.js` launches the Bend drivers here with the checker attached, and keeps compiled tools in `vendor/bend-frontend/build/cache`. See [Connecting Bend to backends](https://github.com/ind-igo/bend-frontend/blob/main/docs/backends.md) for how a backend uses the frontend, and the frontend's README for what it trusts.
 

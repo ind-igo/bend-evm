@@ -5,14 +5,18 @@ import ../../src/ir.bend as IR
 import ./program.bend as Program
 
 def ir.init() -> IR.Cmd:
-  IR.Bind{IR.Caller{}, 0n,
-    IR.Then{IR.SStore{IR.Plain{IR.Lit{3n}}, IR.Var{0n}},
-    IR.Finish{IR.Log{"OwnershipTransferred(address,address)", [IR.Lit{0n}, IR.Var{0n}], []}}}}
+  IR.Bind{IR.Caller{}, 1n,
+    IR.Then{IR.SStore{IR.Plain{IR.Lit{3n}}, IR.Var{1n}},
+    IR.Then{IR.Log{"OwnershipTransferred(address,address)", [IR.Lit{0n}, IR.Var{1n}], []},
+    IR.Then{IR.SStore{IR.Plain{IR.Lit{0n}}, IR.Var{0n}},
+    IR.Then{IR.SStore{IR.Mapped{IR.Plain{IR.Lit{1n}}, IR.Var{1n}}, IR.Var{0n}},
+    IR.Finish{IR.Log{"Transfer(address,address,uint256)", [IR.Lit{0n}, IR.Var{1n}], [IR.Var{0n}]}}}}}}}
 
 law init:
-  {IR.call(ir.init(), IR.Stops{}, []) == Program.init() : Evm.Contract(Unit)}
+  for +p0: Nat
+  {IR.call(ir.init(), IR.Stops{}, [IR.Binding{0n, p0}]) == Program.init(p0) : Evm.Contract(Unit)}
 
-def init():
+def init(p0):
   {==}
 
 def ir.owner() -> IR.Cmd:

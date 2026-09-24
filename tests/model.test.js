@@ -104,10 +104,12 @@ function onChain({ who, name, args }) {
   return ['ok' + value, ...logs(receipt)];
 }
 
+const supply = 1n + BigInt(Math.floor(generator(seed)() * 100));
 let chain;
 
 beforeAll(async () => {
-  chain = await deploy('examples/token/program.bend', ['init', ...Object.keys(functions)], address(people[0]));
+  chain = await deploy('examples/token/program.bend', ['init', ...Object.keys(functions)], address(people[0]),
+    [supply]);
   for (const who of people.slice(1)) chain.fund(address(who));
 }, 120_000);
 
@@ -115,12 +117,20 @@ afterAll(() => chain?.stop());
 
 test(`anvil agrees with the Bend model on random calls (SEED=${seed})`, () => {
   const calls = sequence(generator(seed), 120);
-  const expected = model([{ who: people[0], name: 'init', args: [] }, ...calls]);
+  const expected = model([{ who: people[0], name: 'init', args: [supply] }, ...calls]);
   const actual = ['ok', ...logs(chain.receipt), ...calls.flatMap(onChain)];
   expect(actual).toEqual(expected);
   // The sequence must reach the paths that matter.
   const text = expected.join('\n');
   expect(text).toMatch(/revert/);
   expect(text).toMatch(new RegExp(`Approval\\S* \\d+ \\d+ \\| ${limit - 1n}`));
-  expect(text).toMatch(/log Transfer\S* 0 /);
+  expect(text).toMatch(/log Transfer\S* [1-9]\d* \d+ \| [1-9]/);
 }, 300_000);
+
+test('the constructor reverts without its argument', () => {
+  const create = code => chain.cast('send', '--unlocked', '--from', address(people[0]), '--create', code);
+  const code = '0x' + chain.bytecode;
+  expect(create(code).ok).toBe(false);
+  expect(create(code + '00'.repeat(31)).ok).toBe(false);
+  expect(create(code + '00'.repeat(32)).ok).toBe(true);
+});

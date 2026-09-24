@@ -126,3 +126,13 @@ The token's Bend source is the specification that the laws describe. A test runs
 - [x] [tests/model.test.js](tests/model.test.js) sends the same seeded random sequence to `anvil` and requires the same transcript. `SEED=<n>` runs another sequence. When the printed `lt` has its operands swapped, the test fails (checked by hand).
 
 Not in M8: words at 2^256. The Bend runtime holds words below 2^48, so the model's limit is 2^40, and its `max()` stands for the EVM's 2^256 − 1. token.test.js tests the overflow boundary.
+
+## M9: constructor arguments
+
+`init` may take parameters, like any other entry. The token's `init(supply)` gives the initial supply to the deployer and logs a `Transfer` from zero, as OpenZeppelin's ERC-20 examples do.
+
+### Done when
+
+- [x] The deploy code reverts when fewer ABI words follow it than `init` has parameters, copies them to memory, and reads them before the body runs (the body uses memory for `mapped`). An `address` argument above 2^160 reverts, as in the dispatcher.
+- [x] The token law for `init` states the supply, the balance and both logs, for any state, by `{==}`.
+- [x] The differential test deploys with a random supply, and a test deploys with 0, 31 and 32 bytes of arguments.

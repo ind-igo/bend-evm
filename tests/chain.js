@@ -24,8 +24,9 @@ export function reverts(result) {
   expect(result.err).toMatch(/revert/i);
 }
 
-// The deployer is anvil's first account unless one is given.
-export async function deploy(program, functions, deployer) {
+// The deployer is anvil's first account unless one is given. The constructor
+// arguments are words that follow the code.
+export async function deploy(program, functions, deployer, args = []) {
   const temp = mkdtempSync(path.join(tmpdir(), 'bend-evm-chain-'));
   const yul = must(run(process.execPath, 'vendor/bend-frontend/host/run.js', 'src/compile.bend', program, ...functions));
   writeFileSync(path.join(temp, 'Contract.yul'), yul);
@@ -52,11 +53,11 @@ export async function deploy(program, functions, deployer) {
   };
   if (deployer) fund(deployer);
   const sender = deployer ?? must(cast('rpc', 'eth_accounts')).match(/0x[0-9a-fA-F]{40}/)[0];
-  const receipt = JSON.parse(must(cast('send', '--unlocked', '--from', sender, '--json', '--create', '0x' + bytecode)));
+  const receipt = JSON.parse(must(cast('send', '--unlocked', '--from', sender, '--json', '--create', '0x' + bytecode + args.map(x => x.toString(16).padStart(64, '0')).join(''))));
   const address = receipt.contractAddress;
   fund(owner);
   return {
-    cast, sender, address, fund, receipt,
+    cast, sender, address, fund, receipt, bytecode,
     send: (from, ...args) => cast('send', '--unlocked', '--from', from, address, ...args),
     word: (...args) => BigInt(must(cast('call', address, ...args)).split(' ')[0]),
     async stop() {

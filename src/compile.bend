@@ -115,15 +115,16 @@ def range(+pad: String, typ: String, +level: Nat) -> String:
     case _:
       ""
 
-# Parameter i has level i and is the ABI word at 4 + 32 * i.
-def parameters(+pad: String, types: List<&2, String>, +level: Nat) -> String:
+# Parameter i has level i and is the ABI word at base + 32 * i, read with
+# load: calldataload in the runtime, mload of the copied arguments in init.
+def parameters(+pad: String, +load: String, +base: Nat, types: List<&2, String>, +level: Nat) -> String:
   match types:
     case Nil{}:
       ""
     case +typ <> rest:
-      +offset = Nat.add(4n, Nat.mul(32n, level))
-      pad ++ "let " ++ var(level) ++ " := calldataload(" ++ nat(offset) ++ ")\n" ++ range(pad, typ, level)
-        ++ parameters(pad, rest, Nat.add(1n, level))
+      +offset = Nat.add(base, Nat.mul(32n, level))
+      pad ++ "let " ++ var(level) ++ " := " ++ load ++ "(" ++ nat(offset) ++ ")\n" ++ range(pad, typ, level)
+        ++ parameters(pad, load, base, rest, Nat.add(1n, level))
 
 type Function is Data:
   Function{name: String, parameters: List<&2, Nat>, types: List<&2, String>, body: IR.Cmd}
@@ -136,7 +137,7 @@ def branch.text(+signature: String, +types: List<&2, String>, body: Yul.Stmt) ->
   +size = Nat.add(4n, Nat.mul(32n, List.length(&2, String, types)))
   "      case " ++ Keccak.hex(Keccak.selector(signature)) ++ " {\n"
     ++ pad ++ "if lt(calldatasize(), " ++ nat(size) ++ ") { " ++ revert() ++ " }\n"
-    ++ parameters(pad, types, 0n) ++ stmt(pad, pad ++ "stop()\n", body) ++ "      }\n"
+    ++ parameters(pad, "calldataload", 4n, types, 0n) ++ stmt(pad, pad ++ "stop()\n", body) ++ "      }\n"
 
 # The model keeps a plain slot apart from every mapping entry. On chain that
 # holds only when the slot is fixed: a slot from a variable could be
@@ -263,28 +264,42 @@ def without_init(names: List<&2, String>) -> List<&2, String>:
       +kept = without_init(rest)
       Bool.pick(List<&2, String>, is_init(name), kept, name <> kept)
 
-def init.stops(out: IR.Output, +body: IR.Cmd) -> Result<&2, &2, String, String>:
+# Constructor arguments are ABI words after the deploy code. They are copied
+# to memory and read before the body runs, which uses memory for mapped().
+def arguments(types: List<&2, String>) -> String:
+  match types:
+    case Nil{}:
+      ""
+    case +typ <> +rest:
+      +size = nat(Nat.mul(32n, List.length(&2, String, typ <> rest)))
+      "    if lt(sub(codesize(), datasize(\"Contract\")), " ++ size ++ ") { " ++ revert() ++ " }\n"
+        ++ "    codecopy(0, datasize(\"Contract\"), " ++ size ++ ")\n"
+        ++ parameters("    ", "mload", 0n, typ <> rest, 0n)
+
+def init.stops(out: IR.Output, +body: IR.Cmd, +levels: List<&2, Nat>, types: List<&2, String>) ->
+  Result<&2, &2, String, String>:
   match out:
     case IR.Stops{}:
-      Bool.pick(Result<&2, &2, String, String>, valid(body, Nil{}),
-        Done{stmt("    ", "", Yul.lower(body, IR.Stops{}))},
+      Bool.pick(Result<&2, &2, String, String>, valid(body, levels),
+        Done{arguments(types) ++ stmt("    ", "", Yul.lower(body, IR.Stops{}))},
         Fail{"init: the IR has an unbound variable or a storage slot that is not a literal"})
     case IR.Returns{}:
       Fail{"init must return Unit"}
 
-def init.text(entry: Read.Entry) -> Result<&2, &2, String, String>:
+def init.text(entry: Read.Entry, +types: List<&2, String>) -> Result<&2, &2, String, String>:
   match entry:
-    case Read.Entry{Nil{}, +body}:
-      init.stops(Read.output(body), body)
-    case Read.Entry{_ <> _, _}:
-      Fail{"init takes no parameters"}
+    case Read.Entry{+levels, +body}:
+      Bool.pick(Result<&2, &2, String, String>, Certify.numbered(levels, 0n),
+        init.stops(Read.output(body), body, levels, types),
+        Fail{"init: parameter levels are not 0, 1, ..."})
 
 def constructor(found: Bool, +evm: String, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, String>:
   match found:
     case True{}:
       do Result<&2, &2, String, String>:
         entry : Read.Entry <- Read.entry(evm, decls, "init")
-        init.text(entry)
+        types : List<&2, String> <- Read.types(evm, decls, "init")
+        init.text(entry, types)
     case False{}:
       Done{""}
 

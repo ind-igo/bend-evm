@@ -51,7 +51,7 @@ test('compile rejects functions outside the contract DSL', () => {
   expect(wide.stderr.toString()).toContain('at most three indexed words');
   const init = run('tests/fixtures/init.bend', 'init');
   expect(init.exitCode).not.toBe(0);
-  expect(init.stderr.toString()).toContain('init takes no parameters');
+  expect(init.stderr.toString()).toContain('init must return Unit');
   const poke = run('tests/fixtures/init.bend', 'poke');
   expect(poke.exitCode).not.toBe(0);
   expect(poke.stderr.toString()).toContain('a storage slot that is not a literal');

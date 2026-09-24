@@ -16,7 +16,7 @@ def Laws.approve(storage, who, limit, logs, spender, amount):
 def Laws.transferFrom(storage, who, limit, logs, from, to, amount):
   {==}
 
-def Laws.init(storage, who, limit, logs):
+def Laws.init(storage, who, limit, logs, supply):
   {==}
 
 def Laws.owner(storage, who, limit, logs):

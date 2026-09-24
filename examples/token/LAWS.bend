@@ -113,15 +113,18 @@ law transferFrom:
             Evm.Log{"Transfer(address,address,uint256)", [from, to], [amount]} <> logs}},
           Evm.Revert{}))) : Evm.Outcome<Nat>}
 
-# The deployer becomes the owner.
+# The deployer becomes the owner and holds the initial supply.
 law init:
   for storage: List<&2, Evm.Slot>
   for +who: Nat
   for limit: Nat
   for logs: List<&2, Evm.Log>
-  {Evm.run(Unit, Token.init(), Evm.State{storage, who, limit, logs})
-    == Evm.Ok{Unit{}, Evm.State{Evm.Slot{Evm.Plain{3n}, who} <> storage, who, limit,
-      Evm.Log{"OwnershipTransferred(address,address)", [0n, who], []} <> logs}} : Evm.Outcome<Unit>}
+  for +supply: Nat
+  {Evm.run(Unit, Token.init(supply), Evm.State{storage, who, limit, logs})
+    == Evm.Ok{Unit{}, Evm.State{Evm.Slot{Evm.Mapped{Evm.Plain{1n}, who}, supply} <> Evm.Slot{Evm.Plain{0n}, supply}
+      <> Evm.Slot{Evm.Plain{3n}, who} <> storage, who, limit,
+      Evm.Log{"Transfer(address,address,uint256)", [0n, who], [supply]}
+        <> Evm.Log{"OwnershipTransferred(address,address)", [0n, who], []} <> logs}} : Evm.Outcome<Unit>}
 
 law owner:
   for +storage: List<&2, Evm.Slot>

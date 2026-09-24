@@ -15,12 +15,15 @@ def approval_event() -> String:
 def ownership_event() -> String:
   "OwnershipTransferred(address,address)"
 
-# The constructor: the deployer is the owner.
-def init() -> Evm.Contract(Unit):
+# The constructor: the deployer is the owner and holds the initial supply.
+def init(+supply: Nat) -> Evm.Contract(Unit):
   do Evm.Contract<Unit>:
     +who : Nat <- Evm.caller()
     Evm.sstore(3n, who)
     Evm.log(ownership_event(), [0n, who], [])
+    Evm.sstore(0n, supply)
+    Evm.store(1n, who, supply)
+    Evm.log(transfer_event(), [0n, who], [supply])
 
 def owner() -> Evm.Contract(Nat):
   Evm.sload(3n)

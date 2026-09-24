@@ -12,7 +12,7 @@ let chain, sender, send, owner;
 // The deployer, sender, is the owner.
 beforeAll(async () => {
   chain = await deploy('examples/token/program.bend', ['init', 'owner', 'transferOwnership', 'totalSupply', 'balanceOf',
-    'transfer', 'mint', 'allowance', 'approve', 'transferFrom']);
+    'transfer', 'mint', 'allowance', 'approve', 'transferFrom'], undefined, [0n]);
   ({ sender, send } = chain);
   owner = sender;
   for (const who of [bob, carol]) {

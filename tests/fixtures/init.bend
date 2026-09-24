@@ -3,8 +3,8 @@ import ../../src/Evm.bend as Evm
 
 # Entries that compile must reject.
 
-def init(x: Nat) -> Evm.Contract(Unit):
-  Evm.sstore(0n, x)
+def init(x: Nat) -> Evm.Contract(Nat):
+  Evm.sload(x)
 
 def get() -> Evm.Contract(Nat):
   Evm.sload(0n)
