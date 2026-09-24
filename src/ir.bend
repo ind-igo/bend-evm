@@ -11,14 +11,21 @@ type Cond is Data:
   Eq{left: Expr, right: Expr}
   Lt{left: Expr, right: Expr}
 
+# A storage location: a plain slot or an entry of the mapping at slot.
+type Loc is Data:
+  Plain{slot: Expr}
+  Mapped{slot: Expr, key: Expr}
+
 # Word actions return a word; effects return Unit.
 type Word is Data:
-  SLoad{key: Expr}
+  SLoad{loc: Loc}
   Caller{}
   Add{left: Expr, right: Expr}
+  Sub{left: Expr, right: Expr}
 
 type Effect is Data:
-  SStore{key: Expr, value: Expr}
+  SStore{loc: Loc, value: Expr}
+  Log{event: String, topics: List<&2, Expr>, data: Expr}
   Require{cond: Cond}
 
 type Cmd is Data:
@@ -58,6 +65,20 @@ def eval(expr: Expr, +env: List<&2, Binding>) -> Nat:
     case Var{level}:
       lookup(env, level)
 
+def evals(exprs: List<&2, Expr>, +env: List<&2, Binding>) -> List<&2, Nat>:
+  match exprs:
+    case Nil{}:
+      Nil{}
+    case e <> rest:
+      eval(e, env) <> evals(rest, env)
+
+def loc(l: Loc, +env: List<&2, Binding>) -> Evm.Key:
+  match l:
+    case Plain{slot}:
+      Evm.Plain{eval(slot, env)}
+    case Mapped{slot, key}:
+      Evm.Mapped{eval(slot, env), eval(key, env)}
+
 def cond(c: Cond, +env: List<&2, Binding>) -> Bool:
   match c:
     case Eq{left, right}:
@@ -67,17 +88,21 @@ def cond(c: Cond, +env: List<&2, Binding>) -> Bool:
 
 def word(w: Word, +env: List<&2, Binding>) -> Evm.Contract(Nat):
   match w:
-    case SLoad{key}:
-      Evm.sload(eval(key, env))
+    case SLoad{l}:
+      Evm.read(loc(l, env))
     case Caller{}:
       Evm.caller()
     case Add{left, right}:
       Evm.add(eval(left, env), eval(right, env))
+    case Sub{left, right}:
+      Evm.sub(eval(left, env), eval(right, env))
 
 def effect(e: Effect, +env: List<&2, Binding>) -> Evm.Contract(Unit):
   match e:
-    case SStore{key, value}:
-      Evm.sstore(eval(key, env), eval(value, env))
+    case SStore{l, value}:
+      Evm.write(loc(l, env), eval(value, env))
+    case Log{event, topics, data}:
+      Evm.log(event, evals(topics, env), eval(data, env))
     case Require{c}:
       Evm.require(cond(c, env))
 
@@ -121,19 +146,37 @@ def closed.expr(e: Expr, +scope: List<&2, Nat>) -> Bool:
 def closed.two(left: Expr, right: Expr, +scope: List<&2, Nat>) -> Bool:
   Bool.and(closed.expr(left, scope), closed.expr(right, scope))
 
+def closed.list(exprs: List<&2, Expr>, +scope: List<&2, Nat>) -> Bool:
+  match exprs:
+    case Nil{}:
+      True{}
+    case e <> rest:
+      Bool.and(closed.expr(e, scope), closed.list(rest, scope))
+
+def closed.loc(l: Loc, +scope: List<&2, Nat>) -> Bool:
+  match l:
+    case Plain{slot}:
+      closed.expr(slot, scope)
+    case Mapped{slot, key}:
+      closed.two(slot, key, scope)
+
 def closed.word(w: Word, +scope: List<&2, Nat>) -> Bool:
   match w:
-    case SLoad{key}:
-      closed.expr(key, scope)
+    case SLoad{l}:
+      closed.loc(l, scope)
     case Caller{}:
       True{}
     case Add{left, right}:
       closed.two(left, right, scope)
+    case Sub{left, right}:
+      closed.two(left, right, scope)
 
 def closed.effect(e: Effect, +scope: List<&2, Nat>) -> Bool:
   match e:
-    case SStore{key, value}:
-      closed.two(key, value, scope)
+    case SStore{l, value}:
+      Bool.and(closed.loc(l, scope), closed.expr(value, scope))
+    case Log{_, topics, data}:
+      Bool.and(closed.list(topics, scope), closed.expr(data, scope))
     case Require{Eq{left, right}}:
       closed.two(left, right, scope)
     case Require{Lt{left, right}}:

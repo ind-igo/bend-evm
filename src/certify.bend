@@ -28,19 +28,38 @@ def show.cond(c: IR.Cond) -> String:
     case IR.Lt{left, right}:
       show.two("IR.Lt", left, right)
 
+def show.loc(l: IR.Loc) -> String:
+  match l:
+    case IR.Plain{slot}:
+      "IR.Plain{" ++ show.expr(slot) ++ "}"
+    case IR.Mapped{slot, key}:
+      show.two("IR.Mapped", slot, key)
+
 def show.word(w: IR.Word) -> String:
   match w:
-    case IR.SLoad{key}:
-      "IR.SLoad{" ++ show.expr(key) ++ "}"
+    case IR.SLoad{l}:
+      "IR.SLoad{" ++ show.loc(l) ++ "}"
     case IR.Caller{}:
       "IR.Caller{}"
     case IR.Add{left, right}:
       show.two("IR.Add", left, right)
+    case IR.Sub{left, right}:
+      show.two("IR.Sub", left, right)
 
+def show.list(exprs: List<&2, IR.Expr>) -> List<&2, String>:
+  match exprs:
+    case Nil{}:
+      Nil{}
+    case e <> rest:
+      show.expr(e) <> show.list(rest)
+
+# The reader only accepts signature characters, so the quotes stay closed.
 def show.effect(e: IR.Effect) -> String:
   match e:
-    case IR.SStore{key, value}:
-      show.two("IR.SStore", key, value)
+    case IR.Log{event, topics, data}:
+      "IR.Log{\"" ++ event ++ "\", [" ++ String.join(show.list(topics), ", ") ++ "], " ++ show.expr(data) ++ "}"
+    case IR.SStore{l, value}:
+      "IR.SStore{" ++ show.loc(l) ++ ", " ++ show.expr(value) ++ "}"
     case IR.Require{c}:
       "IR.Require{" ++ show.cond(c) ++ "}"
 

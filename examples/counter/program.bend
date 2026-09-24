@@ -13,6 +13,12 @@ def increment() -> Evm.Contract(Unit):
     m : Nat <- Evm.add(n, 1n)
     Evm.sstore(0n, m)
 
+def decrement() -> Evm.Contract(Unit):
+  do Evm.Contract<Unit>:
+    n : Nat <- Evm.sload(0n)
+    m : Nat <- Evm.sub(n, 1n)
+    Evm.sstore(0n, m)
+
 def set(value: Nat) -> Evm.Contract(Unit):
   do Evm.Contract<Unit>:
     who : Nat <- Evm.caller()

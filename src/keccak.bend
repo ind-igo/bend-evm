@@ -195,6 +195,29 @@ def hex.go(n: Nat, x: U32) -> String:
       +v = x
       SCon{hex.digit(U32.shrn(v, 28n)), hex.go(p, U32.shln(v, 4n))}
 
+def hex.byte(+b: U32) -> String:
+  SCon{hex.digit(U32.shrn(b, 4n)), SCon{hex.digit(U32.and(b, 15)), SNil{}}}
+
+# A lane's bytes in memory order: the low half first, each half little-endian.
+def hex.half(+x: U32) -> String:
+  hex.byte(byte(x, 0n)) ++ hex.byte(byte(x, 8n)) ++ hex.byte(byte(x, 16n)) ++ hex.byte(byte(x, 24n))
+
+def hex.lane(a: Lane) -> String:
+  match a:
+    case Lane{hi, lo}:
+      hex.half(lo) ++ hex.half(hi)
+
+def digest.go(n: Nat, lanes: List<&2, Lane>) -> String:
+  match n lanes:
+    case 1n+p a <> rest:
+      hex.lane(a) ++ digest.go(p, rest)
+    case _ _:
+      ""
+
+# The full 32-byte hash as a 0x-prefixed Yul literal.
+def digest(s: String) -> String:
+  "0x" ++ digest.go(4n, hash(s))
+
 # Eight lowercase hex digits with a 0x prefix.
 def hex(x: U32) -> String:
   "0x" ++ hex.go(8n, x)

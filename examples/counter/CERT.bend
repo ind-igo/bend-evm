@@ -5,7 +5,7 @@ import ../../src/ir.bend as IR
 import ./program.bend as Program
 
 def ir.get() -> IR.Cmd:
-  IR.Tail{IR.SLoad{IR.Lit{0n}}}
+  IR.Tail{IR.SLoad{IR.Plain{IR.Lit{0n}}}}
 
 law get:
   {IR.call(ir.get(), IR.Returns{}, []) == Program.get() : Evm.Contract(Nat)}
@@ -14,9 +14,9 @@ def get():
   {==}
 
 def ir.increment() -> IR.Cmd:
-  IR.Bind{IR.SLoad{IR.Lit{0n}}, 0n,
+  IR.Bind{IR.SLoad{IR.Plain{IR.Lit{0n}}}, 0n,
     IR.Bind{IR.Add{IR.Var{0n}, IR.Lit{1n}}, 1n,
-    IR.Finish{IR.SStore{IR.Lit{0n}, IR.Var{1n}}}}}
+    IR.Finish{IR.SStore{IR.Plain{IR.Lit{0n}}, IR.Var{1n}}}}}
 
 law increment:
   {IR.call(ir.increment(), IR.Stops{}, []) == Program.increment() : Evm.Contract(Unit)}
@@ -24,10 +24,21 @@ law increment:
 def increment():
   {==}
 
+def ir.decrement() -> IR.Cmd:
+  IR.Bind{IR.SLoad{IR.Plain{IR.Lit{0n}}}, 0n,
+    IR.Bind{IR.Sub{IR.Var{0n}, IR.Lit{1n}}, 1n,
+    IR.Finish{IR.SStore{IR.Plain{IR.Lit{0n}}, IR.Var{1n}}}}}
+
+law decrement:
+  {IR.call(ir.decrement(), IR.Stops{}, []) == Program.decrement() : Evm.Contract(Unit)}
+
+def decrement():
+  {==}
+
 def ir.set() -> IR.Cmd:
   IR.Bind{IR.Caller{}, 1n,
     IR.Then{IR.Require{IR.Eq{IR.Var{1n}, IR.Lit{7n}}},
-    IR.Finish{IR.SStore{IR.Lit{0n}, IR.Var{0n}}}}}
+    IR.Finish{IR.SStore{IR.Plain{IR.Lit{0n}}, IR.Var{0n}}}}}
 
 law set:
   for +p0: Nat

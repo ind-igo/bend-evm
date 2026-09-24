@@ -1,13 +1,14 @@
 import Base
 import ./keccak.bend as Keccak
 
-# Prints the ABI selector of each signature, such as "set(uint256)".
+# Prints the ABI selector and the full Keccak-256 of each signature, such as
+# "set(uint256)".
 def lines(signatures: List<String>) -> String:
   match signatures:
     case Nil{}:
       ""
-    case signature <> rest:
-      Keccak.hex(Keccak.selector(signature)) ++ "\n" ++ lines(rest)
+    case +signature <> rest:
+      Keccak.hex(Keccak.selector(signature)) ++ " " ++ Keccak.digest(signature) ++ "\n" ++ lines(rest)
 
 def main() -> IO(Unit):
   do IO<Unit>:

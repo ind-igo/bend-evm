@@ -41,4 +41,20 @@ Not in M1: loops, user-defined Yul functions, memory other than the return buffe
 
 ## M2: a minimal token
 
-Mappings (keccak slots), `address` arguments, events, and wider literals.
+A token with `totalSupply()`, `balanceOf(address)`, `transfer(address,uint256) returns (bool)` and an owner-only `mint(address,uint256)`. `transfer` and `mint` emit `Transfer`.
+
+### Done when
+
+- [x] `examples/token` compiles, and a test on `anvil` checks every function through the standard ABI, the events included.
+- [x] Laws (for fixed addresses 7, 8 and 9): `transfer` moves exactly `amount` from the caller to the receiver and keeps `totalSupply`; it reverts when the balance is too small; only the owner can mint.
+- [x] The preservation proof covers every new IR command, and the certificate covers the token.
+
+Not in M2: `approve` and `transferFrom`, constructor arguments, a law that `totalSupply` is the sum of all balances.
+
+### Steps
+
+1. [x] Checked sub: `if lt(a, b) { revert(0, 0) }`, then `sub(a, b)`.
+2. [x] Mappings. Storage keys are data, `Slot{n}` or `Entry{slot, key}`, in the model and the laws. `lower` prints `Entry` as `mstore(0, key) mstore(32, slot) keccak256(0, 64)`. The only assumption is that Keccak has no collisions, as in Solidity.
+3. [x] `address` parameters. The dispatcher reverts when the upper 96 bits are not zero (tested).
+4. [x] Events. The state has a log list, and the outcome includes it, so the proof covers the events. Topics come from Keccak in Bend.
+5. [x] The token example, its laws, certificate and `anvil` test. A `bool` result is the word 1, which has the same ABI encoding.

@@ -8,12 +8,16 @@ const run = 'vendor/bend-frontend/host/run.js';
 const main = 'vendor/bend-frontend/vendor/bend/bend2/main.ts';
 const bend = (...args) => Bun.spawnSync([process.execPath, ...args], { cwd: root, timeout: 120_000 });
 
-test('the committed Counter certificate is current', () => {
-  const generated = bend(run, 'src/certify.bend', 'examples/counter/program.bend',
-    'get', 'increment', 'set');
-  expect(generated.exitCode).toBe(0);
-  expect(generated.stdout.toString()).toBe(readFileSync(path.join(root, 'examples/counter/CERT.bend'), 'utf8'));
-}, 120_000);
+for (const [example, functions] of [
+  ['counter', ['get', 'increment', 'decrement', 'set']],
+  ['token', ['totalSupply', 'balanceOf', 'transfer', 'mint']],
+]) {
+  test(`the committed ${example} certificate is current`, () => {
+    const generated = bend(run, 'src/certify.bend', `examples/${example}/program.bend`, ...functions);
+    expect(generated.exitCode).toBe(0);
+    expect(generated.stdout.toString()).toBe(readFileSync(path.join(root, `examples/${example}/CERT.bend`), 'utf8'));
+  }, 120_000);
+}
 
 test('a certificate for the wrong IR does not check', () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'bend-evm-cert-'));
@@ -27,10 +31,11 @@ test('a certificate for the wrong IR does not check', () => {
     const good = readFileSync(cert, 'utf8');
     for (const [from, to, law] of [
       ['IR.Lit{7n}', 'IR.Lit{8n}', 'set'],
-      ['IR.SStore{IR.Lit{0n}, IR.Var{1n}}', 'IR.SStore{IR.Lit{0n}, IR.Var{0n}}', 'increment'],
-      ['IR.Tail{IR.SLoad{IR.Lit{0n}}}', 'IR.Tail{IR.SLoad{IR.Lit{1n}}}', 'get'],
+      ['IR.SStore{IR.Plain{IR.Lit{0n}}, IR.Var{1n}}', 'IR.SStore{IR.Plain{IR.Lit{0n}}, IR.Var{0n}}', 'increment'],
+      ['IR.Tail{IR.SLoad{IR.Plain{IR.Lit{0n}}}}', 'IR.Tail{IR.SLoad{IR.Plain{IR.Lit{1n}}}}', 'get'],
+      ['IR.Tail{IR.SLoad{IR.Plain{IR.Lit{0n}}}}', 'IR.Tail{IR.SLoad{IR.Mapped{IR.Lit{0n}, IR.Lit{0n}}}}', 'get'],
       // An unbound Var reads as 0, like the source's literal key, so only the scope check catches it.
-      ['IR.Tail{IR.SLoad{IR.Lit{0n}}}', 'IR.Tail{IR.SLoad{IR.Var{5n}}}', 'get'],
+      ['IR.Tail{IR.SLoad{IR.Plain{IR.Lit{0n}}}}', 'IR.Tail{IR.SLoad{IR.Plain{IR.Var{5n}}}}', 'get'],
     ]) {
       expect(good).toContain(from);
       writeFileSync(cert, good.replace(from, to));

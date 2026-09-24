@@ -14,10 +14,12 @@ test('the preservation proof rejects a wrong lowering', () => {
     }
     const yul = readFileSync(path.join(dir, 'yul.bend'), 'utf8');
     for (const [from, to] of [
-      ['Let{level, SLoad{Atom{key}}, lower(body, o)}', 'Let{level, Caller{}, lower(body, o)}'],
+      ['Let{level, SLoad{loc}, lower(body, o)}', 'Let{level, Caller{}, lower(body, o)}'],
       ['IsZero{Lt{Atom{left}, Atom{right}}}', 'IsZero{Lt{Atom{right}, Atom{left}}}'],
       ['Gt{Atom{right}, Sub{', 'Lt{Atom{right}, Sub{'],
       ['Nat.sub(Nat.sub(l, 1n), x)', 'Nat.sub(l, x)'],
+      ['Check{Lt{Atom{left}, Atom{right}}, Let{', 'Check{Lt{Atom{right}, Atom{left}}, Let{'],
+      ['Log{event, topics, Atom{data}, lower(body, o)}', 'lower(body, o)'],
     ]) {
       expect(yul).toContain(from);
       writeFileSync(path.join(dir, 'yul.bend'), yul.replace(from, to));
@@ -39,4 +41,10 @@ test('compile rejects functions outside the contract DSL', () => {
   const unknown = run('examples/counter/program.bend', 'missing');
   expect(unknown.exitCode).not.toBe(0);
   expect(unknown.stderr.toString()).toContain('Unknown contract function');
+  const quoted = run('tests/fixtures/events.bend', 'quoted');
+  expect(quoted.exitCode).not.toBe(0);
+  expect(quoted.stderr.toString()).toContain('Event signatures must be ABI signatures');
+  const wide = run('tests/fixtures/events.bend', 'wide');
+  expect(wide.exitCode).not.toBe(0);
+  expect(wide.stderr.toString()).toContain('at most three indexed words');
 }, 120_000);
