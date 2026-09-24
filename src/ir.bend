@@ -107,7 +107,7 @@ def effect(e: Effect, +env: List<&2, Binding>) -> Evm.Contract(Unit):
       Evm.require(cond(c, env))
 
 def abort(-A: Data) -> Evm.Contract(A):
-  s => Evm.Revert{}
+  R => k => s => Evm.Revert{}
 
 # A tail whose kind differs from the entry's output is ill-formed and reverts.
 def run(cmd: Cmd, +out: Output, +env: List<&2, Binding>) -> Evm.Contract(value(out)):

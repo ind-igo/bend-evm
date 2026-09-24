@@ -1,13 +1,14 @@
+import Base
 import ./LAWS.bend as Laws
 
-def Laws.set_by_owner(storage, limit, logs, value):
+def Laws.get(storage, who, limit, logs):
   {==}
 
-def Laws.set_by_other(storage, limit, logs, value):
+def Laws.increment(storage, who, limit, logs):
   {==}
 
-def Laws.get_after_set(storage, limit, logs, value):
+def Laws.decrement(storage, who, limit, logs):
   {==}
 
-def Laws.decrement_at_zero(storage, who, limit, logs):
+def Laws.set(storage, who, limit, logs, value):
   {==}

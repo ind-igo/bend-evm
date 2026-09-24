@@ -28,21 +28,6 @@ type Stmt is Data:
   Stop{}
   Revert{}
 
-def storage(s: Evm.State, +key: Evm.Key) -> Nat:
-  match s:
-    case Evm.State{storage, _, _, _}:
-      Evm.lookup(storage, key)
-
-def caller(s: Evm.State) -> Nat:
-  match s:
-    case Evm.State{_, caller, _, _}:
-      caller
-
-def limit(s: Evm.State) -> Nat:
-  match s:
-    case Evm.State{_, _, limit, _}:
-      limit
-
 # Yul comparisons return the word 1 or 0.
 def bit(c: Bool) -> Nat:
   Bool.pick(Nat, c, 1n, 0n)
@@ -69,17 +54,17 @@ def eval(e: Exp, +env: List<&2, IR.Binding>, +s: Evm.State) -> Nat:
     case Atom{value}:
       IR.eval(value, env)
     case SLoad{loc}:
-      storage(s, IR.loc(loc, env))
+      Evm.lookup(Evm.storage.of(s), IR.loc(loc, env))
     case Caller{}:
-      caller(s)
+      Evm.caller.of(s)
     case Add{left, right}:
       a b = eval(left, env, s) eval(right, env, s)
-      add(a, b, limit(s))
+      add(a, b, Evm.limit.of(s))
     case Sub{left, right}:
       a b = eval(left, env, s) eval(right, env, s)
-      sub(a, b, limit(s))
+      sub(a, b, Evm.limit.of(s))
     case Not{value}:
-      not(eval(value, env, s), limit(s))
+      not(eval(value, env, s), Evm.limit.of(s))
     case Eq{left, right}:
       a b = eval(left, env, s) eval(right, env, s)
       bit(Nat.is_eq(a, b))
@@ -88,7 +73,7 @@ def eval(e: Exp, +env: List<&2, IR.Binding>, +s: Evm.State) -> Nat:
       bit(Nat.is_lt(a, b))
     case Gt{left, right}:
       a b = eval(left, env, s) eval(right, env, s)
-      gt(a, b, limit(s))
+      gt(a, b, Evm.limit.of(s))
     case IsZero{value}:
       bit(Nat.is_eq(eval(value, env, s), 0n))
 
@@ -96,20 +81,17 @@ def eval(e: Exp, +env: List<&2, IR.Binding>, +s: Evm.State) -> Nat:
 def exec(stmt: Stmt, +out: IR.Output, +env: List<&2, IR.Binding>) -> Evm.Contract(IR.value(out)):
   match stmt out:
     case Let{level, value, body} o:
-      +s => exec(body, o, IR.Binding{level, eval(value, env, s)} <> env, s)
+      R => k => +s => exec(body, o, IR.Binding{level, eval(value, env, s)} <> env, R, k, s)
     case SStore{loc, value, body} o:
-      +s => Evm.Contract.next(Unit, IR.value(o), Evm.sstore.go(IR.loc(loc, env), eval(value, env, s), s),
-        _ => exec(body, o, env))
+      R => k => +s => exec(body, o, env, R, k, Evm.write.go(IR.loc(loc, env), eval(value, env, s), s))
     case Log{event, topics, data, body} o:
-      +s => Evm.Contract.next(Unit, IR.value(o), Evm.log.go(event, IR.evals(topics, env), eval(data, env, s), s),
-        _ => exec(body, o, env))
+      R => k => +s => exec(body, o, env, R, k, Evm.log.go(event, IR.evals(topics, env), eval(data, env, s), s))
     case Check{cond, body} o:
-      +s => Evm.Contract.next(Unit, IR.value(o), Evm.require.go(Nat.is_eq(eval(cond, env, s), 0n), s),
-        _ => exec(body, o, env))
+      R => k => +s => Bool.pick(Evm.Outcome<R>, Nat.is_eq(eval(cond, env, s), 0n), exec(body, o, env, R, k, s), Evm.Revert{})
     case Result{value} IR.Returns{}:
-      +s => Evm.Ok{eval(value, env, s), s}
+      R => k => +s => k(eval(value, env, s), s)
     case Stop{} IR.Stops{}:
-      s => Evm.Ok{Unit{}, s}
+      R => k => s => k(Unit{}, s)
     case _ o:
       IR.abort(IR.value(o))
 

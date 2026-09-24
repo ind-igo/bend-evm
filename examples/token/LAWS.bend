@@ -2,59 +2,55 @@ import Base
 import ../../src/Evm.bend as Evm
 import ./program.bend as Token
 
-# Account 8 sends to account 9, and the owner is 7. Balances, amounts, the
-# rest of storage, the word limit and earlier logs stay symbolic. Storage is
-# newest first, so new slots shadow old ones; transfer adds no plain slot, so
-# totalSupply (plain slot 0) does not change.
+# Each law gives every outcome from any state: any storage, caller, word
+# limit and earlier logs, and any addresses. Slot 0 holds the total supply
+# and the mapping at slot 1 holds balances. Storage is newest first, so new
+# slots shadow old ones.
 
-law transfer_moves:
-  for storage: List<&2, Evm.Slot>
+def supply(storage: List<&2, Evm.Slot>) -> Nat:
+  Evm.lookup(storage, Evm.Plain{0n})
+
+def balance(storage: List<&2, Evm.Slot>, who: Nat) -> Nat:
+  Evm.lookup(storage, Evm.Mapped{1n, who})
+
+def debit(+storage: List<&2, Evm.Slot>, +from: Nat, amount: Nat) -> List<&2, Evm.Slot>:
+  Evm.Slot{Evm.Mapped{1n, from}, Nat.sub(balance(storage, from), amount)} <> storage
+
+# The receiver's balance is read after the debit, so a transfer to oneself
+# keeps the balance. Transfer writes no plain slot, so the supply stays.
+law transfer:
+  for +storage: List<&2, Evm.Slot>
+  for +from: Nat
   for +limit: Nat
   for logs: List<&2, Evm.Log>
-  for +a: Nat
-  for +b: Nat
+  for +to: Nat
   for +amount: Nat
-  for enough: {False{} == Nat.is_lt(a, amount) : Bool}
-  for fits: {True{} == Nat.is_lt(Nat.add(b, amount), limit) : Bool}
-  {Token.transfer(9n, amount,
-      Evm.State{Evm.Slot{Evm.Mapped{1n, 8n}, a} <> Evm.Slot{Evm.Mapped{1n, 9n}, b} <> storage, 8n, limit, logs})
-    == Evm.Ok{1n, Evm.State{Evm.Slot{Evm.Mapped{1n, 9n}, Nat.add(b, amount)}
-      <> Evm.Slot{Evm.Mapped{1n, 8n}, Nat.sub(a, amount)}
-      <> Evm.Slot{Evm.Mapped{1n, 8n}, a} <> Evm.Slot{Evm.Mapped{1n, 9n}, b} <> storage, 8n, limit,
-      Evm.Log{"Transfer(address,address,uint256)", [8n, 9n], amount} <> logs}} : Evm.Outcome<Nat>}
+  {Evm.run(Nat, Token.transfer(to, amount), Evm.State{storage, from, limit, logs})
+    == Bool.pick(Evm.Outcome<Nat>, Nat.is_lt(balance(storage, from), amount),
+      Evm.Revert{},
+      Bool.pick(Evm.Outcome<Nat>, Nat.is_lt(Nat.add(balance(debit(storage, from, amount), to), amount), limit),
+        Evm.Ok{1n, Evm.State{
+          Evm.Slot{Evm.Mapped{1n, to}, Nat.add(balance(debit(storage, from, amount), to), amount)}
+            <> debit(storage, from, amount), from, limit,
+          Evm.Log{"Transfer(address,address,uint256)", [from, to], amount} <> logs}},
+        Evm.Revert{})) : Evm.Outcome<Nat>}
 
-law transfer_short:
-  for storage: List<&2, Evm.Slot>
-  for limit: Nat
-  for logs: List<&2, Evm.Log>
-  for +a: Nat
-  for b: Nat
-  for +amount: Nat
-  for short: {True{} == Nat.is_lt(a, amount) : Bool}
-  {Token.transfer(9n, amount,
-      Evm.State{Evm.Slot{Evm.Mapped{1n, 8n}, a} <> Evm.Slot{Evm.Mapped{1n, 9n}, b} <> storage, 8n, limit, logs})
-    == Evm.Revert{} : Evm.Outcome<Nat>}
-
-law mint_by_owner:
-  for storage: List<&2, Evm.Slot>
+# Only the owner can mint, and the supply and the balance must not overflow.
+law mint:
+  for +storage: List<&2, Evm.Slot>
+  for +who: Nat
   for +limit: Nat
   for logs: List<&2, Evm.Log>
-  for +supply: Nat
-  for +b: Nat
+  for +to: Nat
   for +amount: Nat
-  for room: {True{} == Nat.is_lt(Nat.add(supply, amount), limit) : Bool}
-  for fits: {True{} == Nat.is_lt(Nat.add(b, amount), limit) : Bool}
-  {Token.mint(9n, amount,
-      Evm.State{Evm.Slot{Evm.Plain{0n}, supply} <> Evm.Slot{Evm.Mapped{1n, 9n}, b} <> storage, 7n, limit, logs})
-    == Evm.Ok{Unit{}, Evm.State{Evm.Slot{Evm.Mapped{1n, 9n}, Nat.add(b, amount)}
-      <> Evm.Slot{Evm.Plain{0n}, Nat.add(supply, amount)}
-      <> Evm.Slot{Evm.Plain{0n}, supply} <> Evm.Slot{Evm.Mapped{1n, 9n}, b} <> storage, 7n, limit,
-      Evm.Log{"Transfer(address,address,uint256)", [0n, 9n], amount} <> logs}} : Evm.Outcome<Unit>}
-
-law mint_by_other:
-  for storage: List<&2, Evm.Slot>
-  for limit: Nat
-  for logs: List<&2, Evm.Log>
-  for to: Nat
-  for amount: Nat
-  {Token.mint(to, amount, Evm.State{storage, 8n, limit, logs}) == Evm.Revert{} : Evm.Outcome<Unit>}
+  {Evm.run(Unit, Token.mint(to, amount), Evm.State{storage, who, limit, logs})
+    == Bool.pick(Evm.Outcome<Unit>, Nat.is_eq(who, Token.owner()),
+      Bool.pick(Evm.Outcome<Unit>, Nat.is_lt(Nat.add(supply(storage), amount), limit),
+        Bool.pick(Evm.Outcome<Unit>, Nat.is_lt(Nat.add(balance(storage, to), amount), limit),
+          Evm.Ok{Unit{}, Evm.State{
+            Evm.Slot{Evm.Mapped{1n, to}, Nat.add(balance(storage, to), amount)}
+              <> Evm.Slot{Evm.Plain{0n}, Nat.add(supply(storage), amount)} <> storage, who, limit,
+            Evm.Log{"Transfer(address,address,uint256)", [0n, to], amount} <> logs}},
+          Evm.Revert{}),
+        Evm.Revert{}),
+      Evm.Revert{}) : Evm.Outcome<Unit>}

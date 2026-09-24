@@ -186,48 +186,27 @@ def guard(+a: Nat, +b: Nat, +l: Nat) -> {Nat.is_lt(Nat.add(a, b), l) == Nat.is_e
       %not_zero(p) : {Nat.is_lt(Nat.add(a, b), 1n+p) == Nat.is_eq(Yul.gt(b, Yul.sub(_, a, 1n+p), 1n+p), 0n) : Bool}
       guard.succ(a, b, p, Nat.is_lt(a, 1n+p), {==})
 
-# Checked add in a Bind: after the guard, wrapping add is the plain sum.
-def add_step(c: Bool, v: Bool, g: {c == v : Bool}, +sum: Nat, +l: Nat, +s: Evm.State, -V: Data,
-  -k: Evm.Contract(V), -f: Nat -> Evm.Contract(V),
-  h: {k(s) == f(Bool.pick(Nat, c, sum, Nat.sub(sum, l)), s) : Evm.Outcome<V>}) ->
-  {Evm.Contract.next(Unit, V, Evm.require.go(v, s), u => k) == Evm.Contract.next(Nat, V, Evm.checked(sum, c, s), f) : Evm.Outcome<V>}:
+# Checked add: the guard passes exactly when Evm.add does, and then wrapping
+# add is the plain sum. y and f are the rest of the Yul and IR runs.
+def add_step(c: Bool, v: Bool, g: {c == v : Bool}, +sum: Nat, +l: Nat, -R: Data,
+  -y: Nat -> Evm.Outcome<R>, -f: Nat -> Evm.Outcome<R>,
+  h: {y(Bool.pick(Nat, c, sum, Nat.sub(sum, l))) == f(Bool.pick(Nat, c, sum, Nat.sub(sum, l))) : Evm.Outcome<R>}) ->
+  {Bool.pick(Evm.Outcome<R>, v, y(Bool.pick(Nat, c, sum, Nat.sub(sum, l))), Evm.Revert{})
+    == Bool.pick(Evm.Outcome<R>, c, f(sum), Evm.Revert{}) : Evm.Outcome<R>}:
   match c:
     case True{}:
-      %g : {Evm.Contract.next(Unit, V, Evm.require.go(_, s), u => k) == Evm.Contract.next(Nat, V, Evm.checked(sum, True{}, s), f) : Evm.Outcome<V>}
+      %g : {Bool.pick(Evm.Outcome<R>, _, y(sum), Evm.Revert{}) == f(sum) : Evm.Outcome<R>}
       h
     case False{}:
-      %g : {Evm.Contract.next(Unit, V, Evm.require.go(_, s), u => k) == Evm.Contract.next(Nat, V, Evm.checked(sum, False{}, s), f) : Evm.Outcome<V>}
+      %g : {Bool.pick(Evm.Outcome<R>, _, y(Nat.sub(sum, l)), Evm.Revert{}) == Evm.Revert{} : Evm.Outcome<R>}
       {==}
 
-# Checked add as the result.
-def add_tail(c: Bool, v: Bool, g: {c == v : Bool}, +sum: Nat, +l: Nat, +s: Evm.State, -k: Evm.Contract(Nat),
-  h: {k(s) == Evm.Ok{Bool.pick(Nat, c, sum, Nat.sub(sum, l)), s} : Evm.Outcome<Nat>}) ->
-  {Evm.Contract.next(Unit, Nat, Evm.require.go(v, s), u => k) == Evm.checked(sum, c, s) : Evm.Outcome<Nat>}:
-  match c:
-    case True{}:
-      %g : {Evm.Contract.next(Unit, Nat, Evm.require.go(_, s), u => k) == Evm.checked(sum, True{}, s) : Evm.Outcome<Nat>}
-      h
-    case False{}:
-      %g : {Evm.Contract.next(Unit, Nat, Evm.require.go(_, s), u => k) == Evm.checked(sum, False{}, s) : Evm.Outcome<Nat>}
-      {==}
-
-# Checked sub in a Bind: `if lt(a, b)` reverts exactly when Evm.sub does, and
-# when it passes, Yul.sub is a - b.
-def sub_step(c: Bool, -x: Nat, +d: Nat, +s: Evm.State, -V: Data, -k: Evm.Contract(V), -f: Nat -> Evm.Contract(V),
-  h: {k(s) == f(Bool.pick(Nat, c, x, d), s) : Evm.Outcome<V>}) ->
-  {Evm.Contract.next(Unit, V, Evm.require.go(Nat.is_eq(Yul.bit(c), 0n), s), u => k)
-    == Evm.Contract.next(Nat, V, Evm.checked(d, Bool.not(c), s), f) : Evm.Outcome<V>}:
-  match c:
-    case True{}:
-      {==}
-    case False{}:
-      h
-
-# Checked sub as the result.
-def sub_tail(c: Bool, -x: Nat, +d: Nat, +s: Evm.State, -k: Evm.Contract(Nat),
-  h: {k(s) == Evm.Ok{Bool.pick(Nat, c, x, d), s} : Evm.Outcome<Nat>}) ->
-  {Evm.Contract.next(Unit, Nat, Evm.require.go(Nat.is_eq(Yul.bit(c), 0n), s), u => k)
-    == Evm.checked(d, Bool.not(c), s) : Evm.Outcome<Nat>}:
+# Checked sub: `if lt(a, b)` reverts exactly when Evm.sub does, and when it
+# passes, Yul.sub is a - b.
+def sub_step(c: Bool, -x: Nat, +d: Nat, -R: Data, -y: Nat -> Evm.Outcome<R>, -f: Nat -> Evm.Outcome<R>,
+  h: {y(Bool.pick(Nat, c, x, d)) == f(Bool.pick(Nat, c, x, d)) : Evm.Outcome<R>}) ->
+  {Bool.pick(Evm.Outcome<R>, Nat.is_eq(Yul.bit(c), 0n), y(Bool.pick(Nat, c, x, d)), Evm.Revert{})
+    == Bool.pick(Evm.Outcome<R>, c, Evm.Revert{}, f(d)) : Evm.Outcome<R>}:
   match c:
     case True{}:
       {==}
@@ -235,101 +214,94 @@ def sub_tail(c: Bool, -x: Nat, +d: Nat, +s: Evm.State, -k: Evm.Contract(Nat),
       h
 
 # A Require: iszero(cond) reverts exactly when the condition is false.
-def require_step(c: Bool, +s: Evm.State, -V: Data, -k: Evm.Contract(V), -g: Evm.Contract(V),
-  h: {k(s) == g(s) : Evm.Outcome<V>}) ->
-  {Evm.Contract.next(Unit, V, Evm.require.go(Nat.is_eq(Yul.bit(Nat.is_eq(Yul.bit(c), 0n)), 0n), s), _ => k)
-    == Evm.Contract.next(Unit, V, Evm.require.go(c, s), _ => g) : Evm.Outcome<V>}:
+def require_step(c: Bool, -R: Data, -y: Evm.Outcome<R>, -f: Evm.Outcome<R>, h: {y == f : Evm.Outcome<R>}) ->
+  {Bool.pick(Evm.Outcome<R>, Nat.is_eq(Yul.bit(Nat.is_eq(Yul.bit(c), 0n)), 0n), y, Evm.Revert{})
+    == Bool.pick(Evm.Outcome<R>, c, f, Evm.Revert{}) : Evm.Outcome<R>}:
   match c:
     case True{}:
       h
     case False{}:
       {==}
 
-def require_tail(c: Bool, +s: Evm.State) ->
-  {Evm.Contract.next(Unit, Unit, Evm.require.go(Nat.is_eq(Yul.bit(Nat.is_eq(Yul.bit(c), 0n)), 0n), s),
-    _ => (t => Evm.Ok{Unit{}, t})) == Evm.require.go(c, s) : Evm.Outcome<Unit>}:
-  match c:
-    case True{}:
-      {==}
-    case False{}:
-      {==}
-
-# Induction on the command. Matching the state lets its reads and writes compute.
-def Laws.preserves(cmd, out, env, s):
-  match cmd out s:
-    case IR.Bind{IR.SLoad{loc}, level, body} o Evm.State{st, c, l, g}:
-      Laws.preserves(body, o, IR.Binding{level, Evm.lookup(st, IR.loc(loc, env))} <> env, Evm.State{st, c, l, g})
-    case IR.Bind{IR.Caller{}, level, body} o Evm.State{st, c, l, g}:
-      Laws.preserves(body, o, IR.Binding{level, c} <> env, Evm.State{st, c, l, g})
-    case IR.Bind{IR.Add{+left, +right}, level, body} o Evm.State{st, who, +l, g}:
+# Induction on the command. Both runs pass the same state and continuation on,
+# so only the checks need lemmas.
+def Laws.preserves(cmd, out, env, R, k, s):
+  match cmd out:
+    case IR.Bind{IR.SLoad{loc}, level, body} o:
+      Laws.preserves(body, o, IR.Binding{level, Evm.lookup(Evm.storage.of(s), IR.loc(loc, env))} <> env, R, k, s)
+    case IR.Bind{IR.Caller{}, level, body} o:
+      Laws.preserves(body, o, IR.Binding{level, Evm.caller.of(s)} <> env, R, k, s)
+    case IR.Bind{IR.Add{+left, +right}, level, body} o:
       +a = IR.eval(left, env)
       +b = IR.eval(right, env)
+      +l = Evm.limit.of(s)
       +sum = Nat.add(a, b)
-      add_step(Nat.is_lt(sum, l), Nat.is_eq(Yul.gt(b, Yul.sub(Yul.not(0n, l), a, l), l), 0n), guard(a, b, l),
-        sum, l, Evm.State{st, who, l, g}, IR.value(o),
-        Yul.exec(Yul.Let{level, Yul.Add{Yul.Atom{left}, Yul.Atom{right}}, Yul.lower(body, o)}, o, env),
-        x => IR.run(body, o, IR.Binding{level, x} <> env),
-        Laws.preserves(body, o, IR.Binding{level, Yul.add(a, b, l)} <> env, Evm.State{st, who, l, g}))
-    case IR.Bind{IR.Sub{+left, +right}, level, body} o Evm.State{st, who, +l, g}:
+      add_step(Nat.is_lt(sum, l), Nat.is_eq(Yul.gt(b, Yul.sub(Yul.not(0n, l), a, l), l), 0n), guard(a, b, l), sum, l, R,
+        x => Yul.exec(Yul.lower(body, o), o, IR.Binding{level, x} <> env, R, k, s),
+        x => IR.run(body, o, IR.Binding{level, x} <> env, R, k, s),
+        Laws.preserves(body, o, IR.Binding{level, Yul.add(a, b, l)} <> env, R, k, s))
+    case IR.Bind{IR.Sub{+left, +right}, level, body} o:
       +a = IR.eval(left, env)
       +b = IR.eval(right, env)
-      sub_step(Nat.is_lt(a, b), Bool.pick(Nat, Nat.is_lt(b, l), Nat.sub(l, Nat.sub(b, a)), l), Nat.sub(a, b),
-        Evm.State{st, who, l, g}, IR.value(o),
-        Yul.exec(Yul.Let{level, Yul.Sub{Yul.Atom{left}, Yul.Atom{right}}, Yul.lower(body, o)}, o, env),
-        x => IR.run(body, o, IR.Binding{level, x} <> env),
-        Laws.preserves(body, o, IR.Binding{level, Yul.sub(a, b, l)} <> env, Evm.State{st, who, l, g}))
-    case IR.Then{IR.SStore{loc, value}, body} o Evm.State{st, c, l, g}:
-      Laws.preserves(body, o, env, Evm.State{Evm.Slot{IR.loc(loc, env), IR.eval(value, env)} <> st, c, l, g})
-    case IR.Then{IR.Log{event, topics, data}, body} o Evm.State{st, c, l, g}:
-      Laws.preserves(body, o, env, Evm.State{st, c, l, Evm.Log{event, IR.evals(topics, env), IR.eval(data, env)} <> g})
-    case IR.Then{IR.Require{IR.Eq{left, right}}, body} o state:
-      require_step(Nat.is_eq(IR.eval(left, env), IR.eval(right, env)), state, IR.value(o),
-        Yul.exec(Yul.lower(body, o), o, env), IR.run(body, o, env), Laws.preserves(body, o, env, state))
-    case IR.Then{IR.Require{IR.Lt{left, right}}, body} o state:
-      require_step(Nat.is_lt(IR.eval(left, env), IR.eval(right, env)), state, IR.value(o),
-        Yul.exec(Yul.lower(body, o), o, env), IR.run(body, o, env), Laws.preserves(body, o, env, state))
-    case IR.Return{_} IR.Returns{} _:
+      +l = Evm.limit.of(s)
+      sub_step(Nat.is_lt(a, b), Bool.pick(Nat, Nat.is_lt(b, l), Nat.sub(l, Nat.sub(b, a)), l), Nat.sub(a, b), R,
+        x => Yul.exec(Yul.lower(body, o), o, IR.Binding{level, x} <> env, R, k, s),
+        x => IR.run(body, o, IR.Binding{level, x} <> env, R, k, s),
+        Laws.preserves(body, o, IR.Binding{level, Yul.sub(a, b, l)} <> env, R, k, s))
+    case IR.Then{IR.SStore{loc, value}, body} o:
+      Laws.preserves(body, o, env, R, k, Evm.write.go(IR.loc(loc, env), IR.eval(value, env), s))
+    case IR.Then{IR.Log{event, topics, data}, body} o:
+      Laws.preserves(body, o, env, R, k, Evm.log.go(event, IR.evals(topics, env), IR.eval(data, env), s))
+    case IR.Then{IR.Require{IR.Eq{left, right}}, body} o:
+      require_step(Nat.is_eq(IR.eval(left, env), IR.eval(right, env)), R,
+        Yul.exec(Yul.lower(body, o), o, env, R, k, s), IR.run(body, o, env, R, k, s), Laws.preserves(body, o, env, R, k, s))
+    case IR.Then{IR.Require{IR.Lt{left, right}}, body} o:
+      require_step(Nat.is_lt(IR.eval(left, env), IR.eval(right, env)), R,
+        Yul.exec(Yul.lower(body, o), o, env, R, k, s), IR.run(body, o, env, R, k, s), Laws.preserves(body, o, env, R, k, s))
+    case IR.Return{_} IR.Returns{}:
       {==}
-    case IR.Return{_} IR.Stops{} _:
+    case IR.Return{_} IR.Stops{}:
       {==}
-    case IR.Tail{IR.SLoad{_}} IR.Returns{} Evm.State{_, _, _, _}:
+    case IR.Tail{IR.SLoad{_}} IR.Returns{}:
       {==}
-    case IR.Tail{IR.Caller{}} IR.Returns{} Evm.State{_, _, _, _}:
+    case IR.Tail{IR.Caller{}} IR.Returns{}:
       {==}
-    case IR.Tail{IR.Add{+left, +right}} IR.Returns{} Evm.State{st, who, +l, g}:
+    case IR.Tail{IR.Add{+left, +right}} IR.Returns{}:
       +a = IR.eval(left, env)
       +b = IR.eval(right, env)
+      +l = Evm.limit.of(s)
       +sum = Nat.add(a, b)
-      add_tail(Nat.is_lt(sum, l), Nat.is_eq(Yul.gt(b, Yul.sub(Yul.not(0n, l), a, l), l), 0n), guard(a, b, l),
-        sum, l, Evm.State{st, who, l, g}, Yul.exec(Yul.Result{Yul.Add{Yul.Atom{left}, Yul.Atom{right}}}, IR.Returns{}, env), {==})
-    case IR.Tail{IR.Sub{+left, +right}} IR.Returns{} Evm.State{st, who, +l, g}:
+      add_step(Nat.is_lt(sum, l), Nat.is_eq(Yul.gt(b, Yul.sub(Yul.not(0n, l), a, l), l), 0n), guard(a, b, l), sum, l, R,
+        x => k(x, s), x => k(x, s), {==})
+    case IR.Tail{IR.Sub{+left, +right}} IR.Returns{}:
       +a = IR.eval(left, env)
       +b = IR.eval(right, env)
-      sub_tail(Nat.is_lt(a, b), Bool.pick(Nat, Nat.is_lt(b, l), Nat.sub(l, Nat.sub(b, a)), l), Nat.sub(a, b),
-        Evm.State{st, who, l, g}, Yul.exec(Yul.Result{Yul.Sub{Yul.Atom{left}, Yul.Atom{right}}}, IR.Returns{}, env), {==})
-    case IR.Tail{IR.SLoad{_}} IR.Stops{} _:
+      +l = Evm.limit.of(s)
+      sub_step(Nat.is_lt(a, b), Bool.pick(Nat, Nat.is_lt(b, l), Nat.sub(l, Nat.sub(b, a)), l), Nat.sub(a, b), R,
+        x => k(x, s), x => k(x, s), {==})
+    case IR.Tail{IR.SLoad{_}} IR.Stops{}:
       {==}
-    case IR.Tail{IR.Caller{}} IR.Stops{} _:
+    case IR.Tail{IR.Caller{}} IR.Stops{}:
       {==}
-    case IR.Tail{IR.Add{_, _}} IR.Stops{} _:
+    case IR.Tail{IR.Add{_, _}} IR.Stops{}:
       {==}
-    case IR.Tail{IR.Sub{_, _}} IR.Stops{} _:
+    case IR.Tail{IR.Sub{_, _}} IR.Stops{}:
       {==}
-    case IR.Finish{IR.SStore{_, _}} IR.Stops{} Evm.State{_, _, _, _}:
+    case IR.Finish{IR.SStore{_, _}} IR.Stops{}:
       {==}
-    case IR.Finish{IR.Log{_, _, _}} IR.Stops{} Evm.State{_, _, _, _}:
+    case IR.Finish{IR.Log{_, _, _}} IR.Stops{}:
       {==}
-    case IR.Finish{IR.Require{IR.Eq{left, right}}} IR.Stops{} state:
-      require_tail(Nat.is_eq(IR.eval(left, env), IR.eval(right, env)), state)
-    case IR.Finish{IR.Require{IR.Lt{left, right}}} IR.Stops{} state:
-      require_tail(Nat.is_lt(IR.eval(left, env), IR.eval(right, env)), state)
-    case IR.Finish{IR.SStore{_, _}} IR.Returns{} _:
+    case IR.Finish{IR.Require{IR.Eq{left, right}}} IR.Stops{}:
+      require_step(Nat.is_eq(IR.eval(left, env), IR.eval(right, env)), R, k(Unit{}, s), k(Unit{}, s), {==})
+    case IR.Finish{IR.Require{IR.Lt{left, right}}} IR.Stops{}:
+      require_step(Nat.is_lt(IR.eval(left, env), IR.eval(right, env)), R, k(Unit{}, s), k(Unit{}, s), {==})
+    case IR.Finish{IR.SStore{_, _}} IR.Returns{}:
       {==}
-    case IR.Finish{IR.Log{_, _, _}} IR.Returns{} _:
+    case IR.Finish{IR.Log{_, _, _}} IR.Returns{}:
       {==}
-    case IR.Finish{IR.Require{_}} IR.Returns{} _:
+    case IR.Finish{IR.Require{_}} IR.Returns{}:
       {==}
-    case IR.Stop{} IR.Stops{} _:
+    case IR.Stop{} IR.Stops{}:
       {==}
-    case IR.Stop{} IR.Returns{} _:
+    case IR.Stop{} IR.Returns{}:
       {==}

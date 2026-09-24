@@ -40,26 +40,41 @@ type State is Data:
 # The limit is state, not a constant: a symbolic limit keeps proofs from
 # expanding 2^256 as a unary Nat. Laws proved for every limit hold on the EVM.
 
+def storage.of(s: State) -> List<&2, Slot>:
+  match s:
+    case State{storage, _, _, _}:
+      storage
+
+def caller.of(s: State) -> Nat:
+  match s:
+    case State{_, caller, _, _}:
+      caller
+
+def limit.of(s: State) -> Nat:
+  match s:
+    case State{_, _, limit, _}:
+      limit
+
 # A revert discards every state change, so it carries no state.
 type Outcome<-A: Data> is Data:
   Ok{value: A, state: State}
   Revert{}
 
+# A contract passes its result and state to a continuation. A check is then
+# a Bool.pick at the top of the contract's normal form, not a match stuck
+# inside a bind, so a law can state every outcome and {==} proves it.
 def Contract(-A: Data) -> Type:
-  State -> Outcome<A>
+  @-R: Data -> @k: (A -> State -> Outcome<R>) -> State -> Outcome<R>
 
 def Contract.pure(-A: Data, x: A) -> Contract(A):
-  s => Ok{x, s}
-
-def Contract.next(-A: Data, -B: Data, r: Outcome<A>, f: A -> Contract(B)) -> Outcome<B>:
-  match r:
-    case Ok{value, state}:
-      f(value, state)
-    case Revert{}:
-      Revert{}
+  R => k => s => k(x, s)
 
 def Contract.bind(-A: Data, -B: Data, m: Contract(A), f: A -> Contract(B)) -> Contract(B):
-  s => Contract.next(A, B, m(s), f)
+  R => k => m(R, x => f(x, R, k))
+
+# Runs a contract from a state to its outcome.
+def run(-A: Data, m: Contract(A), s: State) -> Outcome<A>:
+  m(A, x => t => Ok{x, t}, s)
 
 def lookup(storage: List<&2, Slot>, +key: Key) -> Nat:
   match storage:
@@ -68,13 +83,8 @@ def lookup(storage: List<&2, Slot>, +key: Key) -> Nat:
     case Slot{k, v} <> rest:
       Bool.pick(Nat, same(k, key), v, lookup(rest, key))
 
-def sload.go(+key: Key, s: State) -> Outcome<Nat>:
-  match s:
-    case State{+storage, caller, limit, logs}:
-      Ok{lookup(storage, key), State{storage, caller, limit, logs}}
-
-def read(key: Key) -> Contract(Nat):
-  s => sload.go(key, s)
+def read(+key: Key) -> Contract(Nat):
+  R => k => +s => k(lookup(storage.of(s), key), s)
 
 def sload(slot: Nat) -> Contract(Nat):
   read(Plain{slot})
@@ -83,13 +93,13 @@ def sload(slot: Nat) -> Contract(Nat):
 def load(slot: Nat, key: Nat) -> Contract(Nat):
   read(Mapped{slot, key})
 
-def sstore.go(key: Key, value: Nat, s: State) -> Outcome<Unit>:
+def write.go(key: Key, value: Nat, s: State) -> State:
   match s:
     case State{storage, caller, limit, logs}:
-      Ok{Unit{}, State{Slot{key, value} <> storage, caller, limit, logs}}
+      State{Slot{key, value} <> storage, caller, limit, logs}
 
 def write(key: Key, value: Nat) -> Contract(Unit):
-  s => sstore.go(key, value, s)
+  R => k => s => k(Unit{}, write.go(key, value, s))
 
 def sstore(slot: Nat, value: Nat) -> Contract(Unit):
   write(Plain{slot}, value)
@@ -97,49 +107,24 @@ def sstore(slot: Nat, value: Nat) -> Contract(Unit):
 def store(slot: Nat, key: Nat, value: Nat) -> Contract(Unit):
   write(Mapped{slot, key}, value)
 
-def caller.go(s: State) -> Outcome<Nat>:
-  match s:
-    case State{storage, +caller, limit, logs}:
-      Ok{caller, State{storage, caller, limit, logs}}
-
 def caller() -> Contract(Nat):
-  s => caller.go(s)
+  R => k => +s => k(caller.of(s), s)
 
-def log.go(event: String, topics: List<&2, Nat>, data: Nat, s: State) -> Outcome<Unit>:
+def log.go(event: String, topics: List<&2, Nat>, data: Nat, s: State) -> State:
   match s:
     case State{storage, caller, limit, logs}:
-      Ok{Unit{}, State{storage, caller, limit, Log{event, topics, data} <> logs}}
+      State{storage, caller, limit, Log{event, topics, data} <> logs}
 
 def log(event: String, topics: List<&2, Nat>, data: Nat) -> Contract(Unit):
-  s => log.go(event, topics, data, s)
-
-def require.go(ok: Bool, s: State) -> Outcome<Unit>:
-  match ok:
-    case True{}:
-      Ok{Unit{}, s}
-    case False{}:
-      Revert{}
+  R => k => s => k(Unit{}, log.go(event, topics, data, s))
 
 def require(ok: Bool) -> Contract(Unit):
-  s => require.go(ok, s)
-
-# A checked result: the value when ok, a revert otherwise.
-def checked(+value: Nat, ok: Bool, s: State) -> Outcome<Nat>:
-  match ok:
-    case True{}:
-      Ok{value, s}
-    case False{}:
-      Revert{}
-
-def add.sum(+sum: Nat, s: State) -> Outcome<Nat>:
-  match s:
-    case State{storage, caller, +limit, logs}:
-      checked(sum, Nat.is_lt(sum, limit), State{storage, caller, limit, logs})
+  R => k => s => Bool.pick(Outcome<R>, ok, k(Unit{}, s), Revert{})
 
 # Checked addition: reverts on overflow, like Solidity 0.8.
-def add(a: Nat, b: Nat) -> Contract(Nat):
-  s => add.sum(Nat.add(a, b), s)
+def add(+a: Nat, +b: Nat) -> Contract(Nat):
+  R => k => +s => Bool.pick(Outcome<R>, Nat.is_lt(Nat.add(a, b), limit.of(s)), k(Nat.add(a, b), s), Revert{})
 
-# Checked subtraction: reverts when b > a, like Solidity 0.8.
+# Checked subtraction: reverts when a < b, like Solidity 0.8.
 def sub(+a: Nat, +b: Nat) -> Contract(Nat):
-  s => checked(Nat.sub(a, b), Bool.not(Nat.is_lt(a, b)), s)
+  R => k => s => Bool.pick(Outcome<R>, Nat.is_lt(a, b), Revert{}, k(Nat.sub(a, b), s))

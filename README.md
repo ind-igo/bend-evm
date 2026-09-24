@@ -10,7 +10,7 @@ contract.bend ─ Frontend.check ─ read ─→ IR ─ lower ─→ Yul ─ sol
                   certificate: IR ≡ contract    law: lower preserves every IR command
 ```
 
-[ROADMAP.md](ROADMAP.md) gives the milestones: the Counter on a chain (M1, done) and a minimal token (M2).
+[ROADMAP.md](ROADMAP.md) gives the milestones: the Counter on a chain (M1), a minimal token (M2) and laws for any state (M3), all done.
 
 ## Use
 
@@ -40,7 +40,7 @@ The reader ([read.bend](src/read.bend)) is not trusted: a wrong IR makes the cer
 
 ## Lowering
 
-[yul.bend](src/yul.bend) defines the Yul fragment that the IR needs, its meaning over the same `State`, and `lower`. [LAWS.bend](src/LAWS.bend) states that running `lower(cmd)` gives the same outcome as `IR.run(cmd)` for every command, output kind, environment and state, and [PROOF.bend](src/PROOF.bend) proves it by induction. [compile.bend](src/compile.bend) prints the Yul with an ABI dispatcher, and [keccak.bend](src/keccak.bend) computes the selectors and event topics.
+[yul.bend](src/yul.bend) defines the Yul fragment that the IR needs, its meaning over the same `State`, and `lower`. [LAWS.bend](src/LAWS.bend) states that running `lower(cmd)` gives the same outcome as `IR.run(cmd)` for every command, output kind, environment, continuation and state, and [PROOF.bend](src/PROOF.bend) proves it by induction. [compile.bend](src/compile.bend) prints the Yul with an ABI dispatcher, and [keccak.bend](src/keccak.bend) computes the selectors and event topics.
 
 Checked add lowers to `if gt(b, sub(not(0), a)) { revert(0, 0) }` and a wrapping `add`. Checked sub lowers to `if lt(a, b) { revert(0, 0) }` and `sub(a, b)`. The model's `add`, `sub`, `not` and `gt` are the EVM's operations on words below `limit`. Above `limit` the EVM has no words, so the model picks results that keep the proof exact: the add check reverts, and `sub(a, b)` is `a - b` whenever `a ≥ b`. The proof therefore needs no invariant that words stay below `limit`, only the lemma that the check is zero exactly when `a + b < limit`.
 
@@ -48,6 +48,7 @@ Proved: contract ≡ IR (certificate) and IR ≡ Yul model (the law). Tested, no
 
 ## Model
 
+- A contract passes its result and state to a continuation, and `Evm.run(A, m, s)` gives its outcome. Each check is then a `Bool.pick` at the top of the normal form. So a law can state every outcome from any state, with symbolic storage, caller, addresses and amounts, and `{==}` proves it. See the [counter](examples/counter/LAWS.bend) and [token](examples/token/LAWS.bend) laws.
 - Words are `Nat`. Checked `add` reverts at the state's `limit`, which is 2^256 on the EVM, and checked `sub` reverts below zero. Proofs keep the limit symbolic: the checker writes any closed Nat near 2^256 out in unary.
 - Storage is an association list: the newest slot wins and missing slots read as zero. A key is a plain slot or a mapping entry, `Mapped{slot, key}`. The printer puts an entry at `keccak256(key . slot)`, as Solidity does, so the model assumes that Keccak has no collisions. A revert discards all state.
 - Events are `log(signature, topics, data)`: an ABI signature, at most three indexed words and one data word. The state keeps them newest first, so a revert drops them too. Topic 0 is the signature's Keccak-256, which the printer computes.
@@ -59,5 +60,4 @@ Proved: contract ≡ IR (certificate) and IR ≡ Yul model (the law). Tested, no
 - certify.bend must run through the frontend's `host/run.js`, which gives it its own path in `BEND_ENTRY`.
 - Literals are limited by `Nat.read` (about 2^48). Source Nat literals already stop at 2^32 - 1.
 - Parameters are `uint256` (`Nat`) or `address` (`Evm.Address`, which is `Nat`); the dispatcher reverts on an address above 2^160. Results are `uint256`; a `bool` result is the word 1 or 0, which has the same encoding.
-- The token laws use fixed addresses (7, 8 and 9). The amounts, balances, rest of storage, limit and logs are symbolic.
 - In the reader, match on `Call` names, not on nested `Term` patterns: nested patterns over Term made checking take 6 GB.

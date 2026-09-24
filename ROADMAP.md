@@ -46,7 +46,7 @@ A token with `totalSupply()`, `balanceOf(address)`, `transfer(address,uint256) r
 ### Done when
 
 - [x] `examples/token` compiles, and a test on `anvil` checks every function through the standard ABI, the events included.
-- [x] Laws (for fixed addresses 7, 8 and 9): `transfer` moves exactly `amount` from the caller to the receiver and keeps `totalSupply`; it reverts when the balance is too small; only the owner can mint.
+- [x] Laws: `transfer` moves exactly `amount` from the caller to the receiver and keeps `totalSupply`; it reverts when the balance is too small; only the owner can mint.
 - [x] The preservation proof covers every new IR command, and the certificate covers the token.
 
 Not in M2: `approve` and `transferFrom`, constructor arguments, a law that `totalSupply` is the sum of all balances.
@@ -58,3 +58,13 @@ Not in M2: `approve` and `transferFrom`, constructor arguments, a law that `tota
 3. [x] `address` parameters. The dispatcher reverts when the upper 96 bits are not zero (tested).
 4. [x] Events. The state has a log list, and the outcome includes it, so the proof covers the events. Topics come from Keccak in Bend.
 5. [x] The token example, its laws, certificate and `anvil` test. A `bool` result is the word 1, which has the same ABI encoding.
+
+## M3: laws for any state
+
+The M2 laws had fixed addresses and hypotheses such as `a >= amount`. Bend has no holes and no `with`, so each hypothesis had to rewrite a copy of the rest of the program, written out as helper defs.
+
+### Done when
+
+- [x] `Contract` is continuation-passing, so each check is a `Bool.pick` at the top of the normal form.
+- [x] The counter and token laws state every outcome from any state: any storage, caller, addresses (a self-transfer too), amounts, limit and logs. Each proof is `{==}`.
+- [x] The preservation law holds for every continuation, and the certificates and tests are unchanged.
