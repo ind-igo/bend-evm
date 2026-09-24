@@ -20,11 +20,8 @@ Requires Git and Bun. The tests also need `solc`, `anvil` and `cast`.
 git submodule update --init --recursive
 bun run check   # check every Bend entry point and proof
 bun run test
-bun vendor/bend-frontend/host/run.js src/certify.bend examples/counter/program.bend get increment decrement set \
-  > examples/counter/CERT.bend
 mkdir -p build
-bun vendor/bend-frontend/host/run.js src/compile.bend examples/counter/program.bend get increment decrement set \
-  > build/Counter.yul
+bun run build examples/counter/program.bend get increment decrement set > build/Counter.yul
 solc --strict-assembly --evm-version shanghai --bin build/Counter.yul
 ```
 
@@ -46,7 +43,7 @@ Checked add lowers to `if gt(b, sub(not(0), a)) { revert(0, 0) }` and a wrapping
 
 Proved: contract ≡ IR (certificate) and IR ≡ Yul model (the law). Tested, not proved: the printer, the dispatcher and ABI decoding, the mapping layout, event topics, `solc`, and the match between the Yul model and the EVM on words below 2^256.
 
-The proofs cover deployed code only when the certificate covers the same entries. `compile.bend` reads the IR again and does not check that a `CERT.bend` exists or is current. So run `certify.bend` with the same function list as `compile.bend`, including `init`, and check the result. The model also has no gas: a law that gives `Ok` holds on chain only when the call has enough gas, and otherwise the call reverts.
+The proofs cover deployed code only when the certificate covers the same entries. `compile.bend` reads the IR again and does not check that a `CERT.bend` exists or is current. `bun run build` does it in the right order: it writes `CERT.bend` for the listed functions, checks it and the contract's `PROOF.bend`, and prints the Yul only when both check. The model also has no gas: a law that gives `Ok` holds on chain only when the call has enough gas, and otherwise the call reverts.
 
 ## Model
 

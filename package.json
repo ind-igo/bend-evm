@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "check": "bun scripts/check.js",
-    "test": "bun test ./tests"
+    "test": "bun test ./tests",
+    "build": "bun scripts/build.js"
   }
 }
