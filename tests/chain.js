@@ -24,7 +24,8 @@ export function reverts(result) {
   expect(result.err).toMatch(/revert/i);
 }
 
-export async function deploy(program, functions) {
+// The deployer is anvil's first account unless one is given.
+export async function deploy(program, functions, deployer) {
   const temp = mkdtempSync(path.join(tmpdir(), 'bend-evm-chain-'));
   const yul = must(run(process.execPath, 'vendor/bend-frontend/host/run.js', 'src/compile.bend', program, ...functions));
   writeFileSync(path.join(temp, 'Contract.yul'), yul);
@@ -45,13 +46,17 @@ export async function deploy(program, functions) {
   reader.releaseLock();
 
   const cast = (command, ...args) => run('cast', command, '--rpc-url', rpc, ...args);
-  const sender = must(cast('rpc', 'eth_accounts')).match(/0x[0-9a-fA-F]{40}/)[0];
+  const fund = who => {
+    must(cast('rpc', 'anvil_impersonateAccount', who));
+    must(cast('rpc', 'anvil_setBalance', who, '0x56bc75e2d63100000'));
+  };
+  if (deployer) fund(deployer);
+  const sender = deployer ?? must(cast('rpc', 'eth_accounts')).match(/0x[0-9a-fA-F]{40}/)[0];
   const receipt = JSON.parse(must(cast('send', '--unlocked', '--from', sender, '--json', '--create', '0x' + bytecode)));
   const address = receipt.contractAddress;
-  must(cast('rpc', 'anvil_impersonateAccount', owner));
-  must(cast('rpc', 'anvil_setBalance', owner, '0x56bc75e2d63100000'));
+  fund(owner);
   return {
-    cast, sender, address,
+    cast, sender, address, fund, receipt,
     send: (from, ...args) => cast('send', '--unlocked', '--from', from, address, ...args),
     word: (...args) => BigInt(must(cast('call', address, ...args)).split(' ')[0]),
     async stop() {

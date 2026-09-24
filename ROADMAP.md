@@ -115,3 +115,14 @@ A contract function can call the contract's other functions, like `move(from, to
 - [x] A test inlines each form of call, runs it on `anvil`, and checks that a wrong join gives a certificate that fails.
 
 Not in M7: recursion (calls nest at most 8 deep), and Yul functions for code size.
+
+## M8: a differential test against the model
+
+The token's Bend source is the specification that the laws describe. A test runs it and the compiled token on the same random calls, and compares the results.
+
+### Done when
+
+- [x] A Bend driver ([tests/fixtures/model/token.bend](tests/fixtures/model/token.bend)) runs the token's functions with `Evm.run` on a call sequence, and prints each return or revert and each log.
+- [x] [tests/model.test.js](tests/model.test.js) sends the same seeded random sequence to `anvil` and requires the same transcript. `SEED=<n>` runs another sequence. When the printed `lt` has its operands swapped, the test fails (checked by hand).
+
+Not in M8: words at 2^256. The Bend runtime holds words below 2^48, so the model's limit is 2^40, and its `max()` stands for the EVM's 2^256 − 1. token.test.js tests the overflow boundary.
