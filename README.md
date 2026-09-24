@@ -10,7 +10,7 @@ contract.bend ─ Frontend.check ─ read ─→ IR ─ lower ─→ Yul ─ sol
                   certificate: IR ≡ contract    law: lower preserves every IR command
 ```
 
-[ROADMAP.md](ROADMAP.md) gives the milestones: the Counter on a chain (M1), a minimal token (M2), laws for any state (M3), the rest of ERC-20 (M4), select (M5) and a constructor (M6), all done.
+[ROADMAP.md](ROADMAP.md) gives the milestones: the Counter on a chain (M1), a minimal token (M2), laws for any state (M3), the rest of ERC-20 (M4), select (M5), a constructor (M6) and internal calls (M7), all done.
 
 ## Use
 
@@ -36,7 +36,7 @@ The frontend is a submodule at `vendor/bend-frontend`, and it pins Bend at `vend
 
 [certify.bend](src/certify.bend) prints each entry as a literal [IR](src/ir.bend) value and a law stating that `IR.call` of that value equals the source function. `IR.call` reverts when a variable is not bound, then runs the IR. The IR constructors map one to one to DSL calls, so both sides normalize to the same term and `{==}` proves the law.
 
-The reader ([read.bend](src/read.bend)) is not trusted: a wrong IR makes the certificate fail. The trusted base is the Bend checker, the semantics in `Evm.bend` and `ir.bend`, and the shape of the law that certify.bend prints. certify.bend rejects a contract that imports a different `Evm.bend`, and a parameter list that does not bind levels 0, 1, ... in order.
+The reader ([read.bend](src/read.bend)) is not trusted: a wrong IR makes the certificate fail. It inlines calls to the contract's own functions with [inline.bend](src/inline.bend), so the certificate also checks the inlining. The trusted base is the Bend checker, the semantics in `Evm.bend` and `ir.bend`, and the shape of the law that certify.bend prints. certify.bend rejects a contract that imports a different `Evm.bend`, and a parameter list that does not bind levels 0, 1, ... in order.
 
 ## Lowering
 
@@ -52,7 +52,7 @@ Proved: contract ≡ IR (certificate) and IR ≡ Yul model (the law). Tested, no
 - Words are `Nat`. Checked `add` reverts at the state's `limit`, which is 2^256 on the EVM, and checked `sub` reverts below zero. Proofs keep the limit symbolic: the checker writes any closed Nat near 2^256 out in unary.
 - Storage is an association list: the newest slot wins and missing slots read as zero. A key is a plain slot or an entry of a mapping, `Mapped{base, key}`, where `base` is a key too. The printer puts an entry at `keccak256(key . base)`, as Solidity does, so the model assumes that Keccak has no collisions. A revert discards all state.
 - Events are `log(signature, topics, data)`: an ABI signature, at most three indexed words and a list of data words. The state keeps them newest first, so a revert drops them too. Topic 0 is the signature's Keccak-256, which the printer computes.
-- Supported now: `sload`, `sstore`, mappings (`load(slot, key)`, `store(slot, key, value)`) and nested mappings (`load2(slot, outer, inner)`, `store2(slot, outer, inner, value)`), `caller`, checked `add` and `sub`, `select(cond, a, b)`, `max()`, `require`, `log`, `pure`, Nat and address parameters, and literal constants. The reader rejects everything else.
+- Supported now: `sload`, `sstore`, mappings (`load(slot, key)`, `store(slot, key, value)`) and nested mappings (`load2(slot, outer, inner)`, `store2(slot, outer, inner, value)`), `caller`, checked `add` and `sub`, `select(cond, a, b)`, `max()`, `require`, `log`, `pure`, Nat and address parameters, literal constants, and calls to the contract's own functions, which the reader inlines. The reader rejects everything else.
 
 ## Limits
 
@@ -60,5 +60,6 @@ Proved: contract ≡ IR (certificate) and IR ≡ Yul model (the law). Tested, no
 - certify.bend must run through the frontend's `host/run.js`, which gives it its own path in `BEND_ENTRY`.
 - Literals are limited by `Nat.read` (about 2^48). Source Nat literals already stop at 2^32 - 1.
 - Parameters are `uint256` (`Nat`) or `address` (`Evm.Address`, which is `Nat`); the dispatcher reverts on an address above 2^160. Results are `uint256`; a `bool` result is the word 1 or 0, which has the same encoding.
+- Calls nest at most 8 deep, so a function cannot call itself.
 - There is no `if`/`else` over contracts, only `require` and `select` over words. See ROADMAP.md (M5) for why.
 - In the reader, match on `Call` names, not on nested `Term` patterns: nested patterns over Term made checking take 6 GB.

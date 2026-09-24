@@ -59,12 +59,12 @@ def balanceOf(p0):
 
 def ir.transfer() -> IR.Cmd:
   IR.Bind{IR.Caller{}, 2n,
-    IR.Bind{IR.SLoad{IR.Mapped{IR.Plain{IR.Lit{1n}}, IR.Var{2n}}}, 3n,
-    IR.Bind{IR.Sub{IR.Var{3n}, IR.Var{1n}}, 4n,
-    IR.Then{IR.SStore{IR.Mapped{IR.Plain{IR.Lit{1n}}, IR.Var{2n}}, IR.Var{4n}},
-    IR.Bind{IR.SLoad{IR.Mapped{IR.Plain{IR.Lit{1n}}, IR.Var{0n}}}, 6n,
-    IR.Bind{IR.Add{IR.Var{6n}, IR.Var{1n}}, 7n,
-    IR.Then{IR.SStore{IR.Mapped{IR.Plain{IR.Lit{1n}}, IR.Var{0n}}, IR.Var{7n}},
+    IR.Bind{IR.SLoad{IR.Mapped{IR.Plain{IR.Lit{1n}}, IR.Var{2n}}}, 14n,
+    IR.Bind{IR.Sub{IR.Var{14n}, IR.Var{1n}}, 15n,
+    IR.Then{IR.SStore{IR.Mapped{IR.Plain{IR.Lit{1n}}, IR.Var{2n}}, IR.Var{15n}},
+    IR.Bind{IR.SLoad{IR.Mapped{IR.Plain{IR.Lit{1n}}, IR.Var{0n}}}, 20n,
+    IR.Bind{IR.Add{IR.Var{20n}, IR.Var{1n}}, 21n,
+    IR.Then{IR.SStore{IR.Mapped{IR.Plain{IR.Lit{1n}}, IR.Var{0n}}, IR.Var{21n}},
     IR.Then{IR.Log{"Transfer(address,address,uint256)", [IR.Var{2n}, IR.Var{0n}], [IR.Var{1n}]},
     IR.Return{IR.Lit{1n}}}}}}}}}}
 
@@ -83,9 +83,9 @@ def ir.mint() -> IR.Cmd:
     IR.Bind{IR.SLoad{IR.Plain{IR.Lit{0n}}}, 5n,
     IR.Bind{IR.Add{IR.Var{5n}, IR.Var{1n}}, 6n,
     IR.Then{IR.SStore{IR.Plain{IR.Lit{0n}}, IR.Var{6n}},
-    IR.Bind{IR.SLoad{IR.Mapped{IR.Plain{IR.Lit{1n}}, IR.Var{0n}}}, 8n,
-    IR.Bind{IR.Add{IR.Var{8n}, IR.Var{1n}}, 9n,
-    IR.Then{IR.SStore{IR.Mapped{IR.Plain{IR.Lit{1n}}, IR.Var{0n}}, IR.Var{9n}},
+    IR.Bind{IR.SLoad{IR.Mapped{IR.Plain{IR.Lit{1n}}, IR.Var{0n}}}, 11n,
+    IR.Bind{IR.Add{IR.Var{11n}, IR.Var{1n}}, 12n,
+    IR.Then{IR.SStore{IR.Mapped{IR.Plain{IR.Lit{1n}}, IR.Var{0n}}, IR.Var{12n}},
     IR.Finish{IR.Log{"Transfer(address,address,uint256)", [IR.Lit{0n}, IR.Var{0n}], [IR.Var{1n}]}}}}}}}}}}}
 
 law mint:
@@ -124,16 +124,16 @@ def approve(p0, p1):
 def ir.transferFrom() -> IR.Cmd:
   IR.Bind{IR.Caller{}, 3n,
     IR.Bind{IR.SLoad{IR.Mapped{IR.Mapped{IR.Plain{IR.Lit{2n}}, IR.Var{0n}}, IR.Var{3n}}}, 4n,
-    IR.Bind{IR.Max{}, 5n,
-    IR.Bind{IR.Select{IR.Eq{IR.Var{4n}, IR.Var{5n}}, IR.Lit{0n}, IR.Var{2n}}, 6n,
-    IR.Bind{IR.Sub{IR.Var{4n}, IR.Var{6n}}, 7n,
-    IR.Then{IR.SStore{IR.Mapped{IR.Mapped{IR.Plain{IR.Lit{2n}}, IR.Var{0n}}, IR.Var{3n}}, IR.Var{7n}},
-    IR.Bind{IR.SLoad{IR.Mapped{IR.Plain{IR.Lit{1n}}, IR.Var{0n}}}, 9n,
-    IR.Bind{IR.Sub{IR.Var{9n}, IR.Var{2n}}, 10n,
-    IR.Then{IR.SStore{IR.Mapped{IR.Plain{IR.Lit{1n}}, IR.Var{0n}}, IR.Var{10n}},
-    IR.Bind{IR.SLoad{IR.Mapped{IR.Plain{IR.Lit{1n}}, IR.Var{1n}}}, 12n,
-    IR.Bind{IR.Add{IR.Var{12n}, IR.Var{2n}}, 13n,
-    IR.Then{IR.SStore{IR.Mapped{IR.Plain{IR.Lit{1n}}, IR.Var{1n}}, IR.Var{13n}},
+    IR.Bind{IR.Max{}, 24n,
+    IR.Bind{IR.Select{IR.Eq{IR.Var{4n}, IR.Var{24n}}, IR.Lit{0n}, IR.Var{2n}}, 5n,
+    IR.Bind{IR.Sub{IR.Var{4n}, IR.Var{5n}}, 6n,
+    IR.Then{IR.SStore{IR.Mapped{IR.Mapped{IR.Plain{IR.Lit{2n}}, IR.Var{0n}}, IR.Var{3n}}, IR.Var{6n}},
+    IR.Bind{IR.SLoad{IR.Mapped{IR.Plain{IR.Lit{1n}}, IR.Var{0n}}}, 14n,
+    IR.Bind{IR.Sub{IR.Var{14n}, IR.Var{2n}}, 15n,
+    IR.Then{IR.SStore{IR.Mapped{IR.Plain{IR.Lit{1n}}, IR.Var{0n}}, IR.Var{15n}},
+    IR.Bind{IR.SLoad{IR.Mapped{IR.Plain{IR.Lit{1n}}, IR.Var{1n}}}, 20n,
+    IR.Bind{IR.Add{IR.Var{20n}, IR.Var{2n}}, 21n,
+    IR.Then{IR.SStore{IR.Mapped{IR.Plain{IR.Lit{1n}}, IR.Var{1n}}, IR.Var{21n}},
     IR.Then{IR.Log{"Transfer(address,address,uint256)", [IR.Var{0n}, IR.Var{1n}], [IR.Var{2n}]},
     IR.Return{IR.Lit{1n}}}}}}}}}}}}}}}
 

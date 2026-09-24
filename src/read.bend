@@ -1,6 +1,7 @@
 import Base
 import ../vendor/bend-frontend/src/core.bend as Core
 import ./ir.bend as IR
+import ./inline.bend as Inline
 
 # The reader proposes IR and the generated certificate proves it. A reader bug
 # makes the certificate fail instead of miscompiling, so the reader is untrusted.
@@ -298,29 +299,60 @@ def effect(c: Call, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String
     case _:
       Fail{"Unsupported effect"}
 
-# A bind over a word keeps its value; a bind over Unit is a plain step.
-def step(typ: Call, +action: Call, level: Nat, rest: Result<&2, &2, String, IR.Cmd>,
-  +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Cmd>:
+# The first result that is Done; otherwise both errors.
+def first(own: Result<&2, &2, String, IR.Cmd>, called: Result<&2, &2, String, IR.Cmd>) -> Result<&2, &2, String, IR.Cmd>:
+  match own called:
+    case Done{value} _:
+      Done{value}
+    case Fail{_} Done{value}:
+      Done{value}
+    case Fail{e} Fail{f}:
+      Fail{e ++ "; " ++ f}
+
+def called.word(k: Result<&2, &2, String, Inline.Callee>, +level: Nat, +rest: IR.Cmd) -> Result<&2, &2, String, IR.Cmd>:
+  do Result<&2, &2, String, IR.Cmd>:
+    callee : Inline.Callee <- k
+    body : IR.Cmd <- Inline.place(callee, Inline.max(level, Inline.top(rest)))
+    Inline.splice.word(body, level, rest)
+
+def called.unit(k: Result<&2, &2, String, Inline.Callee>, +level: Nat, +rest: IR.Cmd) -> Result<&2, &2, String, IR.Cmd>:
+  do Result<&2, &2, String, IR.Cmd>:
+    callee : Inline.Callee <- k
+    body : IR.Cmd <- Inline.place(callee, Inline.max(level, Inline.top(rest)))
+    Inline.splice.unit(body, rest)
+
+def own.word(w: Result<&2, &2, String, IR.Word>, +level: Nat, +rest: IR.Cmd) -> Result<&2, &2, String, IR.Cmd>:
+  do Result<&2, &2, String, IR.Cmd>:
+    value : IR.Word <- w
+    return IR.Bind{value, level, rest}
+
+def own.unit(e: Result<&2, &2, String, IR.Effect>, +rest: IR.Cmd) -> Result<&2, &2, String, IR.Cmd>:
+  do Result<&2, &2, String, IR.Cmd>:
+    value : IR.Effect <- e
+    return IR.Then{value, rest}
+
+# A bind over a word keeps its value; a bind over Unit is a plain step. The
+# action is a DSL call, or else a call to one of the contract's functions.
+def step(typ: Call, +action: Call, +level: Nat, rest: Result<&2, &2, String, IR.Cmd>,
+  k: Result<&2, &2, String, Inline.Callee>, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Cmd>:
   match typ:
     case Call{"Nat", Nil{}}:
       do Result<&2, &2, String, IR.Cmd>:
-        w : IR.Word <- word(action, decls)
-        body : IR.Cmd <- rest
-        return IR.Bind{w, level, body}
+        +body : IR.Cmd <- rest
+        first(own.word(word(action, decls), level, body), called.word(k, level, body))
     case Call{"Unit", Nil{}}:
       do Result<&2, &2, String, IR.Cmd>:
-        e : IR.Effect <- effect(action, decls)
-        body : IR.Cmd <- rest
-        return IR.Then{e, body}
+        +body : IR.Cmd <- rest
+        first(own.unit(effect(action, decls), body), called.unit(k, level, body))
     case _:
       Fail{"Only Nat and Unit results can be bound"}
 
-def bind(c: Call, level: Core.Level, rest: Result<&2, &2, String, IR.Cmd>, +decls: List<&2, Core.Declaration>) ->
-  Result<&2, &2, String, IR.Cmd>:
-  match c level:
-    case Call{"Evm.Contract.bind", typ <> _ <> action <> Nil{}} Core.Bound{value}:
-      step(call(typ, Nil{}), call(action, Nil{}), U32.to_nat(value), rest, decls)
-    case _ _:
+def bind(c: Call, +level: Nat, rest: Result<&2, &2, String, IR.Cmd>, k: Result<&2, &2, String, Inline.Callee>,
+  +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Cmd>:
+  match c:
+    case Call{"Evm.Contract.bind", typ <> _ <> action <> Nil{}}:
+      step(call(typ, Nil{}), call(action, Nil{}), level, rest, k, decls)
+    case _:
       Fail{"Unsupported binding"}
 
 def unit(term: Core.Term) -> Result<&2, &2, String, IR.Cmd>:
@@ -351,19 +383,133 @@ def last(w: Result<&2, &2, String, IR.Word>, e: Result<&2, &2, String, IR.Effect
     case Fail{w} Fail{e}:
       Fail{"Unsupported contract step: " ++ w ++ "; " ++ e}
 
-def final(c: Call, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Cmd>:
+def called.tail(k: Result<&2, &2, String, Inline.Callee>, +bound: Nat) -> Result<&2, &2, String, IR.Cmd>:
+  do Result<&2, &2, String, IR.Cmd>:
+    callee : Inline.Callee <- k
+    Inline.place(callee, bound)
+
+def final(c: Call, k: Result<&2, &2, String, Inline.Callee>, +bound: Nat, +decls: List<&2, Core.Declaration>) ->
+  Result<&2, &2, String, IR.Cmd>:
   match c:
     case Call{"Evm.Contract.pure", typ <> value <> Nil{}}:
       pure(call(typ, Nil{}), value, decls)
     case +other:
-      last(word(other, decls), effect(other, decls))
+      first(last(word(other, decls), effect(other, decls)), called.tail(k, bound))
 
-def cmd(term: Core.Term, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Cmd>:
-  match term:
-    case Core.TApp{func, Core.TLam{_, level, body, _}}:
-      bind(call(func, Nil{}), level, cmd(body, decls), decls)
-    case other:
-      final(call(other, Nil{}), decls)
+# A function's parameter levels and the body under its lambdas.
+type Lambdas is Data:
+  Lambdas{parameters: List<&2, Nat>, body: Core.Term}
+
+def lambdas.prepend(level: Nat, rest: Lambdas) -> Lambdas:
+  match rest:
+    case Lambdas{parameters, body}:
+      Lambdas{level <> parameters, body}
+
+def lambdas(arity: Nat, term: Core.Term) -> Result<&2, &2, String, Lambdas>:
+  match arity term:
+    case 0n body:
+      Done{Lambdas{Nil{}, body}}
+    case 1n+p Core.TLam{_, Core.Bound{level}, body, _}:
+      do Result<&2, &2, String, Lambdas>:
+        rest : Lambdas <- lambdas(p, body)
+        return lambdas.prepend(U32.to_nat(level), rest)
+    case _ _:
+      Fail{"Expected one lambda per parameter"}
+
+def lambdas.found(found: Maybe<&2, Core.Declaration>, +evm: String) -> Result<&2, &2, String, Lambdas>:
+  match found:
+    case Some{Core.Definition{Core.Header{_, _, +arity, _}, 0, False{}, Nil{}, _, Some{body}}}:
+      lambdas(U32.to_nat(arity), strip(evm, body))
+    case _:
+      Fail{"Expected a safe, concrete contract function"}
+
+def lambdas.parameters(l: Lambdas) -> List<&2, Nat>:
+  match l:
+    case Lambdas{parameters, _}:
+      parameters
+
+def lambdas.body(l: Lambdas) -> Core.Term:
+  match l:
+    case Lambdas{_, body}:
+      body
+
+def terms(ts: List<&2, Core.Term>, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, List<&2, IR.Expr>>:
+  match ts:
+    case Nil{}:
+      Done{Nil{}}
+    case t <> rest:
+      do Result<&2, &2, String, List<&2, IR.Expr>>:
+        h : IR.Expr <- expr(t, decls)
+        r : List<&2, IR.Expr> <- terms(rest, decls)
+        return h <> r
+
+# The function that a call names, and its arguments.
+type Target is Data:
+  Target{lambdas: Lambdas, args: List<&2, IR.Expr>}
+
+def target(c: Call, +evm: String, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, Target>:
+  match c:
+    case Call{name, args}:
+      do Result<&2, &2, String, Target>:
+        l : Lambdas <- lambdas.found(Core.find(decls, name), evm)
+        a : List<&2, IR.Expr> <- terms(args, decls)
+        return Target{l, a}
+    case Other{}:
+      Fail{"Unsupported call"}
+
+def target.body(t: Target) -> Core.Term:
+  match t:
+    case Target{l, _}:
+      lambdas.body(l)
+
+def target.callee(t: Target, body: IR.Cmd) -> Inline.Callee:
+  match t:
+    case Target{l, args}:
+      Inline.Callee{lambdas.parameters(l), args, body}
+
+def action(c: Call) -> Call:
+  match c:
+    case Call{"Evm.Contract.bind", _ <> _ <> action <> Nil{}}:
+      call(action, Nil{})
+    case _:
+      Other{}
+
+def level(l: Core.Level) -> Nat:
+  match l:
+    case Core.Bound{value}:
+      U32.to_nat(value)
+    case Core.Placeholder{}:
+      0n
+
+# Calls to the contract's own functions are inlined, at most this deep.
+def depth() -> Nat:
+  8n
+
+# Reads a body. bound is the largest level declared so far. Each inlined
+# call reads its callee with less fuel, so reading ends.
+def cmd(+fuel: Nat, term: Core.Term, +bound: Nat, +evm: String, +decls: List<&2, Core.Declaration>) ->
+  Result<&2, &2, String, IR.Cmd>:
+  match fuel:
+    case 0n:
+      Fail{"Calls nest too deep"}
+    case 1n+p:
+      match term:
+        case Core.TApp{func, Core.TLam{_, l, body, _}}:
+          +c = call(func, Nil{})
+          +at = level(l)
+          +t = target(action(c), evm, decls)
+          +k = do Result<&2, &2, String, Inline.Callee>:
+            +x : Target <- t
+            b : IR.Cmd <- cmd(p, target.body(x), 0n, evm, decls)
+            return target.callee(x, b)
+          bind(c, at, cmd(fuel, body, at, evm, decls), k, decls)
+        case other:
+          +c = call(other, Nil{})
+          +k = do Result<&2, &2, String, Inline.Callee>:
+            +x : Target <- target(c, evm, decls)
+            b : IR.Cmd <- cmd(p, target.body(x), 0n, evm, decls)
+            return target.callee(x, b)
+          final(c, k, bound, decls)
 
 def output(c: IR.Cmd) -> IR.Output:
   match c:
@@ -383,24 +529,13 @@ def output(c: IR.Cmd) -> IR.Output:
 type Entry is Data:
   Entry{parameters: List<&2, Nat>, body: IR.Cmd}
 
-def prepend(level: Nat, rest: Entry) -> Entry:
-  match rest:
-    case Entry{parameters, body}:
-      Entry{level <> parameters, body}
-
 # Parameters are the leading lambdas; the certificate checks their types.
-def lambdas(arity: Nat, term: Core.Term, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, Entry>:
-  match arity term:
-    case 0n body:
+def entry.read(l: Lambdas, +arity: Nat, +evm: String, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, Entry>:
+  match l:
+    case Lambdas{parameters, body}:
       do Result<&2, &2, String, Entry>:
-        c : IR.Cmd <- cmd(body, decls)
-        return Entry{Nil{}, c}
-    case 1n+p Core.TLam{_, Core.Bound{level}, body, _}:
-      do Result<&2, &2, String, Entry>:
-        rest : Entry <- lambdas(p, body, decls)
-        return prepend(U32.to_nat(level), rest)
-    case _ _:
-      Fail{"Expected one lambda per parameter"}
+        c : IR.Cmd <- cmd(depth(), body, arity, evm, decls)
+        return Entry{parameters, c}
 
 def module.found(found: Maybe<&2, String>) -> Result<&2, &2, String, String>:
   match found:
@@ -432,7 +567,9 @@ def entry.found(found: Maybe<&2, Core.Declaration>, +evm: String, +decls: List<&
   Result<&2, &2, String, Entry>:
   match found:
     case Some{Core.Definition{Core.Header{_, _, +arity, _}, 0, False{}, Nil{}, _, Some{body}}}:
-      lambdas(U32.to_nat(arity), strip(evm, body), decls)
+      do Result<&2, &2, String, Entry>:
+        l : Lambdas <- lambdas(U32.to_nat(arity), strip(evm, body))
+        entry.read(l, U32.to_nat(arity), evm, decls)
     case _:
       Fail{"Expected a safe, concrete contract function"}
 

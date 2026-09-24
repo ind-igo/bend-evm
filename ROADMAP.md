@@ -103,3 +103,15 @@ An entry named `init` runs at deploy. The token stores the deployer as its owner
 - [x] Laws for `init`, `owner` and `transferOwnership`; `mint` checks the stored owner. The `anvil` test deploys from a normal account.
 
 Not in M6: constructor arguments.
+
+## M7: internal calls
+
+A contract function can call the contract's other functions, like `move(from, to, amount)` in the token. The reader inlines each call, so the IR, the lowering and the proof do not change, and the certificate checks the inlining.
+
+### Done when
+
+- [x] The callee's parameters become the argument expressions, and its other levels move above the caller's, so no variable is captured and Yul declares no local twice. A returned value replaces the bound variable; a tail action binds it.
+- [x] `transfer` and `transferFrom` share `move`, and `mint` and `move` share `credit`. The token laws did not change.
+- [x] A test inlines each form of call, runs it on `anvil`, and checks that a wrong join gives a certificate that fails.
+
+Not in M7: recursion (calls nest at most 8 deep), and Yul functions for code size.
