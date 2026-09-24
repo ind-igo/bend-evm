@@ -17,6 +17,7 @@ type Exp is Data:
   Lt{left: Exp, right: Exp}
   Gt{left: Exp, right: Exp}
   IsZero{value: Exp}
+  Select{cond: Exp, yes: Exp, no: Exp}
 
 # Each statement holds the rest of its block, so a block is one Stmt.
 type Stmt is Data:
@@ -76,6 +77,9 @@ def eval(e: Exp, +env: List<&2, IR.Binding>, +s: Evm.State) -> Nat:
       gt(a, b, Evm.limit.of(s))
     case IsZero{value}:
       bit(Nat.is_eq(eval(value, env, s), 0n))
+    case Select{cond, yes, no}:
+      c y n = eval(cond, env, s) eval(yes, env, s) eval(no, env, s)
+      Bool.pick(Nat, Nat.is_eq(c, 0n), n, y)
 
 # `if cond { revert(0, 0) }` reverts when cond is not zero.
 def exec(stmt: Stmt, +out: IR.Output, +env: List<&2, IR.Binding>) -> Evm.Contract(IR.value(out)):
@@ -103,6 +107,20 @@ def lower.cond(c: IR.Cond) -> Exp:
     case IR.Lt{left, right}:
       IsZero{Lt{Atom{left}, Atom{right}}}
 
+# The test under which a Select picks its first word.
+def lower.test(c: IR.Cond) -> Exp:
+  match c:
+    case IR.Eq{left, right}:
+      Eq{Atom{left}, Atom{right}}
+    case IR.Lt{left, right}:
+      Lt{Atom{left}, Atom{right}}
+
+def lower.select(c: IR.Cond, +yes: IR.Expr, +no: IR.Expr) -> Exp:
+  Select{lower.test(c), Atom{yes}, Atom{no}}
+
+def max() -> Exp:
+  Not{Atom{IR.Lit{0n}}}
+
 # Checked add reverts when b > not(0) - a, that is when a + b overflows.
 # Checked sub reverts when a < b.
 def overflow(+left: IR.Expr, +right: IR.Expr) -> Exp:
@@ -119,6 +137,10 @@ def lower(cmd: IR.Cmd, +out: IR.Output) -> Stmt:
       Check{overflow(left, right), Let{level, Add{Atom{left}, Atom{right}}, lower(body, o)}}
     case IR.Bind{IR.Sub{+left, +right}, level, body} o:
       Check{Lt{Atom{left}, Atom{right}}, Let{level, Sub{Atom{left}, Atom{right}}, lower(body, o)}}
+    case IR.Bind{IR.Select{c, yes, no}, level, body} o:
+      Let{level, lower.select(c, yes, no), lower(body, o)}
+    case IR.Bind{IR.Max{}, level, body} o:
+      Let{level, max(), lower(body, o)}
     case IR.Then{IR.SStore{loc, value}, body} o:
       SStore{loc, Atom{value}, lower(body, o)}
     case IR.Then{IR.Log{event, topics, data}, body} o:
@@ -135,6 +157,10 @@ def lower(cmd: IR.Cmd, +out: IR.Output) -> Stmt:
       Check{overflow(left, right), Result{Add{Atom{left}, Atom{right}}}}
     case IR.Tail{IR.Sub{+left, +right}} IR.Returns{}:
       Check{Lt{Atom{left}, Atom{right}}, Result{Sub{Atom{left}, Atom{right}}}}
+    case IR.Tail{IR.Select{c, yes, no}} IR.Returns{}:
+      Result{lower.select(c, yes, no)}
+    case IR.Tail{IR.Max{}} IR.Returns{}:
+      Result{max()}
     case IR.Finish{IR.SStore{loc, value}} IR.Stops{}:
       SStore{loc, Atom{value}, Stop{}}
     case IR.Finish{IR.Log{event, topics, data}} IR.Stops{}:

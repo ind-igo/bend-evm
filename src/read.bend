@@ -209,6 +209,11 @@ def sub(pair: Operands) -> IR.Word:
     case Operands{l, r}:
       IR.Sub{l, r}
 
+def select(c: IR.Cond, pair: Operands) -> IR.Word:
+  match pair:
+    case Operands{y, n}:
+      IR.Select{c, y, n}
+
 def mapped(pair: Operands) -> IR.Loc:
   match pair:
     case Operands{s, k}:
@@ -244,6 +249,13 @@ def word(c: Call, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, 
         return IR.SLoad{IR.Mapped{mapped(pair), k}}
     case Call{"Evm.caller", Nil{}}:
       Done{IR.Caller{}}
+    case Call{"Evm.max", Nil{}}:
+      Done{IR.Max{}}
+    case Call{"Evm.select", test <> yes <> no <> Nil{}}:
+      do Result<&2, &2, String, IR.Word>:
+        c : IR.Cond <- cond(call(test, Nil{}), decls)
+        pair : Operands <- operands(yes, no, decls)
+        return select(c, pair)
     case Call{"Evm.add", left <> right <> Nil{}}:
       do Result<&2, &2, String, IR.Word>:
         pair : Operands <- operands(left, right, decls)

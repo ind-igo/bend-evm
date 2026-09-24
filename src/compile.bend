@@ -62,6 +62,9 @@ def exp(e: Yul.Exp) -> String:
       call("gt", [a, b])
     case Yul.IsZero{value}:
       call("iszero", [exp(value)])
+    case Yul.Select{cond, yes, no}:
+      c y n = exp(cond) exp(yes) exp(no)
+      call("select", [c, y, n])
 
 def atoms(exprs: List<&2, IR.Expr>) -> List<&2, String>:
   match exprs:
@@ -169,6 +172,10 @@ def object(body: String) -> String:
     ++ "        mstore(0, key)\n"
     ++ "        mstore(32, slot)\n"
     ++ "        location := keccak256(0, 64)\n"
+    ++ "      }\n"
+    ++ "      function select(c, a, b) -> v {\n"
+    ++ "        v := b\n"
+    ++ "        if c { v := a }\n"
     ++ "      }\n"
     ++ "      if callvalue() { " ++ revert() ++ " }\n"
     ++ "      if lt(calldatasize(), 4) { " ++ revert() ++ " }\n"

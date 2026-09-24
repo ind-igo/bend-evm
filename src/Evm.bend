@@ -129,6 +129,15 @@ def log(event: String, topics: List<&2, Nat>, data: Nat) -> Contract(Unit):
 def require(ok: Bool) -> Contract(Unit):
   R => k => s => Bool.pick(Outcome<R>, ok, k(Unit{}, s), Revert{})
 
+# a when ok holds, b otherwise. It chooses a word, not a contract, so the
+# continuation is used once and laws stay closed.
+def select(ok: Bool, a: Nat, b: Nat) -> Contract(Nat):
+  R => k => s => k(Bool.pick(Nat, ok, a, b), s)
+
+# The largest word, 2^256 - 1 on the EVM.
+def max() -> Contract(Nat):
+  R => k => +s => k(Nat.sub(limit.of(s), 1n), s)
+
 # Checked addition: reverts on overflow, like Solidity 0.8.
 def add(+a: Nat, +b: Nat) -> Contract(Nat):
   R => k => +s => Bool.pick(Outcome<R>, Nat.is_lt(Nat.add(a, b), limit.of(s)), k(Nat.add(a, b), s), Revert{})

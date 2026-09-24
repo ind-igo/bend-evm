@@ -100,3 +100,15 @@ test('transferFrom reverts above the allowance or the balance', () => {
   expect(allowance(sender, bob)).toBe(1000n);
   expect(balance(sender)).toBe(50n);
 });
+
+test('an allowance of max is unlimited', () => {
+  const max = (2n ** 256n - 1n).toString();
+  must(send(sender, 'approve(address,uint256)', bob, max));
+  must(send(bob, 'transferFrom(address,address,uint256)', sender, carol, '10'));
+  expect(allowance(sender, bob)).toBe(2n ** 256n - 1n);
+  expect(balance(sender)).toBe(40n);
+  expect(balance(carol)).toBe(30n);
+  must(send(sender, 'approve(address,uint256)', bob, (2n ** 256n - 2n).toString()));
+  must(send(bob, 'transferFrom(address,address,uint256)', sender, carol, '10'));
+  expect(allowance(sender, bob)).toBe(2n ** 256n - 12n);
+});

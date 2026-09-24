@@ -16,6 +16,11 @@ def balance(storage: List<&2, Evm.Slot>, who: Nat) -> Nat:
 def allowed(storage: List<&2, Evm.Slot>, holder: Nat, spender: Nat) -> Nat:
   Evm.lookup(storage, Evm.Mapped{Evm.Mapped{Evm.Plain{2n}, holder}, spender})
 
+# What transferFrom takes from the allowance: nothing when it is the
+# largest word, limit - 1.
+def spent(storage: List<&2, Evm.Slot>, holder: Nat, spender: Nat, limit: Nat, +amount: Nat) -> Nat:
+  Bool.pick(Nat, Nat.is_eq(allowed(storage, holder, spender), Nat.sub(limit, 1n)), 0n, amount)
+
 def debit(+storage: List<&2, Evm.Slot>, +from: Nat, amount: Nat) -> List<&2, Evm.Slot>:
   Evm.Slot{Evm.Mapped{Evm.Plain{1n}, from}, Nat.sub(balance(storage, from), amount)} <> storage
 
@@ -80,9 +85,9 @@ law approve:
     == Evm.Ok{1n, Evm.State{Evm.Slot{Evm.Mapped{Evm.Mapped{Evm.Plain{2n}, who}, spender}, amount} <> storage, who, limit,
       Evm.Log{"Approval(address,address,uint256)", [who, spender], amount} <> logs}} : Evm.Outcome<Nat>}
 
-# The caller spends from the allowance of `from`. The allowance and the
-# balance must both cover the amount; then the allowance goes down and the
-# amount moves as in transfer.
+# The caller spends from the allowance of `from`. The allowance must cover
+# what is spent and the balance the amount; then the allowance goes down
+# (unless it is unlimited) and the amount moves as in transfer.
 law transferFrom:
   for +storage: List<&2, Evm.Slot>
   for +who: Nat
@@ -92,14 +97,14 @@ law transferFrom:
   for +to: Nat
   for +amount: Nat
   {Evm.run(Nat, Token.transferFrom(from, to, amount), Evm.State{storage, who, limit, logs})
-    == Bool.pick(Evm.Outcome<Nat>, Nat.is_lt(allowed(storage, from, who), amount),
+    == Bool.pick(Evm.Outcome<Nat>, Nat.is_lt(allowed(storage, from, who), spent(storage, from, who, limit, amount)),
       Evm.Revert{},
       Bool.pick(Evm.Outcome<Nat>, Nat.is_lt(balance(storage, from), amount),
         Evm.Revert{},
         Bool.pick(Evm.Outcome<Nat>, Nat.is_lt(Nat.add(balance(debit(storage, from, amount), to), amount), limit),
           Evm.Ok{1n, Evm.State{
             Evm.Slot{Evm.Mapped{Evm.Plain{1n}, to}, Nat.add(balance(debit(storage, from, amount), to), amount)}
-              <> debit(Evm.Slot{Evm.Mapped{Evm.Mapped{Evm.Plain{2n}, from}, who}, Nat.sub(allowed(storage, from, who), amount)}
+              <> debit(Evm.Slot{Evm.Mapped{Evm.Mapped{Evm.Plain{2n}, from}, who}, Nat.sub(allowed(storage, from, who), spent(storage, from, who, limit, amount))}
                 <> storage, from, amount), who, limit,
             Evm.Log{"Transfer(address,address,uint256)", [from, to], amount} <> logs}},
           Evm.Revert{}))) : Evm.Outcome<Nat>}

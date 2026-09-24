@@ -45,6 +45,10 @@ def show.word(w: IR.Word) -> String:
       show.two("IR.Add", left, right)
     case IR.Sub{left, right}:
       show.two("IR.Sub", left, right)
+    case IR.Select{c, yes, no}:
+      "IR.Select{" ++ show.cond(c) ++ ", " ++ show.expr(yes) ++ ", " ++ show.expr(no) ++ "}"
+    case IR.Max{}:
+      "IR.Max{}"
 
 def show.list(exprs: List<&2, IR.Expr>) -> List<&2, String>:
   match exprs:

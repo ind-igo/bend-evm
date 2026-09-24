@@ -22,6 +22,8 @@ type Word is Data:
   Caller{}
   Add{left: Expr, right: Expr}
   Sub{left: Expr, right: Expr}
+  Select{cond: Cond, yes: Expr, no: Expr}
+  Max{}
 
 type Effect is Data:
   SStore{loc: Loc, value: Expr}
@@ -96,6 +98,10 @@ def word(w: Word, +env: List<&2, Binding>) -> Evm.Contract(Nat):
       Evm.add(eval(left, env), eval(right, env))
     case Sub{left, right}:
       Evm.sub(eval(left, env), eval(right, env))
+    case Select{c, yes, no}:
+      Evm.select(cond(c, env), eval(yes, env), eval(no, env))
+    case Max{}:
+      Evm.max()
 
 def effect(e: Effect, +env: List<&2, Binding>) -> Evm.Contract(Unit):
   match e:
@@ -153,6 +159,13 @@ def closed.list(exprs: List<&2, Expr>, +scope: List<&2, Nat>) -> Bool:
     case e <> rest:
       Bool.and(closed.expr(e, scope), closed.list(rest, scope))
 
+def closed.cond(c: Cond, +scope: List<&2, Nat>) -> Bool:
+  match c:
+    case Eq{left, right}:
+      closed.two(left, right, scope)
+    case Lt{left, right}:
+      closed.two(left, right, scope)
+
 def closed.loc(l: Loc, +scope: List<&2, Nat>) -> Bool:
   match l:
     case Plain{slot}:
@@ -170,6 +183,10 @@ def closed.word(w: Word, +scope: List<&2, Nat>) -> Bool:
       closed.two(left, right, scope)
     case Sub{left, right}:
       closed.two(left, right, scope)
+    case Select{c, yes, no}:
+      Bool.and(closed.cond(c, scope), closed.two(yes, no, scope))
+    case Max{}:
+      True{}
 
 def closed.effect(e: Effect, +scope: List<&2, Nat>) -> Bool:
   match e:
@@ -177,10 +194,8 @@ def closed.effect(e: Effect, +scope: List<&2, Nat>) -> Bool:
       Bool.and(closed.loc(l, scope), closed.expr(value, scope))
     case Log{_, topics, data}:
       Bool.and(closed.list(topics, scope), closed.expr(data, scope))
-    case Require{Eq{left, right}}:
-      closed.two(left, right, scope)
-    case Require{Lt{left, right}}:
-      closed.two(left, right, scope)
+    case Require{c}:
+      closed.cond(c, scope)
 
 def closed(cmd: Cmd, +scope: List<&2, Nat>) -> Bool:
   match cmd:

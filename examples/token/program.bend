@@ -54,12 +54,15 @@ def approve(+spender: Evm.Address, +amount: Nat) -> Evm.Contract(Nat):
     Evm.log(approval_event(), [holder, spender], amount)
     Evm.Contract.pure(Nat, 1n)
 
-# The caller spends from the allowance that `from` gave it.
+# The caller spends from the allowance that `from` gave it. An allowance of
+# max() is unlimited and does not go down.
 def transferFrom(+from: Evm.Address, +to: Evm.Address, +amount: Nat) -> Evm.Contract(Nat):
   do Evm.Contract<Nat>:
     +spender : Nat <- Evm.caller()
-    allowed : Nat <- Evm.load2(2n, from, spender)
-    left : Nat <- Evm.sub(allowed, amount)
+    +allowed : Nat <- Evm.load2(2n, from, spender)
+    top : Nat <- Evm.max()
+    spend : Nat <- Evm.select(Nat.is_eq(allowed, top), 0n, amount)
+    left : Nat <- Evm.sub(allowed, spend)
     Evm.store2(2n, from, spender, left)
     a : Nat <- Evm.load(1n, from)
     rest : Nat <- Evm.sub(a, amount)

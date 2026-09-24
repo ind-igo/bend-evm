@@ -80,3 +80,14 @@ The M2 laws had fixed addresses and hypotheses such as `a >= amount`. Bend has n
 - [x] The `anvil` test checks the new functions, their events and the storage layout.
 
 Not in M4: the unlimited allowance (`2^256 - 1` is not lowered), which needs branches in contracts.
+
+## M5: select and the unlimited allowance
+
+`Evm.select(cond, a, b)` is `a` when `cond` holds and `b` otherwise, and `Evm.max()` is the largest word, 2^256 − 1. With them, `transferFrom` keeps an allowance of `max()`, as OpenZeppelin does.
+
+A full `if`/`else` is not in M5. A branch must pass the continuation to both arms, and functions cannot be copied, so it needs a `match` in a helper def. The checker keeps that match stuck with its arms unapplied, so a law would have to restate the rest of the program. A select only chooses a word, which is `Data`, so laws stay `{==}`.
+
+### Done when
+
+- [x] The IR has `Select{cond, yes, no}` and `Max{}` words. `Select` lowers to a Yul function `select(c, a, b)` in the runtime, and `Max` to `not(0)`. The preservation proof covers both.
+- [x] `transferFrom` spends nothing from an allowance of `max()`. The law and the `anvil` test cover it.

@@ -223,6 +223,26 @@ def require_step(c: Bool, -R: Data, -y: Evm.Outcome<R>, -f: Evm.Outcome<R>, h: {
     case False{}:
       {==}
 
+# A Select: Yul's `select(test, a, b)` picks a exactly when the condition holds.
+def select_eq(c: Bool, -y: Nat, -n: Nat) -> {Bool.pick(Nat, c, y, n) == Bool.pick(Nat, Nat.is_eq(Yul.bit(c), 0n), n, y) : Nat}:
+  match c:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+# Max: `not(0)` is limit - 1.
+def max_eq(+l: Nat) -> {Nat.sub(l, 1n) == Yul.not(0n, l) : Nat}:
+  match l:
+    case 0n:
+      {==}
+    case 1n+(+p):
+      match p:
+        case 0n:
+          {==}
+        case 1n+_:
+          {==}
+
 # Induction on the command. Both runs pass the same state and continuation on,
 # so only the checks need lemmas.
 def Laws.preserves(cmd, out, env, R, k, s):
@@ -248,6 +268,23 @@ def Laws.preserves(cmd, out, env, R, k, s):
         x => Yul.exec(Yul.lower(body, o), o, IR.Binding{level, x} <> env, R, k, s),
         x => IR.run(body, o, IR.Binding{level, x} <> env, R, k, s),
         Laws.preserves(body, o, IR.Binding{level, Yul.sub(a, b, l)} <> env, R, k, s))
+    case IR.Bind{IR.Select{IR.Eq{left, right}, +yes, +no}, level, body} o:
+      +c = Nat.is_eq(IR.eval(left, env), IR.eval(right, env))
+      +v = Bool.pick(Nat, c, IR.eval(yes, env), IR.eval(no, env))
+      %select_eq(c, IR.eval(yes, env), IR.eval(no, env)) : {Yul.exec(Yul.lower(body, o), o, IR.Binding{level, _} <> env, R, k, s)
+        == IR.run(body, o, IR.Binding{level, v} <> env, R, k, s) : Evm.Outcome<R>}
+      Laws.preserves(body, o, IR.Binding{level, v} <> env, R, k, s)
+    case IR.Bind{IR.Select{IR.Lt{left, right}, +yes, +no}, level, body} o:
+      +c = Nat.is_lt(IR.eval(left, env), IR.eval(right, env))
+      +v = Bool.pick(Nat, c, IR.eval(yes, env), IR.eval(no, env))
+      %select_eq(c, IR.eval(yes, env), IR.eval(no, env)) : {Yul.exec(Yul.lower(body, o), o, IR.Binding{level, _} <> env, R, k, s)
+        == IR.run(body, o, IR.Binding{level, v} <> env, R, k, s) : Evm.Outcome<R>}
+      Laws.preserves(body, o, IR.Binding{level, v} <> env, R, k, s)
+    case IR.Bind{IR.Max{}, level, body} o:
+      +l = Evm.limit.of(s)
+      %max_eq(l) : {Yul.exec(Yul.lower(body, o), o, IR.Binding{level, _} <> env, R, k, s)
+        == IR.run(body, o, IR.Binding{level, Nat.sub(l, 1n)} <> env, R, k, s) : Evm.Outcome<R>}
+      Laws.preserves(body, o, IR.Binding{level, Nat.sub(l, 1n)} <> env, R, k, s)
     case IR.Then{IR.SStore{loc, value}, body} o:
       Laws.preserves(body, o, env, R, k, Evm.write.go(IR.loc(loc, env), IR.eval(value, env), s))
     case IR.Then{IR.Log{event, topics, data}, body} o:
@@ -279,6 +316,23 @@ def Laws.preserves(cmd, out, env, R, k, s):
       +l = Evm.limit.of(s)
       sub_step(Nat.is_lt(a, b), Bool.pick(Nat, Nat.is_lt(b, l), Nat.sub(l, Nat.sub(b, a)), l), Nat.sub(a, b), R,
         x => k(x, s), x => k(x, s), {==})
+    case IR.Tail{IR.Select{IR.Eq{left, right}, +yes, +no}} IR.Returns{}:
+      +c = Nat.is_eq(IR.eval(left, env), IR.eval(right, env))
+      %select_eq(c, IR.eval(yes, env), IR.eval(no, env)) : {k(_, s)
+        == k(Bool.pick(Nat, c, IR.eval(yes, env), IR.eval(no, env)), s) : Evm.Outcome<R>}
+      {==}
+    case IR.Tail{IR.Select{IR.Lt{left, right}, +yes, +no}} IR.Returns{}:
+      +c = Nat.is_lt(IR.eval(left, env), IR.eval(right, env))
+      %select_eq(c, IR.eval(yes, env), IR.eval(no, env)) : {k(_, s)
+        == k(Bool.pick(Nat, c, IR.eval(yes, env), IR.eval(no, env)), s) : Evm.Outcome<R>}
+      {==}
+    case IR.Tail{IR.Max{}} IR.Returns{}:
+      %max_eq(Evm.limit.of(s)) : {k(_, s) == k(Nat.sub(Evm.limit.of(s), 1n), s) : Evm.Outcome<R>}
+      {==}
+    case IR.Tail{IR.Select{_, _, _}} IR.Stops{}:
+      {==}
+    case IR.Tail{IR.Max{}} IR.Stops{}:
+      {==}
     case IR.Tail{IR.SLoad{_}} IR.Stops{}:
       {==}
     case IR.Tail{IR.Caller{}} IR.Stops{}:
