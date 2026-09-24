@@ -91,3 +91,15 @@ A full `if`/`else` is not in M5. A branch must pass the continuation to both arm
 
 - [x] The IR has `Select{cond, yes, no}` and `Max{}` words. `Select` lowers to a Yul function `select(c, a, b)` in the runtime, and `Max` to `not(0)`. The preservation proof covers both.
 - [x] `transferFrom` spends nothing from an allowance of `max()`. The law and the `anvil` test cover it.
+
+## M6: a constructor
+
+An entry named `init` runs at deploy. The token stores the deployer as its owner in slot 3, and has `owner()` and `transferOwnership(address)`, which emits `OwnershipTransferred`, as OpenZeppelin's `Ownable` does.
+
+### Done when
+
+- [x] `compile.bend` puts `init` in the deploy code, where its final stop falls through to returning the runtime code. It rejects an `init` with parameters or a result.
+- [x] Log data is a list of words, so an event may have no data, like `OwnershipTransferred`.
+- [x] Laws for `init`, `owner` and `transferOwnership`; `mint` checks the stored owner. The `anvil` test deploys from a normal account.
+
+Not in M6: constructor arguments.

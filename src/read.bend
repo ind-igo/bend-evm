@@ -176,7 +176,7 @@ def text(term: Core.Term, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, 
       Fail{"Expected an event signature literal"}
 
 # logN takes topic 0 and at most three indexed words.
-def log(event: String, +topics: List<&2, IR.Expr>, data: IR.Expr) -> Result<&2, &2, String, IR.Effect>:
+def log(event: String, +topics: List<&2, IR.Expr>, data: List<&2, IR.Expr>) -> Result<&2, &2, String, IR.Effect>:
   Bool.pick(Result<&2, &2, String, IR.Effect>, Nat.is_lt(List.length(&2, IR.Expr, topics), 4n),
     Done{IR.Log{event, topics, data}}, Fail{"An event has at most three indexed words"})
 
@@ -289,7 +289,7 @@ def effect(c: Call, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String
       do Result<&2, &2, String, IR.Effect>:
         e : String <- text(event, decls)
         t : List<&2, IR.Expr> <- exprs(topics, decls)
-        d : IR.Expr <- expr(data, decls)
+        d : List<&2, IR.Expr> <- exprs(data, decls)
         log(e, t, d)
     case Call{"Evm.require", condition <> Nil{}}:
       do Result<&2, &2, String, IR.Effect>:

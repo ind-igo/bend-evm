@@ -61,7 +61,7 @@ def show.list(exprs: List<&2, IR.Expr>) -> List<&2, String>:
 def show.effect(e: IR.Effect) -> String:
   match e:
     case IR.Log{event, topics, data}:
-      "IR.Log{\"" ++ event ++ "\", [" ++ String.join(show.list(topics), ", ") ++ "], " ++ show.expr(data) ++ "}"
+      "IR.Log{\"" ++ event ++ "\", [" ++ String.join(show.list(topics), ", ") ++ "], [" ++ String.join(show.list(data), ", ") ++ "]}"
     case IR.SStore{l, value}:
       "IR.SStore{" ++ show.loc(l) ++ ", " ++ show.expr(value) ++ "}"
     case IR.Require{c}:

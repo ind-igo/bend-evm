@@ -1,17 +1,24 @@
 import { afterAll, beforeAll, expect, test } from 'bun:test';
-import { deploy, must, owner, reverts, run } from './chain.js';
+import { deploy, must, reverts, run } from './chain.js';
 
 const bob = '0x0000000000000000000000000000000000000b0b';
 const carol = '0x0000000000000000000000000000000000000ca1';
 const topic = must(run('cast', 'keccak', 'Transfer(address,address,uint256)'));
 const approval = must(run('cast', 'keccak', 'Approval(address,address,uint256)'));
+const ownership = must(run('cast', 'keccak', 'OwnershipTransferred(address,address)'));
 const word = x => '0x' + BigInt(x).toString(16).padStart(64, '0');
-let chain, sender, send;
+let chain, sender, send, owner;
 
+// The deployer, sender, is the owner.
 beforeAll(async () => {
-  chain = await deploy('examples/token/program.bend',
-    ['totalSupply', 'balanceOf', 'transfer', 'mint', 'allowance', 'approve', 'transferFrom']);
+  chain = await deploy('examples/token/program.bend', ['init', 'owner', 'transferOwnership', 'totalSupply', 'balanceOf',
+    'transfer', 'mint', 'allowance', 'approve', 'transferFrom']);
   ({ sender, send } = chain);
+  owner = sender;
+  for (const who of [bob, carol]) {
+    must(chain.cast('rpc', 'anvil_impersonateAccount', who));
+    must(chain.cast('rpc', 'anvil_setBalance', who, '0x56bc75e2d63100000'));
+  }
 }, 120_000);
 
 afterAll(() => chain?.stop());
@@ -27,13 +34,24 @@ function logged(result) {
   return [logs[0].topics, logs[0].data];
 }
 
+test('the deployer owns the token and can hand ownership on', () => {
+  expect(chain.word('owner()(address)')).toBe(BigInt(sender));
+  reverts(send(bob, 'transferOwnership(address)', bob));
+  const [topics, data] = logged(send(sender, '--json', 'transferOwnership(address)', bob));
+  expect(topics).toEqual([ownership, word(sender), word(bob)]);
+  expect(data).toBe('0x');
+  expect(chain.word('owner()(address)')).toBe(BigInt(bob));
+  reverts(send(sender, 'transferOwnership(address)', sender));
+  must(send(bob, 'transferOwnership(address)', sender));
+});
+
 test('the owner mints, and mint logs a Transfer from zero', () => {
   const [topics, data] = logged(send(owner, '--json', 'mint(address,uint256)', sender, '100'));
   expect(topics).toEqual([topic, word(0), word(sender)]);
   expect(data).toBe(word(100));
   expect(supply()).toBe(100n);
   expect(balance(sender)).toBe(100n);
-  reverts(send(sender, 'mint(address,uint256)', sender, '1'));
+  reverts(send(bob, 'mint(address,uint256)', sender, '1'));
 });
 
 test('transfer moves the amount, returns true and logs it', () => {
@@ -81,8 +99,6 @@ test('approve sets the allowance at the nested Solidity layout and logs Approval
 });
 
 test('transferFrom spends the allowance and moves the amount', () => {
-  must(chain.cast('rpc', 'anvil_impersonateAccount', bob));
-  must(chain.cast('rpc', 'anvil_setBalance', bob, '0x56bc75e2d63100000'));
   const [topics, data] = logged(send(bob, '--json', 'transferFrom(address,address,uint256)', sender, carol, '20'));
   expect(topics).toEqual([topic, word(sender), word(carol)]);
   expect(data).toBe(word(20));
@@ -94,7 +110,7 @@ test('transferFrom spends the allowance and moves the amount', () => {
 
 test('transferFrom reverts above the allowance or the balance', () => {
   reverts(send(bob, 'transferFrom(address,address,uint256)', sender, carol, '31'));
-  reverts(send(owner, 'transferFrom(address,address,uint256)', sender, carol, '1'));
+  reverts(send(carol, 'transferFrom(address,address,uint256)', sender, carol, '1'));
   must(send(sender, 'approve(address,uint256)', bob, '1000'));
   reverts(send(bob, 'transferFrom(address,address,uint256)', sender, carol, '51'));
   expect(allowance(sender, bob)).toBe(1000n);

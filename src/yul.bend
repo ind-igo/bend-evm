@@ -23,7 +23,7 @@ type Exp is Data:
 type Stmt is Data:
   Let{level: Nat, value: Exp, body: Stmt}
   SStore{loc: IR.Loc, value: Exp, body: Stmt}
-  Log{event: String, topics: List<&2, IR.Expr>, data: Exp, body: Stmt}
+  Log{event: String, topics: List<&2, IR.Expr>, data: List<&2, IR.Expr>, body: Stmt}
   Check{cond: Exp, body: Stmt}
   Result{value: Exp}
   Stop{}
@@ -89,7 +89,7 @@ def exec(stmt: Stmt, +out: IR.Output, +env: List<&2, IR.Binding>) -> Evm.Contrac
     case SStore{loc, value, body} o:
       R => k => +s => exec(body, o, env, R, k, Evm.write.go(IR.loc(loc, env), eval(value, env, s), s))
     case Log{event, topics, data, body} o:
-      R => k => +s => exec(body, o, env, R, k, Evm.log.go(event, IR.evals(topics, env), eval(data, env, s), s))
+      R => k => +s => exec(body, o, env, R, k, Evm.log.go(event, IR.evals(topics, env), IR.evals(data, env), s))
     case Check{cond, body} o:
       R => k => +s => Bool.pick(Evm.Outcome<R>, Nat.is_eq(eval(cond, env, s), 0n), exec(body, o, env, R, k, s), Evm.Revert{})
     case Result{value} IR.Returns{}:
@@ -144,7 +144,7 @@ def lower(cmd: IR.Cmd, +out: IR.Output) -> Stmt:
     case IR.Then{IR.SStore{loc, value}, body} o:
       SStore{loc, Atom{value}, lower(body, o)}
     case IR.Then{IR.Log{event, topics, data}, body} o:
-      Log{event, topics, Atom{data}, lower(body, o)}
+      Log{event, topics, data, lower(body, o)}
     case IR.Then{IR.Require{c}, body} o:
       Check{lower.cond(c), lower(body, o)}
     case IR.Return{value} IR.Returns{}:
@@ -164,7 +164,7 @@ def lower(cmd: IR.Cmd, +out: IR.Output) -> Stmt:
     case IR.Finish{IR.SStore{loc, value}} IR.Stops{}:
       SStore{loc, Atom{value}, Stop{}}
     case IR.Finish{IR.Log{event, topics, data}} IR.Stops{}:
-      Log{event, topics, Atom{data}, Stop{}}
+      Log{event, topics, data, Stop{}}
     case IR.Finish{IR.Require{c}} IR.Stops{}:
       Check{lower.cond(c), Stop{}}
     case IR.Stop{} IR.Stops{}:

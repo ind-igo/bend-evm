@@ -29,10 +29,10 @@ def Address() -> Data:
   Nat
 
 # An event: its signature, such as "Transfer(address,address,uint256)", the
-# indexed words after topic 0, and one data word. Topic 0 is the signature's
+# indexed words after topic 0, and the data words. Topic 0 is the signature's
 # Keccak-256, which the printer computes.
 type Log is Data:
-  Log{event: String, topics: List<&2, Nat>, data: Nat}
+  Log{event: String, topics: List<&2, Nat>, data: List<&2, Nat>}
 
 # Logs are newest first.
 type State is Data:
@@ -118,12 +118,12 @@ def store2(slot: Nat, outer: Nat, inner: Nat, value: Nat) -> Contract(Unit):
 def caller() -> Contract(Nat):
   R => k => +s => k(caller.of(s), s)
 
-def log.go(event: String, topics: List<&2, Nat>, data: Nat, s: State) -> State:
+def log.go(event: String, topics: List<&2, Nat>, data: List<&2, Nat>, s: State) -> State:
   match s:
     case State{storage, caller, limit, logs}:
       State{storage, caller, limit, Log{event, topics, data} <> logs}
 
-def log(event: String, topics: List<&2, Nat>, data: Nat) -> Contract(Unit):
+def log(event: String, topics: List<&2, Nat>, data: List<&2, Nat>) -> Contract(Unit):
   R => k => s => k(Unit{}, log.go(event, topics, data, s))
 
 def require(ok: Bool) -> Contract(Unit):

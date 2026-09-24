@@ -19,7 +19,7 @@ test('the preservation proof rejects a wrong lowering', () => {
       ['Gt{Atom{right}, Sub{', 'Lt{Atom{right}, Sub{'],
       ['Nat.sub(Nat.sub(l, 1n), x)', 'Nat.sub(l, x)'],
       ['Check{Lt{Atom{left}, Atom{right}}, Let{', 'Check{Lt{Atom{right}, Atom{left}}, Let{'],
-      ['Log{event, topics, Atom{data}, lower(body, o)}', 'lower(body, o)'],
+      ['Log{event, topics, data, lower(body, o)}', 'lower(body, o)'],
       ['Bool.pick(Nat, Nat.is_eq(c, 0n), n, y)', 'Bool.pick(Nat, Nat.is_eq(c, 0n), y, n)'],
       ['Not{Atom{IR.Lit{0n}}}', 'Atom{IR.Lit{0n}}'],
     ]) {
@@ -49,4 +49,7 @@ test('compile rejects functions outside the contract DSL', () => {
   const wide = run('tests/fixtures/events.bend', 'wide');
   expect(wide.exitCode).not.toBe(0);
   expect(wide.stderr.toString()).toContain('at most three indexed words');
+  const init = run('tests/fixtures/init.bend', 'init');
+  expect(init.exitCode).not.toBe(0);
+  expect(init.stderr.toString()).toContain('init takes no parameters');
 }, 120_000);

@@ -27,7 +27,7 @@ type Word is Data:
 
 type Effect is Data:
   SStore{loc: Loc, value: Expr}
-  Log{event: String, topics: List<&2, Expr>, data: Expr}
+  Log{event: String, topics: List<&2, Expr>, data: List<&2, Expr>}
   Require{cond: Cond}
 
 type Cmd is Data:
@@ -108,7 +108,7 @@ def effect(e: Effect, +env: List<&2, Binding>) -> Evm.Contract(Unit):
     case SStore{l, value}:
       Evm.write(loc(l, env), eval(value, env))
     case Log{event, topics, data}:
-      Evm.log(event, evals(topics, env), eval(data, env))
+      Evm.log(event, evals(topics, env), evals(data, env))
     case Require{c}:
       Evm.require(cond(c, env))
 
@@ -193,7 +193,7 @@ def closed.effect(e: Effect, +scope: List<&2, Nat>) -> Bool:
     case SStore{l, value}:
       Bool.and(closed.loc(l, scope), closed.expr(value, scope))
     case Log{_, topics, data}:
-      Bool.and(closed.list(topics, scope), closed.expr(data, scope))
+      Bool.and(closed.list(topics, scope), closed.list(data, scope))
     case Require{c}:
       closed.cond(c, scope)
 

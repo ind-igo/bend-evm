@@ -76,22 +76,34 @@ def atoms(exprs: List<&2, IR.Expr>) -> List<&2, String>:
 def revert() -> String:
   "revert(0, 0)"
 
-def stmt(+pad: String, s: Yul.Stmt) -> String:
+# Log data word i goes to memory at 32 * i.
+def stores(+pad: String, data: List<&2, IR.Expr>, +offset: Nat) -> String:
+  match data:
+    case Nil{}:
+      ""
+    case d <> rest:
+      pad ++ call("mstore", [nat(offset), atom(d)]) ++ "\n" ++ stores(pad, rest, Nat.add(32n, offset))
+
+# halt is the text for a final stop: stop() in the runtime code, nothing in
+# the deploy code.
+def stmt(+pad: String, +halt: String, s: Yul.Stmt) -> String:
   match s:
     case Yul.Let{level, value, body}:
-      pad ++ "let " ++ var(level) ++ " := " ++ exp(value) ++ "\n" ++ stmt(pad, body)
+      pad ++ "let " ++ var(level) ++ " := " ++ exp(value) ++ "\n" ++ stmt(pad, halt, body)
     case Yul.SStore{l, value, body}:
-      pad ++ call("sstore", [loc(l), exp(value)]) ++ "\n" ++ stmt(pad, body)
-    case Yul.Log{event, +topics, data, body}:
+      pad ++ call("sstore", [loc(l), exp(value)]) ++ "\n" ++ stmt(pad, halt, body)
+    case Yul.Log{event, +topics, +data, body}:
       +n = Nat.add(1n, List.length(&2, IR.Expr, topics))
-      pad ++ "mstore(0, " ++ exp(data) ++ ")\n"
-        ++ pad ++ call("log" ++ nat(n), "0" <> "32" <> Keccak.digest(event) <> atoms(topics)) ++ "\n" ++ stmt(pad, body)
+      +size = Nat.mul(32n, List.length(&2, IR.Expr, data))
+      stores(pad, data, 0n)
+        ++ pad ++ call("log" ++ nat(n), "0" <> nat(size) <> Keccak.digest(event) <> atoms(topics)) ++ "\n"
+        ++ stmt(pad, halt, body)
     case Yul.Check{cond, body}:
-      pad ++ "if " ++ exp(cond) ++ " { " ++ revert() ++ " }\n" ++ stmt(pad, body)
+      pad ++ "if " ++ exp(cond) ++ " { " ++ revert() ++ " }\n" ++ stmt(pad, halt, body)
     case Yul.Result{value}:
       pad ++ "mstore(0, " ++ exp(value) ++ ")\n" ++ pad ++ "return(0, 32)\n"
     case Yul.Stop{}:
-      pad ++ "stop()\n"
+      halt
     case Yul.Revert{}:
       pad ++ revert() ++ "\n"
 
@@ -124,7 +136,7 @@ def branch.text(+signature: String, +types: List<&2, String>, body: Yul.Stmt) ->
   +size = Nat.add(4n, Nat.mul(32n, List.length(&2, String, types)))
   "      case " ++ Keccak.hex(Keccak.selector(signature)) ++ " {\n"
     ++ pad ++ "if lt(calldatasize(), " ++ nat(size) ++ ") { " ++ revert() ++ " }\n"
-    ++ parameters(pad, types, 0n) ++ stmt(pad, body) ++ "      }\n"
+    ++ parameters(pad, types, 0n) ++ stmt(pad, pad ++ "stop()\n", body) ++ "      }\n"
 
 def branch.closed(+signature: String, +types: List<&2, String>, +levels: List<&2, Nat>, +body: IR.Cmd) ->
   Result<&2, &2, String, String>:
@@ -160,23 +172,30 @@ def cases(names: List<&2, String>, +evm: String, +decls: List<&2, Core.Declarati
         tail : String <- cases(rest, evm, decls)
         return head ++ tail
 
-def object(body: String) -> String:
+# Yul functions that lowered code calls. Each code block defines its own.
+def helpers(+pad: String) -> String:
+  pad ++ "function mapped(slot, key) -> location {\n"
+    ++ pad ++ "  mstore(0, key)\n"
+    ++ pad ++ "  mstore(32, slot)\n"
+    ++ pad ++ "  location := keccak256(0, 64)\n"
+    ++ pad ++ "}\n"
+    ++ pad ++ "function select(c, a, b) -> v {\n"
+    ++ pad ++ "  v := b\n"
+    ++ pad ++ "  if c { v := a }\n"
+    ++ pad ++ "}\n"
+
+def object(init: String, body: String) -> String:
   "object \"Contract\" {\n"
     ++ "  code {\n"
+    ++ helpers("    ")
+    ++ "    if callvalue() { " ++ revert() ++ " }\n"
+    ++ init
     ++ "    datacopy(0, dataoffset(\"runtime\"), datasize(\"runtime\"))\n"
     ++ "    return(0, datasize(\"runtime\"))\n"
     ++ "  }\n"
     ++ "  object \"runtime\" {\n"
     ++ "    code {\n"
-    ++ "      function mapped(slot, key) -> location {\n"
-    ++ "        mstore(0, key)\n"
-    ++ "        mstore(32, slot)\n"
-    ++ "        location := keccak256(0, 64)\n"
-    ++ "      }\n"
-    ++ "      function select(c, a, b) -> v {\n"
-    ++ "        v := b\n"
-    ++ "        if c { v := a }\n"
-    ++ "      }\n"
+    ++ helpers("      ")
     ++ "      if callvalue() { " ++ revert() ++ " }\n"
     ++ "      if lt(calldatasize(), 4) { " ++ revert() ++ " }\n"
     ++ "      switch shr(224, calldataload(0))\n"
@@ -186,14 +205,64 @@ def object(body: String) -> String:
     ++ "  }\n"
     ++ "}\n"
 
+# An entry named init is the constructor. It runs in the deploy code, where a
+# final stop falls through to returning the runtime code.
+def is_init(+name: String) -> Bool:
+  match name:
+    case "init":
+      True{}
+    case _:
+      False{}
+
+def has_init(names: List<&2, String>) -> Bool:
+  match names:
+    case Nil{}:
+      False{}
+    case +name <> rest:
+      Bool.or(is_init(name), has_init(rest))
+
+def without_init(names: List<&2, String>) -> List<&2, String>:
+  match names:
+    case Nil{}:
+      Nil{}
+    case +name <> rest:
+      +kept = without_init(rest)
+      Bool.pick(List<&2, String>, is_init(name), kept, name <> kept)
+
+def init.stops(out: IR.Output, +body: IR.Cmd) -> Result<&2, &2, String, String>:
+  match out:
+    case IR.Stops{}:
+      Bool.pick(Result<&2, &2, String, String>, IR.closed(body, Nil{}),
+        Done{stmt("    ", "", Yul.lower(body, IR.Stops{}))},
+        Fail{"init: the IR has an unbound variable"})
+    case IR.Returns{}:
+      Fail{"init must return Unit"}
+
+def init.text(entry: Read.Entry) -> Result<&2, &2, String, String>:
+  match entry:
+    case Read.Entry{Nil{}, +body}:
+      init.stops(Read.output(body), body)
+    case Read.Entry{_ <> _, _}:
+      Fail{"init takes no parameters"}
+
+def constructor(found: Bool, +evm: String, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, String>:
+  match found:
+    case True{}:
+      do Result<&2, &2, String, String>:
+        entry : Read.Entry <- Read.entry(evm, decls, "init")
+        init.text(entry)
+    case False{}:
+      Done{""}
+
 def contract(program: Core.Program, +backend: String, entries: List<&2, String>) -> Result<&2, &2, String, String>:
   match program entries:
-    case Core.Program{_, _, _, _, entry, _, _, _, +decls, _} +first <> rest:
+    case Core.Program{_, _, _, _, entry, _, _, _, +decls, _} +first <> +rest:
       do Result<&2, &2, String, String>:
         prefix : String <- Read.prefix(decls, first)
-        evm : String <- Certify.module(entry, prefix, backend)
-        body : String <- cases(first <> rest, evm, decls)
-        return object(body)
+        +evm : String <- Certify.module(entry, prefix, backend)
+        init : String <- constructor(has_init(first <> rest), evm, decls)
+        body : String <- cases(without_init(first <> rest), evm, decls)
+        return object(init, body)
     case _ Nil{}:
       Fail{"Name at least one contract function"}
 

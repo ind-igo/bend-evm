@@ -288,7 +288,7 @@ def Laws.preserves(cmd, out, env, R, k, s):
     case IR.Then{IR.SStore{loc, value}, body} o:
       Laws.preserves(body, o, env, R, k, Evm.write.go(IR.loc(loc, env), IR.eval(value, env), s))
     case IR.Then{IR.Log{event, topics, data}, body} o:
-      Laws.preserves(body, o, env, R, k, Evm.log.go(event, IR.evals(topics, env), IR.eval(data, env), s))
+      Laws.preserves(body, o, env, R, k, Evm.log.go(event, IR.evals(topics, env), IR.evals(data, env), s))
     case IR.Then{IR.Require{IR.Eq{left, right}}, body} o:
       require_step(Nat.is_eq(IR.eval(left, env), IR.eval(right, env)), R,
         Yul.exec(Yul.lower(body, o), o, env, R, k, s), IR.run(body, o, env, R, k, s), Laws.preserves(body, o, env, R, k, s))
