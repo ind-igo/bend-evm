@@ -9,7 +9,7 @@ const bend = (...args) => Bun.spawnSync([process.execPath, ...args], { cwd: root
 let chain;
 
 beforeAll(async () => {
-  chain = await deploy('tests/fixtures/calls/program.bend', ['run']);
+  chain = await deploy('tests/fixtures/calls/program.bend', ['run', 'outer']);
 }, 120_000);
 
 afterAll(() => chain?.stop());
@@ -19,6 +19,7 @@ test('inlined calls run on the chain', () => {
   expect(chain.word('run(uint256)(uint256)', '3')).toBe(19n);
   expect(BigInt(must(chain.cast('storage', chain.address, '0')))).toBe(12n);
   expect(BigInt(must(chain.cast('storage', chain.address, '1')))).toBe(19n);
+  expect(chain.word('outer(uint256)(uint256)', '5')).toBe(1n);
 });
 
 // The reader is not trusted: a wrong inlining gives a certificate that fails.
@@ -31,7 +32,7 @@ test('the certificate of the inlined calls checks, and catches a wrong join', ()
     const file = path.join(dir, 'tests/fixtures/calls/CERT.bend');
     const certify = () => {
       const cert = bend('vendor/bend-frontend/host/run.js', path.join(dir, 'src/certify.bend'),
-        path.join(dir, 'tests/fixtures/calls/program.bend'), 'run');
+        path.join(dir, 'tests/fixtures/calls/program.bend'), 'run', 'outer');
       expect(cert.exitCode).toBe(0);
       writeFileSync(file, cert.stdout.toString());
       const checked = bend('vendor/bend-frontend/vendor/bend/bend2/main.ts', file, '--check-only');

@@ -176,10 +176,42 @@ def text(term: Core.Term, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, 
     case _:
       Fail{"Expected an event signature literal"}
 
-# logN takes topic 0 and at most three indexed words.
-def log(event: String, +topics: List<&2, IR.Expr>, data: List<&2, IR.Expr>) -> Result<&2, &2, String, IR.Effect>:
+def commas(s: String) -> Nat:
+  match s:
+    case SNil{}:
+      0n
+    case SCon{c, rest}:
+      Nat.add(Bool.pick(Nat, U32.is_eq(Char.to_u32(c), 44), 1n, 0n), commas(rest))
+
+def closes(s: String) -> Bool:
+  match s:
+    case SNil{}:
+      False{}
+    case SCon{c, _}:
+      U32.is_eq(Char.to_u32(c), 41)
+
+# True when the signature has "()", that is no parameters.
+def bare(s: String) -> Bool:
+  match s:
+    case SNil{}:
+      False{}
+    case SCon{c, +rest}:
+      Bool.pick(Bool, U32.is_eq(Char.to_u32(c), 40), closes(rest), bare(rest))
+
+# Each parameter is one word: its commas plus one, or none for "()". A tuple
+# or array parameter counts wrong here, so such events fail the check.
+def parameters(+s: String) -> Nat:
+  Bool.pick(Nat, bare(s), 0n, Nat.add(1n, commas(s)))
+
+# logN takes topic 0 and at most three indexed words, and the indexed and
+# data words together are the signature's parameters.
+def log(+event: String, +topics: List<&2, IR.Expr>, +data: List<&2, IR.Expr>) -> Result<&2, &2, String, IR.Effect>:
+  +words = Nat.add(List.length(&2, IR.Expr, topics), List.length(&2, IR.Expr, data))
   Bool.pick(Result<&2, &2, String, IR.Effect>, Nat.is_lt(List.length(&2, IR.Expr, topics), 4n),
-    Done{IR.Log{event, topics, data}}, Fail{"An event has at most three indexed words"})
+    Bool.pick(Result<&2, &2, String, IR.Effect>, Nat.is_eq(words, parameters(event)),
+      Done{IR.Log{event, topics, data}},
+      Fail{"An event needs one word for each parameter of its signature"}),
+    Fail{"An event has at most three indexed words"})
 
 type Operands is Data:
   Operands{left: IR.Expr, right: IR.Expr}
@@ -462,6 +494,12 @@ def target.body(t: Target) -> Core.Term:
     case Target{l, _}:
       lambdas.body(l)
 
+# A callee's parameters are levels 0 to arity - 1, so its locals start above.
+def target.arity(t: Target) -> Nat:
+  match t:
+    case Target{l, _}:
+      List.length(&2, Nat, lambdas.parameters(l))
+
 def target.callee(t: Target, body: IR.Cmd) -> Inline.Callee:
   match t:
     case Target{l, args}:
@@ -500,14 +538,14 @@ def cmd(+fuel: Nat, term: Core.Term, +bound: Nat, +evm: String, +decls: List<&2,
           +t = target(action(c), evm, decls)
           +k = do Result<&2, &2, String, Inline.Callee>:
             +x : Target <- t
-            b : IR.Cmd <- cmd(p, target.body(x), 0n, evm, decls)
+            b : IR.Cmd <- cmd(p, target.body(x), target.arity(x), evm, decls)
             return target.callee(x, b)
           bind(c, at, cmd(fuel, body, at, evm, decls), k, decls)
         case other:
           +c = call(other, Nil{})
           +k = do Result<&2, &2, String, Inline.Callee>:
             +x : Target <- target(c, evm, decls)
-            b : IR.Cmd <- cmd(p, target.body(x), 0n, evm, decls)
+            b : IR.Cmd <- cmd(p, target.body(x), target.arity(x), evm, decls)
             return target.callee(x, b)
           final(c, k, bound, decls)
 

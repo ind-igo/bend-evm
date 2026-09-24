@@ -138,11 +138,45 @@ def branch.text(+signature: String, +types: List<&2, String>, body: Yul.Stmt) ->
     ++ pad ++ "if lt(calldatasize(), " ++ nat(size) ++ ") { " ++ revert() ++ " }\n"
     ++ parameters(pad, types, 0n) ++ stmt(pad, pad ++ "stop()\n", body) ++ "      }\n"
 
+# The model keeps a plain slot apart from every mapping entry. On chain that
+# holds only when the slot is fixed: a slot from a variable could be
+# keccak256(key . base) and alias an entry. So every plain slot and mapping
+# base must be a literal. Keys may be variables.
+def fixed.loc(l: IR.Loc) -> Bool:
+  match l:
+    case IR.Plain{IR.Lit{_}}:
+      True{}
+    case IR.Plain{IR.Var{_}}:
+      False{}
+    case IR.Mapped{base, _}:
+      fixed.loc(base)
+
+def fixed(cmd: IR.Cmd) -> Bool:
+  match cmd:
+    case IR.Bind{IR.SLoad{l}, _, body}:
+      Bool.and(fixed.loc(l), fixed(body))
+    case IR.Bind{_, _, body}:
+      fixed(body)
+    case IR.Then{IR.SStore{l, _}, body}:
+      Bool.and(fixed.loc(l), fixed(body))
+    case IR.Then{_, body}:
+      fixed(body)
+    case IR.Tail{IR.SLoad{l}}:
+      fixed.loc(l)
+    case IR.Finish{IR.SStore{l, _}}:
+      fixed.loc(l)
+    case _:
+      True{}
+
+# An entry compiles only if its variables are bound and its slots are fixed.
+def valid(+body: IR.Cmd, +levels: List<&2, Nat>) -> Bool:
+  Bool.and(IR.closed(body, levels), fixed(body))
+
 def branch.closed(+signature: String, +types: List<&2, String>, +levels: List<&2, Nat>, +body: IR.Cmd) ->
   Result<&2, &2, String, String>:
-  Bool.pick(Result<&2, &2, String, String>, IR.closed(body, levels),
+  Bool.pick(Result<&2, &2, String, String>, valid(body, levels),
     Done{branch.text(signature, types, Yul.lower(body, Read.output(body)))},
-    Fail{signature ++ ": the IR has an unbound variable"})
+    Fail{signature ++ ": the IR has an unbound variable or a storage slot that is not a literal"})
 
 def branch(f: Function) -> Result<&2, &2, String, String>:
   match f:
@@ -232,9 +266,9 @@ def without_init(names: List<&2, String>) -> List<&2, String>:
 def init.stops(out: IR.Output, +body: IR.Cmd) -> Result<&2, &2, String, String>:
   match out:
     case IR.Stops{}:
-      Bool.pick(Result<&2, &2, String, String>, IR.closed(body, Nil{}),
+      Bool.pick(Result<&2, &2, String, String>, valid(body, Nil{}),
         Done{stmt("    ", "", Yul.lower(body, IR.Stops{}))},
-        Fail{"init: the IR has an unbound variable"})
+        Fail{"init: the IR has an unbound variable or a storage slot that is not a literal"})
     case IR.Returns{}:
       Fail{"init must return Unit"}
 

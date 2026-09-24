@@ -28,3 +28,18 @@ def run(+a: Nat) -> Evm.Contract(Nat):
     put(0n, u)
     v : Nat <- Evm.add(s, u)
     keep(v)
+
+# A callee whose body is only a call: its callee's locals must not take the
+# levels of its own parameters.
+def inc(a: Nat) -> Evm.Contract(Nat):
+  do Evm.Contract<Nat>:
+    x : Nat <- Evm.load(1n, a)
+    Evm.add(x, 1n)
+
+def wide(a: Nat, b: Nat, c: Nat, d: Nat, e: Nat) -> Evm.Contract(Nat):
+  inc(a)
+
+def outer(p: Nat) -> Evm.Contract(Nat):
+  do Evm.Contract<Nat>:
+    r : Nat <- wide(p, 0n, 0n, 9n, 0n)
+    Evm.Contract.pure(Nat, r)

@@ -52,4 +52,10 @@ test('compile rejects functions outside the contract DSL', () => {
   const init = run('tests/fixtures/init.bend', 'init');
   expect(init.exitCode).not.toBe(0);
   expect(init.stderr.toString()).toContain('init takes no parameters');
+  const poke = run('tests/fixtures/init.bend', 'poke');
+  expect(poke.exitCode).not.toBe(0);
+  expect(poke.stderr.toString()).toContain('a storage slot that is not a literal');
+  const short = run('tests/fixtures/events.bend', 'short');
+  expect(short.exitCode).not.toBe(0);
+  expect(short.stderr.toString()).toContain('one word for each parameter');
 }, 120_000);
