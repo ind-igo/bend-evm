@@ -2,9 +2,19 @@ import Base
 import ../vendor/bend-frontend/src/core.bend as Core
 import ./ir.bend as IR
 import ./inline.bend as Inline
+import ./keccak.bend as Keccak
 
-# The reader proposes IR and the generated certificate proves it. A reader bug
-# makes the certificate fail instead of miscompiling, so the reader is untrusted.
+# The reader turns a checked contract's Core terms into IR. It is untrusted:
+# the generated certificate proves the IR equal to the contract, so a reader
+# bug makes the certificate fail instead of miscompiling.
+#
+# A body is read one step at a time (cmd). A bound step (bind, step) is a
+# word, an effect, or a call to one of the contract's own functions, which is
+# inlined. The last step (last) is a branch, a pure result, a word, an effect
+# or an inlined call. function reads a whole entry once, for every tool.
+
+# Names
+# -----
 
 # s without the prefix p, if s starts with p.
 def after(p: String, s: String) -> Maybe<&2, String>:
@@ -27,6 +37,17 @@ def reversed(value: Maybe<&2, String>) -> Maybe<&2, String>:
 def before(p: String, s: String) -> Maybe<&2, String>:
   reversed(after(String.reverse(p), String.reverse(s)))
 
+def after_last.go(s: String, +c: Char) -> String:
+  match s:
+    case SNil{}:
+      ""
+    case SCon{+x, rest}:
+      Bool.pick(String, Char.is_eq(x, c), "", SCon{x, after_last.go(rest, c)})
+
+# The text after the last c in s, or all of s.
+def after_last(+c: Char, s: String) -> String:
+  String.reverse(after_last.go(String.reverse(s), c))
+
 def canonical(found: Maybe<&2, String>, name: String) -> String:
   match found:
     case Some{rest}:
@@ -35,7 +56,7 @@ def canonical(found: Maybe<&2, String>, name: String) -> String:
       name
 
 # Drop annotations and memos, and rename DSL references to "Evm.*" wherever
-# the contract imported the module from. Later patterns can then nest.
+# the contract imported the module from.
 def strip(+evm: String, term: Core.Term) -> Core.Term:
   match term:
     case Core.TAnn{value, _}:
@@ -52,12 +73,12 @@ def strip(+evm: String, term: Core.Term) -> Core.Term:
     case other:
       other
 
-# An application spine: the referenced head and its arguments in order.
-# Readers match names on Call, never deep inside Term: nested patterns over
-# Term's many constructors make the checker's case trees explode.
+# Calls
+# -----
+
 # A call's head, when the reader knows it. A string pattern costs the
 # checker 33 splits per character, and a fallback case is copied into each
-# split, so readers match on the tag instead.
+# split, so readers match on this tag, never on a name.
 type Tag is Data:
   Sload{}
   Load{}
@@ -77,8 +98,8 @@ type Tag is Data:
   Sstore{}
   Store{}
   Store2{}
-  Log{}
   Require{}
+  Emit{}
   IsEq{}
   IsLt{}
   Not{}
@@ -87,7 +108,6 @@ type Tag is Data:
   Bind{}
   Pure{}
   Branch{}
-  Emit{}
   Indexed{}
   EventType{}
   Unknown{}
@@ -114,8 +134,8 @@ def tags() -> List<&2, Named>:
   Named{"Evm.sstore", Sstore{}},
   Named{"Evm.store", Store{}},
   Named{"Evm.store2", Store2{}},
-  Named{"Evm.log", Log{}},
   Named{"Evm.require", Require{}},
+  Named{"Evm.emit", Emit{}},
   Named{"Nat.is_eq", IsEq{}},
   Named{"Nat.is_lt", IsLt{}},
   Named{"Bool.not", Not{}},
@@ -124,7 +144,6 @@ def tags() -> List<&2, Named>:
   Named{"Evm.Contract.bind", Bind{}},
   Named{"Evm.Contract.pure", Pure{}},
   Named{"Evm.branch", Branch{}},
-  Named{"Evm.emit", Emit{}},
   Named{"Evm.Indexed", Indexed{}},
   Named{"Evm.Event", EventType{}}]
 
@@ -138,6 +157,9 @@ def tag.go(table: List<&2, Named>, +name: String) -> Tag:
 def tag(+name: String) -> Tag:
   tag.go(tags(), name)
 
+# An application spine: the referenced head, its tag and its arguments in
+# order. Nested patterns over Term's many constructors make the checker's
+# case trees explode, so readers match on Call instead.
 type Call is Data:
   Call{tag: Tag, name: String, args: List<&2, Core.Term>}
   Other{}
@@ -150,6 +172,110 @@ def call(term: Core.Term, args: List<&2, Core.Term>) -> Call:
       Call{tag(name), name, args}
     case _:
       Other{}
+
+# Declarations
+# ------------
+
+# A safe, concrete definition: its arity, its type and its checked body.
+type Def is Data:
+  Def{arity: Nat, typ: Core.Term, body: Core.Term}
+
+def definition(found: Maybe<&2, Core.Declaration>) -> Maybe<&2, Def>:
+  match found:
+    case Some{Core.Definition{Core.Header{_, _, arity, typ}, 0, False{}, Nil{}, _, Some{body}}}:
+      Some{Def{U32.to_nat(arity), typ, body}}
+    case _:
+      None{}
+
+def lookup(+decls: List<&2, Core.Declaration>, +name: String) -> Maybe<&2, Def>:
+  definition(Core.find(decls, name))
+
+type Param is Data:
+  Param{name: String, domain: Core.Term}
+
+# A def's parameters, from the first arity binders of its type, and its
+# result type.
+type Telescope is Data:
+  Telescope{params: List<&2, Param>, result: Core.Term}
+
+def telescope.push(p: Param, t: Telescope) -> Telescope:
+  match t:
+    case Telescope{params, result}:
+      Telescope{p <> params, result}
+
+def telescope.params(t: Telescope) -> List<&2, Param>:
+  match t:
+    case Telescope{params, _}:
+      params
+
+def telescope.result(t: Telescope) -> Core.Term:
+  match t:
+    case Telescope{_, result}:
+      result
+
+def telescope(arity: Nat, typ: Core.Term) -> Result<&2, &2, String, Telescope>:
+  match arity typ:
+    case n Core.TAnn{value, _}:
+      telescope(n, value)
+    case 0n result:
+      Done{Telescope{Nil{}, Core.bare(result)}}
+    case 1n+p Core.TAll{_, name, _, domain, body}:
+      do Result<&2, &2, String, Telescope>:
+        rest : Telescope <- telescope(p, body)
+        return telescope.push(Param{name, domain}, rest)
+    case _ _:
+      Fail{"Expected one type per parameter"}
+
+# ABI types
+# ---------
+
+type Abi is Data:
+  Abi{name: String, abi: String}
+
+def abi.go(table: List<&2, Abi>, +name: String) -> Result<&2, &2, String, String>:
+  match table:
+    case Nil{}:
+      Fail{"Unsupported parameter type: " ++ name}
+    case Abi{n, a} <> rest:
+      Bool.pick(Result<&2, &2, String, String>, String.eq(name, n), Done{a}, abi.go(rest, name))
+
+# The ABI type of a word: Nat is uint256, Evm.Address is address, and so on.
+def abi(+name: String) -> Result<&2, &2, String, String>:
+  abi.go([Abi{"Nat", "uint256"}, Abi{"Evm.Address", "address"}, Abi{"Evm.Uint8", "uint8"},
+    Abi{"Evm.Boolean", "bool"}, Abi{"Evm.Bytes32", "bytes32"}], name)
+
+def abi.term(+evm: String, typ: Core.Term) -> Result<&2, &2, String, String>:
+  match typ:
+    case Core.TAnn{value, _}:
+      abi.term(evm, value)
+    case Core.TRef{+name, _}:
+      abi(canonical(after(evm, name), name))
+    case _:
+      Fail{"Unsupported parameter type"}
+
+# The ABI type of a result, "" for Unit.
+def result.name(+name: String) -> Result<&2, &2, String, String>:
+  Bool.pick(Result<&2, &2, String, String>, String.eq(name, "Unit"), Done{""}, abi(name))
+
+def result.term(+evm: String, typ: Core.Term) -> Result<&2, &2, String, String>:
+  match typ:
+    case Core.TAnn{value, _}:
+      result.term(evm, value)
+    case Core.TRef{+name, _}:
+      result.name(canonical(after(evm, name), name))
+    case _:
+      Fail{"Unsupported result type"}
+
+# The A of an Evm.Contract(A) result.
+def result.call(+evm: String, c: Call) -> Result<&2, &2, String, String>:
+  match c:
+    case Call{_, _, arg <> Nil{}}:
+      result.term(evm, arg)
+    case _:
+      Fail{"Expected an Evm.Contract result"}
+
+# Expressions
+# -----------
 
 def literal(value: Maybe<&2, Nat>) -> Result<&2, &2, String, IR.Expr>:
   match value:
@@ -173,9 +299,9 @@ def constant.body(term: Core.Term) -> Result<&2, &2, String, IR.Expr>:
       Fail{"Only literal constants can appear in expressions"}
 
 # A reference to a zero-argument def whose body is a literal is that literal.
-def constant(found: Maybe<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Expr>:
+def constant(found: Maybe<&2, Def>) -> Result<&2, &2, String, IR.Expr>:
   match found:
-    case Some{Core.Definition{Core.Header{_, _, 0, _}, 0, False{}, Nil{}, _, Some{body}}}:
+    case Some{Def{0n, _, body}}:
       constant.body(Core.bare(body))
     case _:
       Fail{"Only literal constants can appear in expressions"}
@@ -196,9 +322,19 @@ def expr(term: Core.Term, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, 
     case Core.TVar{_, level, _}:
       variable(level)
     case Core.TRef{+name, _}:
-      constant(Core.find(decls, name))
+      constant(lookup(decls, name))
     case _:
       Fail{"Unsupported expression"}
+
+def terms(ts: List<&2, Core.Term>, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, List<&2, IR.Expr>>:
+  match ts:
+    case Nil{}:
+      Done{Nil{}}
+    case t <> rest:
+      do Result<&2, &2, String, List<&2, IR.Expr>>:
+        h : IR.Expr <- expr(t, decls)
+        r : List<&2, IR.Expr> <- terms(rest, decls)
+        return h <> r
 
 # A list literal of expressions.
 def exprs(term: Core.Term, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, List<&2, IR.Expr>>:
@@ -215,49 +351,22 @@ def exprs(term: Core.Term, +decls: List<&2, Core.Declaration>) -> Result<&2, &2,
     case _:
       Fail{"Expected a list literal"}
 
-# Event signatures are printed into certificates and hashed into topic 0, so
-# they may only hold ABI signature characters and must fit one Keccak block.
-def signature.char(+c: Char) -> Bool:
-  +n = Char.to_u32(c)
-  Bool.or(Char.is_alpha(c), Bool.or(Char.is_digit(c), Bool.or(U32.is_eq(n, 95), Bool.or(U32.is_eq(n, 40),
-    Bool.or(U32.is_eq(n, 41), Bool.or(U32.is_eq(n, 44), Bool.or(U32.is_eq(n, 91), U32.is_eq(n, 93))))))))
+# A plain slot, or a mapping entry under each key in turn.
+def location.keys(keys: List<&2, Core.Term>, base: IR.Loc, +decls: List<&2, Core.Declaration>) ->
+  Result<&2, &2, String, IR.Loc>:
+  match keys:
+    case Nil{}:
+      Done{base}
+    case k <> rest:
+      do Result<&2, &2, String, IR.Loc>:
+        x : IR.Expr <- expr(k, decls)
+        location.keys(rest, IR.Mapped{base, x}, decls)
 
-def signature.chars(s: String) -> Bool:
-  match s:
-    case SNil{}:
-      True{}
-    case SCon{+c, rest}:
-      Bool.and(signature.char(c), signature.chars(rest))
-
-def signature(+s: String) -> Result<&2, &2, String, String>:
-  Bool.pick(Result<&2, &2, String, String>, Bool.and(signature.chars(s), Nat.is_lt(String.length(s), 136n)),
-    Done{s}, Fail{"Event signatures must be ABI signatures under 136 bytes"})
-
-def text.body(term: Core.Term) -> Result<&2, &2, String, String>:
-  match term:
-    case Core.TLit{Core.Text{value}}:
-      signature(value)
-    case _:
-      Fail{"Expected an event signature literal"}
-
-def text.found(found: Maybe<&2, Core.Declaration>) -> Result<&2, &2, String, String>:
-  match found:
-    case Some{Core.Definition{Core.Header{_, _, 0, _}, 0, False{}, Nil{}, _, Some{body}}}:
-      text.body(Core.bare(body))
-    case _:
-      Fail{"Expected an event signature literal"}
-
-# An event signature: a text literal, or a zero-argument def whose body is one.
-def text(term: Core.Term, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, String>:
-  match term:
-    case Core.TAnn{value, _}:
-      text(value, decls)
-    case Core.TLit{Core.Text{value}}:
-      signature(value)
-    case Core.TRef{+name, _}:
-      text.found(Core.find(decls, name))
-    case _:
-      Fail{"Expected an event signature literal"}
+def location(slot: Core.Term, keys: List<&2, Core.Term>, +decls: List<&2, Core.Declaration>) ->
+  Result<&2, &2, String, IR.Loc>:
+  do Result<&2, &2, String, IR.Loc>:
+    s : IR.Expr <- expr(slot, decls)
+    location.keys(keys, IR.Plain{s}, decls)
 
 # A text that keccak256 hashes, such as an EIP-712 type string: printable
 # ASCII without quotes or backslashes, so the certificate can quote it, and
@@ -272,161 +381,83 @@ def phrase.chars(s: String) -> Bool:
         Bool.not(Nat.is_eq(n, 92n)))), phrase.chars(rest))
 
 def phrase.check(+s: String) -> Result<&2, &2, String, String>:
-  Bool.pick(Result<&2, &2, String, String>, Bool.and(phrase.chars(s), Nat.is_lt(String.length(s), 136n)),
+  Bool.pick(Result<&2, &2, String, String>, Bool.and(phrase.chars(s), Keccak.fits(s)),
     Done{s}, Fail{"A hashed text must be printable ASCII under 136 bytes, without quotes or backslashes"})
 
-def phrase.body(term: Core.Term) -> Result<&2, &2, String, String>:
+def phrase.literal(term: Core.Term) -> Result<&2, &2, String, String>:
   match term:
     case Core.TLit{Core.Text{value}}:
       phrase.check(value)
     case _:
       Fail{"Expected a text literal"}
 
-def phrase.found(found: Maybe<&2, Core.Declaration>) -> Result<&2, &2, String, String>:
+def phrase.found(found: Maybe<&2, Def>) -> Result<&2, &2, String, String>:
   match found:
-    case Some{Core.Definition{Core.Header{_, _, 0, _}, 0, False{}, Nil{}, _, Some{body}}}:
-      phrase.body(Core.bare(body))
+    case Some{Def{0n, _, body}}:
+      phrase.literal(Core.bare(body))
     case _:
       Fail{"Expected a text literal"}
 
+# A text literal, or a zero-argument def whose body is one.
 def phrase(term: Core.Term, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, String>:
   match term:
     case Core.TAnn{value, _}:
       phrase(value, decls)
-    case Core.TLit{Core.Text{value}}:
-      phrase.check(value)
+    case Core.TLit{value}:
+      phrase.literal(Core.TLit{value})
     case Core.TRef{+name, _}:
-      phrase.found(Core.find(decls, name))
+      phrase.found(lookup(decls, name))
     case _:
       Fail{"Expected a text literal"}
 
-def commas(s: String) -> Nat:
-  match s:
-    case SNil{}:
-      0n
-    case SCon{c, rest}:
-      Nat.add(Bool.pick(Nat, U32.is_eq(Char.to_u32(c), 44), 1n, 0n), commas(rest))
+# Conditions
+# ----------
 
-def closes(s: String) -> Bool:
-  match s:
-    case SNil{}:
-      False{}
-    case SCon{c, _}:
-      U32.is_eq(Char.to_u32(c), 41)
-
-# True when the signature has "()", that is no parameters.
-def bare(s: String) -> Bool:
-  match s:
-    case SNil{}:
-      False{}
-    case SCon{c, +rest}:
-      Bool.pick(Bool, U32.is_eq(Char.to_u32(c), 40), closes(rest), bare(rest))
-
-# Each parameter is one word: its commas plus one, or none for "()". A tuple
-# or array parameter counts wrong here, so such events fail the check.
-def parameters(+s: String) -> Nat:
-  Bool.pick(Nat, bare(s), 0n, Nat.add(1n, commas(s)))
-
-# logN takes topic 0 and at most three indexed words, and the indexed and
-# data words together are the signature's parameters.
-def log(+event: String, +topics: List<&2, IR.Expr>, +data: List<&2, IR.Expr>) -> Result<&2, &2, String, IR.Effect>:
-  +words = Nat.add(List.length(&2, IR.Expr, topics), List.length(&2, IR.Expr, data))
-  Bool.pick(Result<&2, &2, String, IR.Effect>, Nat.is_lt(List.length(&2, IR.Expr, topics), 4n),
-    Bool.pick(Result<&2, &2, String, IR.Effect>, Nat.is_eq(words, parameters(event)),
-      Done{IR.Log{event, topics, data}},
-      Fail{"An event needs one word for each parameter of its signature"}),
-    Fail{"An event has at most three indexed words"})
-
-type Operands is Data:
-  Operands{left: IR.Expr, right: IR.Expr}
-
-def operands(left: Core.Term, right: Core.Term, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, Operands>:
-  do Result<&2, &2, String, Operands>:
-    l : IR.Expr <- expr(left, decls)
-    r : IR.Expr <- expr(right, decls)
-    return Operands{l, r}
-
-def eq(pair: Operands) -> IR.Cond:
-  match pair:
-    case Operands{l, r}:
-      IR.Eq{l, r}
-
-def lt(pair: Operands) -> IR.Cond:
-  match pair:
-    case Operands{l, r}:
-      IR.Lt{l, r}
-
-def add(pair: Operands) -> IR.Word:
-  match pair:
-    case Operands{l, r}:
-      IR.Add{l, r}
-
-def sub(pair: Operands) -> IR.Word:
-  match pair:
-    case Operands{l, r}:
-      IR.Sub{l, r}
-
-def select(c: IR.Cond, pair: Operands) -> IR.Word:
-  match pair:
-    case Operands{y, n}:
-      IR.Select{c, y, n}
-
-def typed(pair: Operands) -> IR.Word:
-  match pair:
-    case Operands{d, m}:
-      IR.Typed{d, m}
-
-def recover(first: Operands, second: Operands) -> IR.Word:
-  match first second:
-    case Operands{d, v} Operands{r, s}:
-      IR.Recover{d, v, r, s}
-
-def mapped(pair: Operands) -> IR.Loc:
-  match pair:
-    case Operands{s, k}:
-      IR.Mapped{IR.Plain{s}, k}
-
-def cond(c: Call, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Cond>:
+def cond.atom(c: Call, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Cond>:
   match c:
     case Call{IsEq{}, _, left <> right <> Nil{}}:
       do Result<&2, &2, String, IR.Cond>:
-        pair : Operands <- operands(left, right, decls)
-        return eq(pair)
+        l : IR.Expr <- expr(left, decls)
+        r : IR.Expr <- expr(right, decls)
+        return IR.Eq{l, r}
     case Call{IsLt{}, _, left <> right <> Nil{}}:
       do Result<&2, &2, String, IR.Cond>:
-        pair : Operands <- operands(left, right, decls)
-        return lt(pair)
+        l : IR.Expr <- expr(left, decls)
+        r : IR.Expr <- expr(right, decls)
+        return IR.Lt{l, r}
     case _:
       Fail{"Unsupported condition"}
 
-def negate(c: IR.Cond) -> IR.Cond:
-  IR.Not{c}
-
-# Conditions nest through Bool.not, at most fuel deep.
 def cond.go(+fuel: Nat, c: Call, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Cond>:
   match fuel c:
     case 1n+(+f) Call{Not{}, _, inner <> Nil{}}:
       do Result<&2, &2, String, IR.Cond>:
         x : IR.Cond <- cond.go(f, call(inner, Nil{}), decls)
-        return negate(x)
+        return IR.Not{x}
     case _ +other:
-      cond(other, decls)
+      cond.atom(other, decls)
+
+# A condition: a comparison under at most 8 Bool.not.
+def cond(test: Core.Term, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Cond>:
+  cond.go(8n, call(test, Nil{}), decls)
+
+# Words and effects
+# -----------------
 
 def word(c: Call, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Word>:
   match c:
     case Call{Sload{}, _, slot <> Nil{}}:
       do Result<&2, &2, String, IR.Word>:
-        s : IR.Expr <- expr(slot, decls)
-        return IR.SLoad{IR.Plain{s}}
+        l : IR.Loc <- location(slot, Nil{}, decls)
+        return IR.SLoad{l}
     case Call{Load{}, _, slot <> key <> Nil{}}:
       do Result<&2, &2, String, IR.Word>:
-        pair : Operands <- operands(slot, key, decls)
-        return IR.SLoad{mapped(pair)}
+        l : IR.Loc <- location(slot, [key], decls)
+        return IR.SLoad{l}
     case Call{Load2{}, _, slot <> outer <> inner <> Nil{}}:
       do Result<&2, &2, String, IR.Word>:
-        pair : Operands <- operands(slot, outer, decls)
-        k : IR.Expr <- expr(inner, decls)
-        return IR.SLoad{IR.Mapped{mapped(pair), k}}
+        l : IR.Loc <- location(slot, [outer, inner], decls)
+        return IR.SLoad{l}
     case Call{Caller{}, _, Nil{}}:
       Done{IR.Caller{}}
     case Call{Max{}, _, Nil{}}:
@@ -443,67 +474,47 @@ def word(c: Call, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, 
         return IR.Keccak{ws}
     case Call{Typed{}, _, domain <> message <> Nil{}}:
       do Result<&2, &2, String, IR.Word>:
-        pair : Operands <- operands(domain, message, decls)
-        return typed(pair)
+        d : IR.Expr <- expr(domain, decls)
+        m : IR.Expr <- expr(message, decls)
+        return IR.Typed{d, m}
     case Call{Id{}, _, text <> Nil{}}:
       do Result<&2, &2, String, IR.Word>:
         t : String <- phrase(text, decls)
         return IR.Id{t}
     case Call{Recover{}, _, digest <> v <> r <> s <> Nil{}}:
       do Result<&2, &2, String, IR.Word>:
-        first : Operands <- operands(digest, v, decls)
-        second : Operands <- operands(r, s, decls)
-        return recover(first, second)
+        d : IR.Expr <- expr(digest, decls)
+        x : IR.Expr <- expr(v, decls)
+        y : IR.Expr <- expr(r, decls)
+        z : IR.Expr <- expr(s, decls)
+        return IR.Recover{d, x, y, z}
     case Call{Select{}, _, test <> yes <> no <> Nil{}}:
       do Result<&2, &2, String, IR.Word>:
-        c : IR.Cond <- cond.go(8n, call(test, Nil{}), decls)
-        pair : Operands <- operands(yes, no, decls)
-        return select(c, pair)
+        x : IR.Cond <- cond(test, decls)
+        y : IR.Expr <- expr(yes, decls)
+        n : IR.Expr <- expr(no, decls)
+        return IR.Select{x, y, n}
     case Call{Add{}, _, left <> right <> Nil{}}:
       do Result<&2, &2, String, IR.Word>:
-        pair : Operands <- operands(left, right, decls)
-        return add(pair)
+        l : IR.Expr <- expr(left, decls)
+        r : IR.Expr <- expr(right, decls)
+        return IR.Add{l, r}
     case Call{Sub{}, _, left <> right <> Nil{}}:
       do Result<&2, &2, String, IR.Word>:
-        pair : Operands <- operands(left, right, decls)
-        return sub(pair)
+        l : IR.Expr <- expr(left, decls)
+        r : IR.Expr <- expr(right, decls)
+        return IR.Sub{l, r}
     case _:
       Fail{"Unsupported word action"}
 
-# The ABI type of a parameter: Nat is uint256, Evm.Address is address.
-type Abi is Data:
-  Abi{name: String, abi: String}
-
-def abi.go(table: List<&2, Abi>, +name: String) -> Result<&2, &2, String, String>:
-  match table:
-    case Nil{}:
-      Fail{"Unsupported parameter type: " ++ name}
-    case Abi{n, a} <> rest:
-      Bool.pick(Result<&2, &2, String, String>, String.eq(name, n), Done{a}, abi.go(rest, name))
-
-def abi(+name: String) -> Result<&2, &2, String, String>:
-  abi.go([Abi{"Nat", "uint256"}, Abi{"Evm.Address", "address"}, Abi{"Evm.Uint8", "uint8"},
-    Abi{"Evm.Boolean", "bool"}, Abi{"Evm.Bytes32", "bytes32"}], name)
-
-def abi.term(+evm: String, typ: Core.Term) -> Result<&2, &2, String, String>:
-  match typ:
-    case Core.TAnn{value, _}:
-      abi.term(evm, value)
-    case Core.TRef{+name, _}:
-      abi(canonical(after(evm, name), name))
-    case _:
-      Fail{"Unsupported parameter type"}
-
-# The text after the last dot of a name: an event def's own name.
-def short.go(s: String) -> String:
+# Event signatures are printed into certificates and hashed into topic 0. An
+# event's name must be an identifier, so the signature needs no quoting.
+def identifier(s: String) -> Bool:
   match s:
     case SNil{}:
-      ""
+      True{}
     case SCon{+c, rest}:
-      Bool.pick(String, Char.is_eq(c, '.'), "", SCon{c, short.go(rest)})
-
-def short(name: String) -> String:
-  String.reverse(short.go(String.reverse(name)))
+      Bool.and(Bool.or(Char.is_alpha(c), Bool.or(Char.is_digit(c), U32.is_eq(Char.to_u32(c), 95))), identifier(rest))
 
 def joined(ts: List<&2, String>) -> String:
   match ts:
@@ -529,20 +540,16 @@ def field.of(+evm: String, c: Call, domain: Core.Term) -> Result<&2, &2, String,
         t : String <- abi.term(evm, domain)
         return Field{False{}, t}
 
-def field(+evm: String, +domain: Core.Term) -> Result<&2, &2, String, Field>:
-  field.of(evm, call(domain, Nil{}), domain)
-
-def fields(+evm: String, typ: Core.Term) -> Result<&2, &2, String, List<&2, Field>>:
-  match typ:
-    case Core.TAnn{value, _}:
-      fields(evm, value)
-    case Core.TAll{_, _, _, domain, body}:
-      do Result<&2, &2, String, List<&2, Field>>:
-        f : Field <- field(evm, strip(evm, domain))
-        rest : List<&2, Field> <- fields(evm, body)
-        return f <> rest
-    case _:
+def fields(+evm: String, params: List<&2, Param>) -> Result<&2, &2, String, List<&2, Field>>:
+  match params:
+    case Nil{}:
       Done{Nil{}}
+    case Param{_, domain} <> rest:
+      +d = strip(evm, domain)
+      do Result<&2, &2, String, List<&2, Field>>:
+        f : Field <- field.of(evm, call(d, Nil{}), d)
+        fs : List<&2, Field> <- fields(evm, rest)
+        return f <> fs
 
 # An event's parameter types, then its indexed words and its data words.
 type Parts is Data:
@@ -575,12 +582,16 @@ def parts(fs: List<&2, Field>, args: List<&2, Core.Term>, +late: Bool, +decls: L
     case _ _:
       Fail{"An event needs one argument for each field"}
 
-def emit.log(name: String, p: Parts) -> Result<&2, &2, String, IR.Effect>:
+# logN takes topic 0 and at most three indexed words.
+def emit.log(+name: String, p: Parts) -> Result<&2, &2, String, IR.Effect>:
   match p:
-    case Parts{types, topics, data}:
-      do Result<&2, &2, String, IR.Effect>:
-        +event : String <- signature(short(name) ++ "(" ++ joined(types) ++ ")")
-        log(event, topics, data)
+    case Parts{types, +topics, data}:
+      +signature = name ++ "(" ++ joined(types) ++ ")"
+      Bool.pick(Result<&2, &2, String, IR.Effect>, Bool.and(identifier(name), Keccak.fits(signature)),
+        Bool.pick(Result<&2, &2, String, IR.Effect>, Nat.is_lt(List.length(&2, IR.Expr, topics), 4n),
+          Done{IR.Log{signature, topics, data}},
+          Fail{"An event has at most three indexed words"}),
+        Fail{signature ++ ": an event needs an identifier name and a signature under 136 bytes"})
 
 def is_event(c: Call) -> Bool:
   match c:
@@ -589,33 +600,25 @@ def is_event(c: Call) -> Bool:
     case _:
       False{}
 
-# Whether a def's result type, after its parameters, is Evm.Event.
-def returns_event(+evm: String, typ: Core.Term) -> Bool:
-  match typ:
-    case Core.TAnn{value, _}:
-      returns_event(evm, value)
-    case Core.TAll{_, _, _, _, body}:
-      returns_event(evm, body)
-    case other:
-      is_event(call(strip(evm, other), Nil{}))
-
-def emit.event(+event: Bool, +evm: String, typ: Core.Term, +name: String, args: List<&2, Core.Term>,
+def emit.event(+event: Bool, +evm: String, t: Telescope, +name: String, args: List<&2, Core.Term>,
   +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Effect>:
-  match event:
-    case True{}:
+  match event t:
+    case True{} Telescope{params, _}:
       do Result<&2, &2, String, IR.Effect>:
-        fs : List<&2, Field> <- fields(evm, typ)
+        fs : List<&2, Field> <- fields(evm, params)
         p : Parts <- parts(fs, args, False{}, decls)
-        emit.log(name, p)
-    case False{}:
+        emit.log(after_last('.', name), p)
+    case False{} _:
       Fail{"Evm.emit takes an event: a safe, concrete def whose result type is Evm.Event"}
 
-def emit.found(+evm: String, found: Maybe<&2, Core.Declaration>, +name: String, args: List<&2, Core.Term>,
+def emit.found(+evm: String, found: Maybe<&2, Def>, +name: String, args: List<&2, Core.Term>,
   +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Effect>:
   match found:
-    case Some{Core.Definition{Core.Header{_, _, _, +typ}, 0, False{}, Nil{}, _, Some{_}}}:
-      emit.event(returns_event(evm, typ), evm, typ, name, args, decls)
-    case _:
+    case Some{Def{arity, typ, _}}:
+      do Result<&2, &2, String, IR.Effect>:
+        +t : Telescope <- telescope(arity, typ)
+        emit.event(is_event(call(strip(evm, telescope.result(t)), Nil{})), evm, t, name, args, decls)
+    case None{}:
       Fail{"Evm.emit takes an event: a safe, concrete def whose result type is Evm.Event"}
 
 # Evm.emit(Transfer(from, to, amount)): the signature and the topics come
@@ -625,7 +628,7 @@ def emit.found(+evm: String, found: Maybe<&2, Core.Declaration>, +name: String, 
 def emit(+evm: String, c: Call, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Effect>:
   match c:
     case Call{_, +name, args}:
-      emit.found(evm, Core.find(decls, name), name, args, decls)
+      emit.found(evm, lookup(decls, name), name, args, decls)
     case Other{}:
       Fail{"Evm.emit takes an event: a safe, concrete def whose result type is Evm.Event"}
 
@@ -633,34 +636,30 @@ def effect(c: Call, +evm: String, +decls: List<&2, Core.Declaration>) -> Result<
   match c:
     case Call{Sstore{}, _, slot <> value <> Nil{}}:
       do Result<&2, &2, String, IR.Effect>:
-        s : IR.Expr <- expr(slot, decls)
+        l : IR.Loc <- location(slot, Nil{}, decls)
         v : IR.Expr <- expr(value, decls)
-        return IR.SStore{IR.Plain{s}, v}
+        return IR.SStore{l, v}
     case Call{Store{}, _, slot <> key <> value <> Nil{}}:
       do Result<&2, &2, String, IR.Effect>:
-        pair : Operands <- operands(slot, key, decls)
+        l : IR.Loc <- location(slot, [key], decls)
         v : IR.Expr <- expr(value, decls)
-        return IR.SStore{mapped(pair), v}
+        return IR.SStore{l, v}
     case Call{Store2{}, _, slot <> outer <> inner <> value <> Nil{}}:
       do Result<&2, &2, String, IR.Effect>:
-        pair : Operands <- operands(slot, outer, decls)
-        k : IR.Expr <- expr(inner, decls)
+        l : IR.Loc <- location(slot, [outer, inner], decls)
         v : IR.Expr <- expr(value, decls)
-        return IR.SStore{IR.Mapped{mapped(pair), k}, v}
-    case Call{Log{}, _, event <> topics <> data <> Nil{}}:
-      do Result<&2, &2, String, IR.Effect>:
-        e : String <- text(event, decls)
-        t : List<&2, IR.Expr> <- exprs(topics, decls)
-        d : List<&2, IR.Expr> <- exprs(data, decls)
-        log(e, t, d)
+        return IR.SStore{l, v}
     case Call{Require{}, _, condition <> Nil{}}:
       do Result<&2, &2, String, IR.Effect>:
-        c : IR.Cond <- cond.go(8n, call(condition, Nil{}), decls)
-        return IR.Require{c}
+        x : IR.Cond <- cond(condition, decls)
+        return IR.Require{x}
     case Call{Emit{}, _, event <> Nil{}}:
       emit(evm, call(event, Nil{}), decls)
     case _:
       Fail{"Unsupported effect"}
+
+# Steps
+# -----
 
 # The first result that is Done; otherwise both errors.
 def first(own: Result<&2, &2, String, IR.Cmd>, called: Result<&2, &2, String, IR.Cmd>) -> Result<&2, &2, String, IR.Cmd>:
@@ -684,6 +683,11 @@ def called.unit(k: Result<&2, &2, String, Inline.Callee>, +level: Nat, +rest: IR
     body : IR.Cmd <- Inline.place(callee, Inline.max(level, Inline.top(rest)))
     Inline.splice.unit(body, rest)
 
+def called.tail(k: Result<&2, &2, String, Inline.Callee>, +bound: Nat) -> Result<&2, &2, String, IR.Cmd>:
+  do Result<&2, &2, String, IR.Cmd>:
+    callee : Inline.Callee <- k
+    Inline.place(callee, bound)
+
 def own.word(w: Result<&2, &2, String, IR.Word>, +level: Nat, +rest: IR.Cmd) -> Result<&2, &2, String, IR.Cmd>:
   do Result<&2, &2, String, IR.Cmd>:
     value : IR.Word <- w
@@ -695,7 +699,7 @@ def own.unit(e: Result<&2, &2, String, IR.Effect>, +rest: IR.Cmd) -> Result<&2, 
     return IR.Then{value, rest}
 
 # A bind over a word keeps its value; a bind over Unit is a plain step. The
-# action is a DSL call, or else a call to one of the contract's functions.
+# action is a DSL call, or else k, a call to one of the contract's functions.
 def step(typ: Call, +action: Call, +level: Nat, rest: Result<&2, &2, String, IR.Cmd>,
   k: Result<&2, &2, String, Inline.Callee>, +evm: String, +decls: List<&2, Core.Declaration>) ->
   Result<&2, &2, String, IR.Cmd>:
@@ -719,6 +723,14 @@ def bind(c: Call, +level: Nat, rest: Result<&2, &2, String, IR.Cmd>, k: Result<&
     case _:
       Fail{"Unsupported binding"}
 
+# The action of a bind.
+def action(c: Call) -> Call:
+  match c:
+    case Call{Bind{}, _, _ <> _ <> action <> Nil{}}:
+      call(action, Nil{})
+    case _:
+      Other{}
+
 def unit(term: Core.Term) -> Result<&2, &2, String, IR.Cmd>:
   match term:
     case Core.TCtr{"Unit", Nil{}}:
@@ -737,7 +749,8 @@ def pure(typ: Call, value: Core.Term, +decls: List<&2, Core.Declaration>) -> Res
     case _:
       Fail{"Only Nat and Unit results can be returned"}
 
-def last(w: Result<&2, &2, String, IR.Word>, e: Result<&2, &2, String, IR.Effect>) ->
+# A last step that is a word or an effect.
+def last.own(w: Result<&2, &2, String, IR.Word>, e: Result<&2, &2, String, IR.Effect>) ->
   Result<&2, &2, String, IR.Cmd>:
   match w e:
     case Done{value} _:
@@ -747,21 +760,32 @@ def last(w: Result<&2, &2, String, IR.Word>, e: Result<&2, &2, String, IR.Effect
     case Fail{w} Fail{e}:
       Fail{"Unsupported contract step: " ++ w ++ "; " ++ e}
 
-def called.tail(k: Result<&2, &2, String, Inline.Callee>, +bound: Nat) -> Result<&2, &2, String, IR.Cmd>:
-  do Result<&2, &2, String, IR.Cmd>:
-    callee : Inline.Callee <- k
-    Inline.place(callee, bound)
-
-def branch(c: IR.Cond, yes: IR.Cmd, no: IR.Cmd) -> IR.Cmd:
-  IR.If{c, yes, no}
-
-def final(c: Call, k: Result<&2, &2, String, Inline.Callee>, +bound: Nat, +evm: String, +decls: List<&2, Core.Declaration>) ->
-  Result<&2, &2, String, IR.Cmd>:
+# A last step that is not a branch: a pure result, a word, an effect, or k.
+def last.step(c: Call, k: Result<&2, &2, String, Inline.Callee>, +bound: Nat, +evm: String,
+  +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Cmd>:
   match c:
     case Call{Pure{}, _, typ <> value <> Nil{}}:
       pure(call(typ, Nil{}), value, decls)
     case +other:
-      first(last(word(other, decls), effect(other, evm, decls)), called.tail(k, bound))
+      first(last.own(word(other, decls), effect(other, evm, decls)), called.tail(k, bound))
+
+# The last step. A branch reads both arms, each to the end of the call, with
+# yes and no: two readers, because a closure can run only once.
+def last(c: Call, yes: Core.Term -> Result<&2, &2, String, IR.Cmd>, no: Core.Term -> Result<&2, &2, String, IR.Cmd>,
+  k: Result<&2, &2, String, Inline.Callee>, +bound: Nat, +evm: String, +decls: List<&2, Core.Declaration>) ->
+  Result<&2, &2, String, IR.Cmd>:
+  match c:
+    case Call{Branch{}, _, ok <> _ <> a <> b <> Nil{}}:
+      do Result<&2, &2, String, IR.Cmd>:
+        x : IR.Cond <- cond(ok, decls)
+        y : IR.Cmd <- yes(a)
+        n : IR.Cmd <- no(b)
+        return IR.If{x, y, n}
+    case +other:
+      last.step(other, k, bound, evm, decls)
+
+# Inlining
+# --------
 
 # A function's parameter levels and the body under its lambdas.
 type Lambdas is Data:
@@ -783,71 +807,46 @@ def lambdas(arity: Nat, term: Core.Term) -> Result<&2, &2, String, Lambdas>:
     case _ _:
       Fail{"Expected one lambda per parameter"}
 
-def lambdas.found(found: Maybe<&2, Core.Declaration>, +evm: String) -> Result<&2, &2, String, Lambdas>:
+def lambdas.found(found: Maybe<&2, Def>, +evm: String) -> Result<&2, &2, String, Lambdas>:
   match found:
-    case Some{Core.Definition{Core.Header{_, _, +arity, _}, 0, False{}, Nil{}, _, Some{body}}}:
-      lambdas(U32.to_nat(arity), strip(evm, body))
-    case _:
+    case Some{Def{arity, _, body}}:
+      lambdas(arity, strip(evm, body))
+    case None{}:
       Fail{"Expected a safe, concrete contract function"}
-
-def lambdas.parameters(l: Lambdas) -> List<&2, Nat>:
-  match l:
-    case Lambdas{parameters, _}:
-      parameters
-
-def lambdas.body(l: Lambdas) -> Core.Term:
-  match l:
-    case Lambdas{_, body}:
-      body
-
-def terms(ts: List<&2, Core.Term>, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, List<&2, IR.Expr>>:
-  match ts:
-    case Nil{}:
-      Done{Nil{}}
-    case t <> rest:
-      do Result<&2, &2, String, List<&2, IR.Expr>>:
-        h : IR.Expr <- expr(t, decls)
-        r : List<&2, IR.Expr> <- terms(rest, decls)
-        return h <> r
 
 # The function that a call names, and its arguments.
 type Target is Data:
-  Target{lambdas: Lambdas, args: List<&2, IR.Expr>}
+  Target{parameters: List<&2, Nat>, body: Core.Term, args: List<&2, IR.Expr>}
 
+def target.of(l: Lambdas, args: List<&2, IR.Expr>) -> Target:
+  match l:
+    case Lambdas{parameters, body}:
+      Target{parameters, body, args}
+
+# Only a call that is not a DSL call can be one of the contract's functions.
 def target(c: Call, +evm: String, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, Target>:
   match c:
+    case Call{Unknown{}, +name, args}:
+      do Result<&2, &2, String, Target>:
+        l : Lambdas <- lambdas.found(lookup(decls, name), evm)
+        a : List<&2, IR.Expr> <- terms(args, decls)
+        return target.of(l, a)
     case Call{Branch{}, _, _}:
       Fail{"A branch must be the last step of a function"}
-    case Call{_, name, args}:
-      do Result<&2, &2, String, Target>:
-        l : Lambdas <- lambdas.found(Core.find(decls, name), evm)
-        a : List<&2, IR.Expr> <- terms(args, decls)
-        return Target{l, a}
-    case Other{}:
-      Fail{"Unsupported call"}
-
-def target.body(t: Target) -> Core.Term:
-  match t:
-    case Target{l, _}:
-      lambdas.body(l)
-
-# A callee's parameters are levels 0 to arity - 1, so its locals start above.
-def target.arity(t: Target) -> Nat:
-  match t:
-    case Target{l, _}:
-      List.length(&2, Nat, lambdas.parameters(l))
-
-def target.callee(t: Target, body: IR.Cmd) -> Inline.Callee:
-  match t:
-    case Target{l, args}:
-      Inline.Callee{lambdas.parameters(l), args, body}
-
-def action(c: Call) -> Call:
-  match c:
-    case Call{Bind{}, _, _ <> _ <> action <> Nil{}}:
-      call(action, Nil{})
     case _:
-      Other{}
+      Fail{"Not a call to a contract function"}
+
+# The callee of a target, with its body read by read. A callee's parameters
+# are levels 0 to arity - 1, so its locals start above them.
+def callee(t: Result<&2, &2, String, Target>, read: Core.Term -> Nat -> Result<&2, &2, String, IR.Cmd>) ->
+  Result<&2, &2, String, Inline.Callee>:
+  match t:
+    case Done{Target{+parameters, body, args}}:
+      do Result<&2, &2, String, Inline.Callee>:
+        b : IR.Cmd <- read(body, List.length(&2, Nat, parameters))
+        return Inline.Callee{parameters, args, b}
+    case Fail{e}:
+      Fail{e}
 
 def level(l: Core.Level) -> Nat:
   match l:
@@ -856,50 +855,28 @@ def level(l: Core.Level) -> Nat:
     case Core.Placeholder{}:
       0n
 
-# A final Evm.branch reads both arms, each to the end of the call; any other
-# final step is a word, an effect or a call. yes and no read the arms.
-def tail(c: Call, yes: Core.Term -> Result<&2, &2, String, IR.Cmd>, no: Core.Term -> Result<&2, &2, String, IR.Cmd>,
-  k: Result<&2, &2, String, Inline.Callee>, +bound: Nat, +evm: String, +decls: List<&2, Core.Declaration>) ->
-  Result<&2, &2, String, IR.Cmd>:
-  match c:
-    case Call{Branch{}, _, ok <> _ <> a <> b <> Nil{}}:
-      do Result<&2, &2, String, IR.Cmd>:
-        x : IR.Cond <- cond.go(8n, call(ok, Nil{}), decls)
-        y : IR.Cmd <- yes(a)
-        n : IR.Cmd <- no(b)
-        return branch(x, y, n)
-    case +other:
-      final(other, k, bound, evm, decls)
-
-# Calls to the contract's own functions are inlined, at most this deep.
+# Inlined calls and branch arms nest at most this deep.
 def depth() -> Nat:
   8n
 
 # Reads a body. bound is the largest level declared so far. Each inlined
-# call reads its callee with less fuel, so reading ends.
+# call and each branch arm is read with less fuel, so reading ends.
 def cmd(+fuel: Nat, term: Core.Term, +bound: Nat, +evm: String, +decls: List<&2, Core.Declaration>) ->
   Result<&2, &2, String, IR.Cmd>:
   match fuel:
     case 0n:
-      Fail{"Calls nest too deep"}
+      Fail{"Calls and branches nest more than 8 deep"}
     case 1n+p:
       match term:
         case Core.TApp{func, Core.TLam{_, l, body, _}}:
           +c = call(func, Nil{})
           +at = level(l)
-          +t = target(action(c), evm, decls)
-          +k = do Result<&2, &2, String, Inline.Callee>:
-            +x : Target <- t
-            b : IR.Cmd <- cmd(p, target.body(x), target.arity(x), evm, decls)
-            return target.callee(x, b)
+          +k = callee(target(action(c), evm, decls), b => n => cmd(p, b, n, evm, decls))
           bind(c, at, cmd(fuel, body, at, evm, decls), k, evm, decls)
         case other:
           +c = call(other, Nil{})
-          +k = do Result<&2, &2, String, Inline.Callee>:
-            +x : Target <- target(c, evm, decls)
-            b : IR.Cmd <- cmd(p, target.body(x), target.arity(x), evm, decls)
-            return target.callee(x, b)
-          tail(c, t => cmd(p, t, bound, evm, decls), t => cmd(p, t, bound, evm, decls), k, bound, evm, decls)
+          +k = callee(target(c, evm, decls), b => n => cmd(p, b, n, evm, decls))
+          last(c, t => cmd(p, t, bound, evm, decls), t => cmd(p, t, bound, evm, decls), k, bound, evm, decls)
 
 def output(c: IR.Cmd) -> IR.Output:
   match c:
@@ -918,125 +895,138 @@ def output(c: IR.Cmd) -> IR.Output:
     case IR.If{_, yes, _}:
       output(yes)
 
+# Entries
+# -------
+
 type Entry is Data:
   Entry{parameters: List<&2, Nat>, body: IR.Cmd}
 
-# Parameters are the leading lambdas; the certificate checks their types.
-def entry.read(l: Lambdas, +arity: Nat, +evm: String, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, Entry>:
+# Parameter i must bind level i. A certificate then names each parameter
+# once, and does not depend on how the reader numbered them.
+def numbered(levels: List<&2, Nat>, +next: Nat) -> Bool:
+  match levels:
+    case Nil{}:
+      True{}
+    case level <> rest:
+      Bool.and(Nat.is_eq(level, next), numbered(rest, Nat.add(next, 1n)))
+
+def entry.checked(+name: String, +parameters: List<&2, Nat>, body: IR.Cmd) -> Result<&2, &2, String, Entry>:
+  Bool.pick(Result<&2, &2, String, Entry>, numbered(parameters, 0n), Done{Entry{parameters, body}},
+    Fail{name ++ ": parameter levels are not 0, 1, ..."})
+
+def entry(+name: String, l: Lambdas, +evm: String, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, Entry>:
   match l:
-    case Lambdas{parameters, body}:
+    case Lambdas{+parameters, body}:
       do Result<&2, &2, String, Entry>:
-        c : IR.Cmd <- cmd(depth(), body, arity, evm, decls)
-        return Entry{parameters, c}
+        c : IR.Cmd <- cmd(depth(), body, List.length(&2, Nat, parameters), evm, decls)
+        entry.checked(name, parameters, c)
 
-def module.found(found: Maybe<&2, String>) -> Result<&2, &2, String, String>:
-  match found:
-    case Some{prefix}:
-      Done{prefix}
-    case None{}:
-      Fail{"Expected an Evm.Contract result"}
+# A parameter's name and ABI type.
+type Input is Data:
+  Input{name: String, abi: String}
 
-def module.call(c: Call) -> Result<&2, &2, String, String>:
-  match c:
-    case Call{_, name, _}:
-      module.found(before("Contract", name))
-    case Other{}:
-      Fail{"Expected an Evm.Contract result"}
-
-# The Evm module's name prefix, such as "../Evm.", from the entry's result type.
-def module(arity: Nat, typ: Core.Term) -> Result<&2, &2, String, String>:
-  match arity typ:
-    case n Core.TAnn{value, _}:
-      module(n, value)
-    case 0n result:
-      module.call(call(result, Nil{}))
-    case 1n+p Core.TAll{_, _, _, _, body}:
-      module(p, body)
-    case _ _:
-      Fail{"Expected an Evm.Contract result"}
-
-def entry.found(found: Maybe<&2, Core.Declaration>, +evm: String, +decls: List<&2, Core.Declaration>) ->
-  Result<&2, &2, String, Entry>:
-  match found:
-    case Some{Core.Definition{Core.Header{_, _, +arity, _}, 0, False{}, Nil{}, _, Some{body}}}:
-      do Result<&2, &2, String, Entry>:
-        l : Lambdas <- lambdas(U32.to_nat(arity), strip(evm, body))
-        entry.read(l, U32.to_nat(arity), evm, decls)
-    case _:
-      Fail{"Expected a safe, concrete contract function"}
-
-def entry(+evm: String, +decls: List<&2, Core.Declaration>, name: String) -> Result<&2, &2, String, Entry>:
-  entry.found(Core.find(decls, name), evm, decls)
-
-def types.go(arity: Nat, +evm: String, typ: Core.Term) -> Result<&2, &2, String, List<&2, String>>:
-  match arity typ:
-    case n Core.TAnn{value, _}:
-      types.go(n, evm, value)
-    case 0n _:
+def inputs(+evm: String, params: List<&2, Param>) -> Result<&2, &2, String, List<&2, Input>>:
+  match params:
+    case Nil{}:
       Done{Nil{}}
-    case 1n+p Core.TAll{_, _, _, domain, body}:
-      do Result<&2, &2, String, List<&2, String>>:
+    case Param{name, domain} <> rest:
+      do Result<&2, &2, String, List<&2, Input>>:
         t : String <- abi.term(evm, domain)
-        rest : List<&2, String> <- types.go(p, evm, body)
-        return t <> rest
-    case _ _:
-      Fail{"Expected one type per parameter"}
+        r : List<&2, Input> <- inputs(evm, rest)
+        return Input{name, t} <> r
 
-def types.found(found: Maybe<&2, Core.Declaration>, +evm: String) -> Result<&2, &2, String, List<&2, String>>:
-  match found:
-    case Some{Core.Definition{Core.Header{_, _, arity, typ}, _, _, _, _, _}}:
-      types.go(U32.to_nat(arity), evm, typ)
-    case _:
-      Fail{"Unknown contract function"}
+# An entry, read once for every tool: a constant string such as an ERC-20's
+# name(), which the printer returns ABI-encoded and which has nothing to
+# certify, or a contract function with its inputs, the ABI type of its
+# result ("" for Unit) and its IR.
+type Function is Data:
+  Constant{name: String, text: String}
+  Contract{name: String, inputs: List<&2, Input>, result: String, entry: Entry}
 
-# The ABI types of a contract function's parameters, in order.
-def types(+evm: String, +decls: List<&2, Core.Declaration>, name: String) -> Result<&2, &2, String, List<&2, String>>:
-  types.found(Core.find(decls, name), evm)
-
-def prefix.found(found: Maybe<&2, Core.Declaration>) -> Result<&2, &2, String, String>:
-  match found:
-    case Some{Core.Definition{Core.Header{_, _, arity, typ}, _, _, _, _, _}}:
-      module(U32.to_nat(arity), typ)
-    case _:
-      Fail{"Unknown contract function"}
-
-def prefix(+decls: List<&2, Core.Declaration>, name: String) -> Result<&2, &2, String, String>:
-  prefix.found(Core.find(decls, name))
-
-# A constant string entry, such as an ERC-20's name(): a definition with no
-# parameters whose body is a string literal. It is not a contract, so there
-# is nothing to certify, and the printer returns it ABI-encoded.
-def string_entry.term(term: Core.Term) -> Maybe<&2, String>:
+def text(term: Core.Term) -> Maybe<&2, String>:
   match term:
-    case Core.TAnn{value, _}:
-      string_entry.term(value)
     case Core.TLit{Core.Text{value}}:
       Some{value}
     case _:
       None{}
 
-def string_entry.found(found: Maybe<&2, Core.Declaration>) -> Maybe<&2, String>:
+# The text of a zero-argument def whose body is a text literal.
+def constant.text(found: Maybe<&2, Def>) -> Maybe<&2, String>:
   match found:
-    case Some{Core.Definition{Core.Header{_, _, 0, _}, 0, False{}, Nil{}, _, Some{body}}}:
-      string_entry.term(body)
+    case Some{Def{0n, _, body}}:
+      text(Core.bare(body))
     case _:
       None{}
 
-def string_entry(+decls: List<&2, Core.Declaration>, name: String) -> Maybe<&2, String>:
-  string_entry.found(Core.find(decls, name))
+def contract(+name: String, d: Def, +evm: String, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, Function>:
+  match d:
+    case Def{+arity, typ, body}:
+      do Result<&2, &2, String, Function>:
+        +t : Telescope <- telescope(arity, typ)
+        ins : List<&2, Input> <- inputs(evm, telescope.params(t))
+        out : String <- result.call(evm, call(telescope.result(t), Nil{}))
+        l : Lambdas <- lambdas(arity, strip(evm, body))
+        e : Entry <- entry(name, l, evm, decls)
+        return Contract{name, ins, out, e}
 
-def is_contract(found: Maybe<&2, String>) -> Bool:
+def function.found(+name: String, text: Maybe<&2, String>, found: Maybe<&2, Def>, +evm: String,
+  +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, Function>:
+  match text found:
+    case Some{value} _:
+      Done{Constant{name, value}}
+    case None{} Some{d}:
+      contract(name, d, evm, decls)
+    case None{} None{}:
+      Fail{"Unknown contract function: " ++ name}
+
+def function(+evm: String, +decls: List<&2, Core.Declaration>, +name: String) -> Result<&2, &2, String, Function>:
+  +found = lookup(decls, name)
+  function.found(name, constant.text(found), found, evm, decls)
+
+def functions(+evm: String, +decls: List<&2, Core.Declaration>, names: List<&2, String>) ->
+  Result<&2, &2, String, List<&2, Function>>:
+  match names:
+    case Nil{}:
+      Done{Nil{}}
+    case +name <> rest:
+      do Result<&2, &2, String, List<&2, Function>>:
+        f : Function <- function(evm, decls, name)
+        fs : List<&2, Function> <- functions(evm, decls, rest)
+        return f <> fs
+
+# The Evm module
+# --------------
+
+def module.found(found: Maybe<&2, String>) -> Result<&2, &2, String, String>:
   match found:
+    case Some{prefix}:
+      Done{prefix ++ "."}
     case None{}:
-      True{}
-    case Some{_}:
-      False{}
+      Fail{"Expected an Evm.Contract result"}
 
-# The first entry that is a contract function. Its result type names the
-# Evm module.
-def contract.first(names: List<&2, String>, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, String>:
+def module.name(c: Call) -> Result<&2, &2, String, String>:
+  match c:
+    case Call{_, name, _}:
+      module.found(before(".Contract", name))
+    case Other{}:
+      Fail{"Expected an Evm.Contract result"}
+
+def module.of(+name: String, found: Maybe<&2, Def>) -> Result<&2, &2, String, String>:
+  match found:
+    case Some{Def{arity, typ, _}}:
+      do Result<&2, &2, String, String>:
+        t : Telescope <- telescope(arity, typ)
+        module.name(call(telescope.result(t), Nil{}))
+    case None{}:
+      Fail{"Unknown contract function: " ++ name}
+
+# The Evm module's name prefix, such as "../Evm.", from the result type of
+# the first entry that is not a constant string.
+def module(+decls: List<&2, Core.Declaration>, names: List<&2, String>) -> Result<&2, &2, String, String>:
   match names:
     case Nil{}:
       Fail{"Name at least one contract function"}
     case +name <> rest:
-      Bool.pick(Result<&2, &2, String, String>, is_contract(string_entry(decls, name)), Done{name}, contract.first(rest, decls))
+      +found = lookup(decls, name)
+      Bool.pick(Result<&2, &2, String, String>, Maybe.is_some(&2, String, constant.text(found)), module(decls, rest),
+        module.of(name, found))

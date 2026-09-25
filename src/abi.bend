@@ -1,9 +1,7 @@
 import Base
-import ../vendor/bend-frontend/src/core.bend as Core
-import ../vendor/bend-frontend/src/frontend.bend as Frontend
 import ./ir.bend as IR
 import ./read.bend as Read
-import ./certify.bend as Certify
+import ./tool.bend as Tool
 
 # Prints the ABI JSON of the named contract functions, for wallets, explorers
 # and tools such as cast. An entry named init is the constructor. The events
@@ -22,78 +20,16 @@ def join(items: List<&2, String>) -> String:
 def param(+name: String, +typ: String) -> String:
   "{" ++ field("name", quote(name)) ++ "," ++ field("type", quote(typ)) ++ "}"
 
-def params(names: List<&2, String>, types: List<&2, String>) -> List<&2, String>:
-  match names types:
-    case +n <> ns +t <> ts:
-      param(n, t) <> params(ns, ts)
-    case _ _:
+def params(inputs: List<&2, Read.Input>) -> List<&2, String>:
+  match inputs:
+    case Nil{}:
       Nil{}
+    case Read.Input{+n, +t} <> rest:
+      param(n, t) <> params(rest)
 
-# The parameter names, from the binders of the declared type.
-def names(arity: Nat, typ: Core.Term) -> List<&2, String>:
-  match arity typ:
-    case n Core.TAnn{value, _}:
-      names(n, value)
-    case 1n+p Core.TAll{_, name, _, _, body}:
-      name <> names(p, body)
-    case _ _:
-      Nil{}
-
-def names.found(found: Maybe<&2, Core.Declaration>) -> List<&2, String>:
-  match found:
-    case Some{Core.Definition{Core.Header{_, _, arity, typ}, _, _, _, _, _}}:
-      names(U32.to_nat(arity), typ)
-    case _:
-      Nil{}
-
-# The ABI type of a result: "" for Unit.
-def result.name(+name: String) -> Result<&2, &2, String, String>:
-  match name:
-    case "Unit":
-      Done{""}
-    case other:
-      Read.abi(other)
-
-def result.term(+evm: String, typ: Core.Term) -> Result<&2, &2, String, String>:
-  match typ:
-    case Core.TAnn{value, _}:
-      result.term(evm, value)
-    case Core.TRef{+name, _}:
-      result.name(Read.canonical(Read.after(evm, name), name))
-    case _:
-      Fail{"Unsupported result type"}
-
-def result.call(+evm: String, c: Read.Call) -> Result<&2, &2, String, String>:
-  match c:
-    case Read.Call{_, _, arg <> Nil{}}:
-      result.term(evm, arg)
-    case _:
-      Fail{"Expected an Evm.Contract result"}
-
-def result(+evm: String, arity: Nat, typ: Core.Term) -> Result<&2, &2, String, String>:
-  match arity typ:
-    case n Core.TAnn{value, _}:
-      result(evm, n, value)
-    case 0n body:
-      result.call(evm, Read.call(Core.bare(body), Nil{}))
-    case 1n+p Core.TAll{_, _, _, _, body}:
-      result(evm, p, body)
-    case _ _:
-      Fail{"Expected an Evm.Contract result"}
-
-def result.found(found: Maybe<&2, Core.Declaration>, +evm: String) -> Result<&2, &2, String, String>:
-  match found:
-    case Some{Core.Definition{Core.Header{_, _, arity, typ}, _, _, _, _, _}}:
-      result(evm, U32.to_nat(arity), typ)
-    case _:
-      Fail{"Unknown contract function"}
-
-def outputs(typ: String) -> String:
-  match typ:
-    case "":
-      "[]"
-    case +t:
-      "[" ++ param("", t) ++ "]"
+# A result's outputs: none for Unit, whose ABI type is "".
+def outputs(+typ: String) -> String:
+  Bool.pick(String, String.is_empty(typ), "[]", "[" ++ param("", typ) ++ "]")
 
 def writes.effect(e: IR.Effect) -> Bool:
   match e:
@@ -223,26 +159,17 @@ def event.texts(es: List<&2, Emitted>) -> List<&2, String>:
 type Item is Data:
   Item{text: String, events: List<&2, Emitted>}
 
-def item.text(+name: String, entry: Read.Entry, +inputs: List<&2, String>, +output: String) -> Item:
-  match entry:
-    case Read.Entry{_, +body}:
-      Item{Bool.pick(String, String.eq(name, "init"), constructor.text(inputs),
-        function.text(name, inputs, output, mutability(writes(body)))), events(body)}
+def item.contract(+name: String, inputs: List<&2, Read.Input>, +output: String, +body: IR.Cmd) -> Item:
+  +ins = params(inputs)
+  Item{Bool.pick(String, String.eq(name, "init"), constructor.text(ins),
+    function.text(name, ins, output, mutability(writes(body)))), events(body)}
 
-def item.contract(+name: String, +evm: String, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, Item>:
-  do Result<&2, &2, String, Item>:
-    entry : Read.Entry <- Read.entry(evm, decls, name)
-    types : List<&2, String> <- Read.types(evm, decls, name)
-    output : String <- result.found(Core.find(decls, name), evm)
-    return item.text(name, entry, params(names.found(Core.find(decls, name)), types), output)
-
-def item(+name: String, found: Maybe<&2, String>, +evm: String, +decls: List<&2, Core.Declaration>) ->
-  Result<&2, &2, String, Item>:
-  match found:
-    case Some{_}:
-      Done{Item{function.text(name, Nil{}, "string", "pure"), Nil{}}}
-    case None{}:
-      item.contract(name, evm, decls)
+def item(f: Read.Function) -> Item:
+  match f:
+    case Read.Constant{+name, _}:
+      Item{function.text(name, Nil{}, "string", "pure"), Nil{}}
+    case Read.Contract{+name, inputs, +output, Read.Entry{_, +body}}:
+      item.contract(name, inputs, output, body)
 
 type Items is Data:
   Items{texts: List<&2, String>, events: List<&2, Emitted>}
@@ -252,15 +179,12 @@ def items.add(i: Item, rest: Items) -> Items:
     case Item{t, es} Items{ts, found}:
       Items{t <> ts, List.append(&2, Emitted, es, found)}
 
-def items(names: List<&2, String>, +evm: String, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, Items>:
-  match names:
+def items(fs: List<&2, Read.Function>) -> Items:
+  match fs:
     case Nil{}:
-      Done{Items{Nil{}, Nil{}}}
-    case +name <> rest:
-      do Result<&2, &2, String, Items>:
-        head : Item <- item(name, Read.string_entry(decls, name), evm, decls)
-        tail : Items <- items(rest, evm, decls)
-        return items.add(head, tail)
+      Items{Nil{}, Nil{}}
+    case f <> rest:
+      items.add(item(f), items(rest))
 
 def document(all: Items) -> Result<&2, &2, String, String>:
   match all:
@@ -269,34 +193,10 @@ def document(all: Items) -> Result<&2, &2, String, String>:
         es : List<&2, Emitted> <- unique(found, Nil{})
         return "[" ++ join(List.append(&2, String, texts, event.texts(es))) ++ "]\n"
 
-def abi(program: Core.Program, +backend: String, +entries: List<&2, String>) -> Result<&2, &2, String, String>:
-  match program:
-    case Core.Program{_, _, _, _, entry, _, _, _, +decls, _}:
-      do Result<&2, &2, String, String>:
-        leading : String <- Read.contract.first(entries, decls)
-        prefix : String <- Read.prefix(decls, leading)
-        +evm : String <- Certify.module(entry, prefix, backend)
-        all : Items <- items(entries, evm, decls)
-        document(all)
-
-def run(file: String, entries: List<String>) -> IO(Unit):
-  do IO<Unit>:
-    # host/run.js sets BEND_ENTRY to this file's real path.
-    found : Result<&1, &1, U32 & String, String> <- IO.get_env("BEND_ENTRY")
-    backend : String <- IO.pass(String, found)
-    result : Result<&2, &2, String, Core.Program> <- Frontend.check(file)
-    program : Core.Program <- Frontend.or_die(Core.Program, result)
-    text : String <- Frontend.or_die(String, abi(program, backend, Certify.strings(entries)))
-    IO.write(text)
-
-def args(values: List<String>) -> IO(Unit):
-  match values:
-    case file <> entries:
-      run(file, entries)
-    case Nil{}:
-      IO.die(Unit, 1, "Usage: abi.bend <contract.bend> <function>...")
+def abi(file: String, s: Tool.Setup) -> Result<&2, &2, String, String>:
+  match s:
+    case Tool.Setup{_, fs}:
+      document(items(fs))
 
 def main() -> IO(Unit):
-  do IO<Unit>:
-    values : List<String> <- IO.args()
-    args(values)
+  Tool.main(~abi, "Usage: abi.bend <contract.bend> <function>...")

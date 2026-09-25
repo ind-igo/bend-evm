@@ -1,6 +1,7 @@
 import Base
 
-# Keccak-256 of one block (up to 135 bytes), enough for ABI selectors.
+# Keccak-256 of one block (up to 135 ASCII bytes): ABI selectors, event
+# topics and the texts that Evm.id hashes.
 # A 64-bit lane is two U32 halves; the state is a list of 25 lanes, x + 5y.
 type Lane is Data:
   Lane{hi: U32, lo: U32}
@@ -177,9 +178,17 @@ def selector.lane(a: Lane) -> U32:
     case Lane{_, +lo}:
       word(byte(lo, 24n), byte(lo, 16n), byte(lo, 8n), byte(lo, 0n))
 
-# One block holds up to 135 bytes; longer input would hash wrongly.
-def fits(s: String) -> Bool:
-  Nat.is_lt(String.length(s), 136n)
+def ascii(s: String) -> Bool:
+  match s:
+    case SNil{}:
+      True{}
+    case SCon{c, rest}:
+      Bool.and(U32.is_lt(Char.to_u32(c), 128), ascii(rest))
+
+# One block holds up to 135 bytes, and each character must be one byte;
+# other input would hash wrongly.
+def fits(+s: String) -> Bool:
+  Bool.and(ascii(s), Nat.is_lt(String.length(s), 136n))
 
 def selector(signature: String) -> U32:
   selector.lane(at(hash(signature), 0n))
@@ -187,13 +196,12 @@ def selector(signature: String) -> U32:
 def hex.digit(+d: U32) -> Char:
   Bool.pick(Char, U32.is_lt(d, 10), Char.from_u32(U32.add(d, 48)), Char.from_u32(U32.add(d, 87)))
 
-def hex.go(n: Nat, x: U32) -> String:
+def hex.go(n: Nat, +x: U32) -> String:
   match n:
     case 0n:
       SNil{}
     case 1n+p:
-      +v = x
-      SCon{hex.digit(U32.shrn(v, 28n)), hex.go(p, U32.shln(v, 4n))}
+      SCon{hex.digit(U32.shrn(x, 28n)), hex.go(p, U32.shln(x, 4n))}
 
 def hex.byte(+b: U32) -> String:
   SCon{hex.digit(U32.shrn(b, 4n)), SCon{hex.digit(U32.and(b, 15)), SNil{}}}

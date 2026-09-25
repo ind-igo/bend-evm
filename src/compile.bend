@@ -1,14 +1,13 @@
 import Base
-import ../vendor/bend-frontend/src/core.bend as Core
-import ../vendor/bend-frontend/src/frontend.bend as Frontend
 import ./ir.bend as IR
 import ./read.bend as Read
 import ./yul.bend as Yul
 import ./keccak.bend as Keccak
-import ./certify.bend as Certify
+import ./tool.bend as Tool
 
-# Prints a Yul object for the named contract functions, with an ABI
-# dispatcher. Parameters are uint256 or address; results are uint256.
+# Prints a Yul object for the named entries, with an ABI dispatcher. The
+# dispatcher range-checks address, uint8 and bool parameters; results go out
+# as they are. An entry named init is the constructor.
 # Usage: compile.bend <contract.bend> <function>...
 
 def nat(n: Nat) -> String:
@@ -132,17 +131,15 @@ def stmt(+pad: String, +halt: String, s: Yul.Stmt) -> String:
       pad ++ "switch " ++ exp(test) ++ "\n" ++ pad ++ "case 0 {\n" ++ stmt(pad, halt, no) ++ pad ++ "}\n"
         ++ pad ++ "default {\n" ++ stmt(pad, halt, yes) ++ pad ++ "}\n"
 
-# An address argument must fit in 160 bits.
-def range(+pad: String, typ: String, +level: Nat) -> String:
-  match typ:
-    case "address":
-      pad ++ "if shr(160, " ++ var(level) ++ ") { " ++ revert() ++ " }\n"
-    case "uint8":
-      pad ++ "if gt(" ++ var(level) ++ ", 255) { " ++ revert() ++ " }\n"
-    case "bool":
-      pad ++ "if gt(" ++ var(level) ++ ", 1) { " ++ revert() ++ " }\n"
-    case _:
-      ""
+# The check that rejects an argument out of its ABI type's range, if any.
+def range.test(+typ: String, +v: String) -> String:
+  Bool.pick(String, String.eq(typ, "address"), "shr(160, " ++ v ++ ")",
+    Bool.pick(String, String.eq(typ, "uint8"), "gt(" ++ v ++ ", 255)",
+      Bool.pick(String, String.eq(typ, "bool"), "gt(" ++ v ++ ", 1)", "")))
+
+def range(+pad: String, +typ: String, +level: Nat) -> String:
+  +test = range.test(typ, var(level))
+  Bool.pick(String, String.is_empty(test), "", pad ++ "if " ++ test ++ " { " ++ revert() ++ " }\n")
 
 # Parameter i has level i and is the ABI word at base + 32 * i, read with
 # load: calldataload in the runtime, mload of the copied arguments in init.
@@ -155,18 +152,15 @@ def parameters(+pad: String, +load: String, +base: Nat, types: List<&2, String>,
       pad ++ "let " ++ var(level) ++ " := " ++ load ++ "(" ++ nat(offset) ++ ")\n" ++ range(pad, typ, level)
         ++ parameters(pad, load, base, rest, Nat.add(1n, level))
 
-type Function is Data:
-  Function{name: String, parameters: List<&2, Nat>, types: List<&2, String>, body: IR.Cmd}
+def types(inputs: List<&2, Read.Input>) -> List<&2, String>:
+  match inputs:
+    case Nil{}:
+      Nil{}
+    case Read.Input{_, t} <> rest:
+      t <> types(rest)
 
 def indent() -> String:
   "        "
-
-def branch.text(+signature: String, +types: List<&2, String>, body: Yul.Stmt) -> String:
-  +pad = indent()
-  +size = Nat.add(4n, Nat.mul(32n, List.length(&2, String, types)))
-  "      case " ++ Keccak.hex(Keccak.selector(signature)) ++ " {\n"
-    ++ pad ++ "if lt(calldatasize(), " ++ nat(size) ++ ") { " ++ revert() ++ " }\n"
-    ++ parameters(pad, "calldataload", 4n, types, 0n) ++ stmt(pad, pad ++ "stop()\n", body) ++ "      }\n"
 
 # The model keeps a plain slot apart from every mapping entry. On chain that
 # holds only when the slot is fixed: a slot from a variable could be
@@ -201,29 +195,32 @@ def fixed(cmd: IR.Cmd) -> Bool:
       True{}
 
 # An entry compiles only if its variables are bound and its slots are fixed.
-def valid(+body: IR.Cmd, +levels: List<&2, Nat>) -> Bool:
-  Bool.and(IR.closed(body, levels), fixed(body))
+def valid(+name: String, +body: IR.Cmd, +levels: List<&2, Nat>) -> Result<&2, &2, String, IR.Cmd>:
+  Bool.pick(Result<&2, &2, String, IR.Cmd>, Bool.and(IR.closed(body, levels), fixed(body)), Done{body},
+    Fail{name ++ ": the IR has an unbound variable or a storage slot that is not a literal"})
 
-def branch.closed(+signature: String, +types: List<&2, String>, +levels: List<&2, Nat>, +body: IR.Cmd) ->
+# The dispatcher case of a contract function: its selector, the calldata
+# size check, its parameters, then its lowered body.
+def dispatch.text(+signature: String, +types: List<&2, String>, body: Yul.Stmt) -> String:
+  +pad = indent()
+  +size = Nat.add(4n, Nat.mul(32n, List.length(&2, String, types)))
+  "      case " ++ Keccak.hex(Keccak.selector(signature)) ++ " {\n"
+    ++ pad ++ "if lt(calldatasize(), " ++ nat(size) ++ ") { " ++ revert() ++ " }\n"
+    ++ parameters(pad, "calldataload", 4n, types, 0n) ++ stmt(pad, pad ++ "stop()\n", body) ++ "      }\n"
+
+def dispatch.valid(+signature: String, +types: List<&2, String>, +levels: List<&2, Nat>, +body: IR.Cmd) ->
   Result<&2, &2, String, String>:
-  Bool.pick(Result<&2, &2, String, String>, valid(body, levels),
-    Done{branch.text(signature, types, Yul.lower(body, Read.output(body)))},
-    Fail{signature ++ ": the IR has an unbound variable or a storage slot that is not a literal"})
+  do Result<&2, &2, String, String>:
+    +checked : IR.Cmd <- valid(signature, body, levels)
+    return dispatch.text(signature, types, Yul.lower(checked, Read.output(checked)))
 
-def branch(f: Function) -> Result<&2, &2, String, String>:
-  match f:
-    case Function{name, +levels, +types, body}:
-      +signature = name ++ "(" ++ String.join(types, ",") ++ ")"
-      Bool.pick(Result<&2, &2, String, String>, Keccak.fits(signature),
-        branch.closed(signature, types, levels, body),
-        Fail{signature ++ ": signatures over 135 bytes are not supported"})
-
-def function(+name: String, entry: Read.Entry, types: List<&2, String>) -> Result<&2, &2, String, Function>:
+def dispatch(+name: String, inputs: List<&2, Read.Input>, entry: Read.Entry) -> Result<&2, &2, String, String>:
   match entry:
-    case Read.Entry{+levels, body}:
-      Bool.pick(Result<&2, &2, String, Function>, Certify.numbered(levels, 0n),
-        Done{Function{name, levels, types, body}},
-        Fail{name ++ ": parameter levels are not 0, 1, ..."})
+    case Read.Entry{+levels, +body}:
+      +ts = types(inputs)
+      +signature = name ++ "(" ++ String.join(ts, ",") ++ ")"
+      Bool.pick(Result<&2, &2, String, String>, Keccak.fits(signature), dispatch.valid(signature, ts, levels, body),
+        Fail{signature ++ ": signatures over 135 bytes are not supported"})
 
 def zeros(+n: Nat) -> String:
   match n:
@@ -253,13 +250,6 @@ def mstores(+fuel: Nat, +pad: String, s: String, +offset: Nat) -> String:
       pad ++ "mstore(" ++ nat(offset) ++ ", 0x" ++ word.hex(32n, t) ++ ")\n"
         ++ mstores(f, pad, String.drop(t, 32n), Nat.add(offset, 32n))
 
-def ascii(s: String) -> Bool:
-  match s:
-    case SNil{}:
-      True{}
-    case SCon{c, rest}:
-      Bool.and(Nat.is_lt(U32.to_nat(Char.to_u32(c)), 128n), ascii(rest))
-
 # A constant string entry returns the ABI encoding of its text: the offset
 # 32, the length, and the bytes in 32-byte words, zero-padded on the right.
 def constant.text(+name: String, +value: String) -> String:
@@ -271,33 +261,35 @@ def constant.text(+name: String, +value: String) -> String:
     ++ pad ++ "return(0, " ++ nat(Nat.add(64n, Nat.mul(32n, Nat.div(Nat.add(size, 31n), 32n)))) ++ ")\n      }\n"
 
 def constant.ascii(+name: String, +value: String) -> Result<&2, &2, String, String>:
-  Bool.pick(Result<&2, &2, String, String>, ascii(value), Done{constant.text(name, value)},
+  Bool.pick(Result<&2, &2, String, String>, Keccak.ascii(value), Done{constant.text(name, value)},
     Fail{name ++ ": a constant string must be ASCII"})
 
 def constant(+name: String, +value: String) -> Result<&2, &2, String, String>:
   Bool.pick(Result<&2, &2, String, String>, Keccak.fits(name ++ "()"), constant.ascii(name, value),
     Fail{name ++ "(): signatures over 135 bytes are not supported"})
 
-def case.text(+name: String, found: Maybe<&2, String>, +evm: String, +decls: List<&2, Core.Declaration>) ->
-  Result<&2, &2, String, String>:
-  match found:
-    case Some{value}:
+def case.text(f: Read.Function) -> Result<&2, &2, String, String>:
+  match f:
+    case Read.Constant{+name, +value}:
       constant(name, value)
-    case None{}:
-      do Result<&2, &2, String, String>:
-        entry : Read.Entry <- Read.entry(evm, decls, name)
-        types : List<&2, String> <- Read.types(evm, decls, name)
-        f : Function <- function(name, entry, types)
-        branch(f)
+    case Read.Contract{+name, inputs, _, entry}:
+      dispatch(name, inputs, entry)
 
-def cases(names: List<&2, String>, +evm: String, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, String>:
-  match names:
+def is_init(f: Read.Function) -> Bool:
+  match f:
+    case Read.Contract{name, _, _, _}:
+      String.eq(name, "init")
+    case Read.Constant{_, _}:
+      False{}
+
+def cases(fs: List<&2, Read.Function>) -> Result<&2, &2, String, String>:
+  match fs:
     case Nil{}:
       Done{""}
-    case +name <> rest:
+    case +f <> rest:
       do Result<&2, &2, String, String>:
-        head : String <- case.text(name, Read.string_entry(decls, name), evm, decls)
-        tail : String <- cases(rest, evm, decls)
+        head : String <- Bool.pick(Result<&2, &2, String, String>, is_init(f), Done{""}, case.text(f))
+        tail : String <- cases(rest)
         return head ++ tail
 
 # Yul functions that lowered code calls. Each code block defines its own.
@@ -348,30 +340,6 @@ def object(init: String, body: String) -> String:
     ++ "  }\n"
     ++ "}\n"
 
-# An entry named init is the constructor. It runs in the deploy code, where a
-# final stop falls through to returning the runtime code.
-def is_init(+name: String) -> Bool:
-  match name:
-    case "init":
-      True{}
-    case _:
-      False{}
-
-def has_init(names: List<&2, String>) -> Bool:
-  match names:
-    case Nil{}:
-      False{}
-    case +name <> rest:
-      Bool.or(is_init(name), has_init(rest))
-
-def without_init(names: List<&2, String>) -> List<&2, String>:
-  match names:
-    case Nil{}:
-      Nil{}
-    case +name <> rest:
-      +kept = without_init(rest)
-      Bool.pick(List<&2, String>, is_init(name), kept, name <> kept)
-
 # Constructor arguments are ABI words after the deploy code. They are copied
 # to memory and read before the body runs, which uses memory for mapped().
 def arguments(types: List<&2, String>) -> String:
@@ -384,64 +352,39 @@ def arguments(types: List<&2, String>) -> String:
         ++ "    codecopy(0, datasize(\"Contract\"), " ++ size ++ ")\n"
         ++ parameters("    ", "mload", 0n, typ <> rest, 0n)
 
-def init.stops(out: IR.Output, +body: IR.Cmd, +levels: List<&2, Nat>, types: List<&2, String>) ->
+def init.stops(out: IR.Output, inputs: List<&2, Read.Input>, +levels: List<&2, Nat>, +body: IR.Cmd) ->
   Result<&2, &2, String, String>:
   match out:
     case IR.Stops{}:
-      Bool.pick(Result<&2, &2, String, String>, valid(body, levels),
-        Done{arguments(types) ++ stmt("    ", "", Yul.lower(body, IR.Stops{}))},
-        Fail{"init: the IR has an unbound variable or a storage slot that is not a literal"})
+      do Result<&2, &2, String, String>:
+        checked : IR.Cmd <- valid("init", body, levels)
+        return arguments(types(inputs)) ++ stmt("    ", "", Yul.lower(checked, IR.Stops{}))
     case IR.Returns{}:
       Fail{"init must return Unit"}
 
-def init.text(entry: Read.Entry, +types: List<&2, String>) -> Result<&2, &2, String, String>:
-  match entry:
-    case Read.Entry{+levels, +body}:
-      Bool.pick(Result<&2, &2, String, String>, Certify.numbered(levels, 0n),
-        init.stops(Read.output(body), body, levels, types),
-        Fail{"init: parameter levels are not 0, 1, ..."})
-
-def constructor(found: Bool, +evm: String, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, String>:
-  match found:
-    case True{}:
-      do Result<&2, &2, String, String>:
-        entry : Read.Entry <- Read.entry(evm, decls, "init")
-        types : List<&2, String> <- Read.types(evm, decls, "init")
-        init.text(entry, types)
-    case False{}:
+def constructor.of(f: Read.Function) -> Result<&2, &2, String, String>:
+  match f:
+    case Read.Contract{_, inputs, _, Read.Entry{+levels, +body}}:
+      init.stops(Read.output(body), inputs, levels, body)
+    case Read.Constant{_, _}:
       Done{""}
 
-def contract(program: Core.Program, +backend: String, entries: List<&2, String>) -> Result<&2, &2, String, String>:
-  match program entries:
-    case Core.Program{_, _, _, _, entry, _, _, _, +decls, _} +first <> +rest:
-      do Result<&2, &2, String, String>:
-        leading : String <- Read.contract.first(first <> rest, decls)
-        prefix : String <- Read.prefix(decls, leading)
-        +evm : String <- Certify.module(entry, prefix, backend)
-        init : String <- constructor(has_init(first <> rest), evm, decls)
-        body : String <- cases(without_init(first <> rest), evm, decls)
-        return object(init, body)
-    case _ Nil{}:
-      Fail{"Name at least one contract function"}
-
-def run(file: String, entries: List<String>) -> IO(Unit):
-  do IO<Unit>:
-    # host/run.js sets BEND_ENTRY to this file's real path.
-    found : Result<&1, &1, U32 & String, String> <- IO.get_env("BEND_ENTRY")
-    backend : String <- IO.pass(String, found)
-    result : Result<&2, &2, String, Core.Program> <- Frontend.check(file)
-    program : Core.Program <- Frontend.or_die(Core.Program, result)
-    text : String <- Frontend.or_die(String, contract(program, backend, Certify.strings(entries)))
-    IO.write(text)
-
-def args(values: List<String>) -> IO(Unit):
-  match values:
-    case file <> entries:
-      run(file, entries)
+# An entry named init is the constructor. It runs in the deploy code, where a
+# final stop falls through to returning the runtime code.
+def constructor(fs: List<&2, Read.Function>) -> Result<&2, &2, String, String>:
+  match fs:
     case Nil{}:
-      IO.die(Unit, 1, "Usage: compile.bend <contract.bend> <function>...")
+      Done{""}
+    case +f <> rest:
+      Bool.pick(Result<&2, &2, String, String>, is_init(f), constructor.of(f), constructor(rest))
+
+def contract(file: String, s: Tool.Setup) -> Result<&2, &2, String, String>:
+  match s:
+    case Tool.Setup{_, +fs}:
+      do Result<&2, &2, String, String>:
+        init : String <- constructor(fs)
+        body : String <- cases(fs)
+        return object(init, body)
 
 def main() -> IO(Unit):
-  do IO<Unit>:
-    values : List<String> <- IO.args()
-    args(values)
+  Tool.main(~contract, "Usage: compile.bend <contract.bend> <function>...")

@@ -66,7 +66,15 @@ def top.word(w: IR.Word) -> Nat:
       top.two(domain, message)
     case IR.Recover{digest, v, r, s}:
       max(top.two(digest, v), top.two(r, s))
-    case _:
+    case IR.Max{}:
+      0n
+    case IR.Timestamp{}:
+      0n
+    case IR.ChainId{}:
+      0n
+    case IR.Self{}:
+      0n
+    case IR.Id{_}:
       0n
 
 def top.effect(e: IR.Effect) -> Nat:
