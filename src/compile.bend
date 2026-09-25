@@ -265,9 +265,13 @@ def constant.text(+name: String, +value: String) -> String:
     ++ mstores(size, pad, value, 64n)
     ++ pad ++ "return(0, " ++ nat(Nat.add(64n, Nat.mul(32n, Nat.div(Nat.add(size, 31n), 32n)))) ++ ")\n      }\n"
 
-def constant(+name: String, +value: String) -> Result<&2, &2, String, String>:
+def constant.ascii(+name: String, +value: String) -> Result<&2, &2, String, String>:
   Bool.pick(Result<&2, &2, String, String>, ascii(value), Done{constant.text(name, value)},
     Fail{name ++ ": a constant string must be ASCII"})
+
+def constant(+name: String, +value: String) -> Result<&2, &2, String, String>:
+  Bool.pick(Result<&2, &2, String, String>, Keccak.fits(name ++ "()"), constant.ascii(name, value),
+    Fail{name ++ "(): signatures over 135 bytes are not supported"})
 
 def case.text(+name: String, found: Maybe<&2, String>, +evm: String, +decls: List<&2, Core.Declaration>) ->
   Result<&2, &2, String, String>:

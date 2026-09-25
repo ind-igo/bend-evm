@@ -155,7 +155,7 @@ A token that someone can write, deploy and use from a wallet, after solmate's ER
 
 ### Done when
 
-- [x] A constant string entry, such as `name()`, returns its ABI encoding; `Evm.Uint8` and `Evm.Boolean` are range-checked words with their ABI types.
+- [x] A constant string entry, such as `name()`, returns its ABI encoding; `Evm.Uint8` and `Evm.Boolean` are words with their ABI types; parameters are range-checked, results are not.
 - [x] `src/abi.bend` prints the ABI JSON, and `bun run build --out` writes the Yul, the bytecode and the ABI.
 - [x] [lib/ERC20.bend](lib/ERC20.bend) is the base, and the example token uses it. Its laws, including `supply_sum`, still hold; `init` now mints, so its law states the overflow checks.
 - [x] The token test deploys the output of `bun run build --out`, reads the name, symbol and decimals with `cast`, and checks the ABI with `cast interface`.

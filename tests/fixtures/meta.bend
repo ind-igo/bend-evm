@@ -14,3 +14,7 @@ def decimals() -> Evm.Contract(Evm.Uint8):
 
 def echo(x: Evm.Uint8, flag: Evm.Boolean) -> Evm.Contract(Nat):
   Evm.add(x, flag)
+
+# With "()", its signature has 136 bytes, which one Keccak block cannot hold.
+def aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa() -> String:
+  "long"

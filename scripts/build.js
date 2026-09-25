@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 // Certifies, checks and compiles a contract: the Yul goes to stdout only when
@@ -36,11 +37,18 @@ if (!out) {
   process.stdout.write(yul);
   process.exit(0);
 }
-mkdirSync(path.dirname(out), { recursive: true });
-writeFileSync(out + '.yul', yul);
-const solc = Bun.spawnSync(['solc', '--strict-assembly', '--evm-version', 'shanghai', '--bin', out + '.yul'],
-  { stdout: 'pipe', stderr: 'inherit' });
+// solc and the ABI run before any file is written, so a failure leaves the
+// old outputs as they were.
+const temp = mkdtempSync(path.join(tmpdir(), 'bend-evm-build-'));
+writeFileSync(path.join(temp, 'Contract.yul'), yul);
+const solc = Bun.spawnSync(['solc', '--strict-assembly', '--evm-version', 'shanghai', '--bin',
+  path.join(temp, 'Contract.yul')], { stdout: 'pipe', stderr: 'inherit' });
+rmSync(temp, { recursive: true, force: true });
 if (solc.exitCode !== 0) process.exit(solc.exitCode ?? 1);
-writeFileSync(out + '.bin', solc.stdout.toString().split('Binary representation:')[1].trim() + '\n');
-writeFileSync(out + '.abi.json', bend(run, 'src/abi.bend', program, ...entries));
-for (const suffix of ['.yul', '.bin', '.abi.json']) console.log(out + suffix);
+const bin = solc.stdout.toString().split('Binary representation:')[1].trim() + '\n';
+const abi = bend(run, 'src/abi.bend', program, ...entries);
+mkdirSync(path.dirname(out), { recursive: true });
+for (const [suffix, text] of [['.yul', yul], ['.bin', bin], ['.abi.json', abi]]) {
+  writeFileSync(out + suffix, text);
+  console.log(out + suffix);
+}

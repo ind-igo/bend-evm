@@ -126,6 +126,8 @@ def constructor.text(+inputs: List<&2, String>) -> String:
     field("stateMutability", quote("nonpayable"))]) ++ "}"
 
 # An event that a function logs: its signature and the number of indexed words.
+# A log does not say which parameters its topics are, so the first ones are
+# indexed; the README asks for indexed parameters first.
 type Emitted is Data:
   Emitted{signature: String, indexed: Nat}
 

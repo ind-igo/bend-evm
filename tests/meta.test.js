@@ -36,3 +36,10 @@ test('the ABI JSON describes the functions', () => {
     ['echo', ['uint256'], 'view']]);
   expect(abi[3].inputs).toEqual([{ name: 'x', type: 'uint8' }, { name: 'flag', type: 'bool' }]);
 }, 120_000);
+
+test('a constant with a signature over 135 bytes does not compile', () => {
+  const result = run(process.execPath, 'vendor/bend-frontend/host/run.js', 'src/compile.bend',
+    'tests/fixtures/meta.bend', 'decimals', 'a'.repeat(134));
+  expect(result.ok).toBe(false);
+  expect(result.err).toContain('signatures over 135 bytes are not supported');
+}, 120_000);

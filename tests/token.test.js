@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, test } from 'bun:test';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { deploy, must, reverts, run } from './chain.js';
@@ -17,9 +17,15 @@ const out = path.join(mkdtempSync(path.join(tmpdir(), 'bend-evm-token-')), 'Toke
 let chain, sender, send, owner;
 
 // As a user would: bun run build --out, then deploy the bytecode with no
-// initial supply. The deployer, sender, is the owner.
+// initial supply. The deployer, sender, is the owner. The build writes
+// CERT.bend, so the committed copy goes back after it, for certify.test.js.
 beforeAll(async () => {
-  must(run(process.execPath, 'scripts/build.js', '--out', out, 'examples/token/program.bend', ...functions));
+  const cert = 'examples/token/CERT.bend', committed = readFileSync(cert, 'utf8');
+  try {
+    must(run(process.execPath, 'scripts/build.js', '--out', out, 'examples/token/program.bend', ...functions));
+  } finally {
+    writeFileSync(cert, committed);
+  }
   const bytecode = readFileSync(out + '.bin', 'utf8').trim();
   chain = await deploy('examples/token/program.bend', functions, { args: [0n], bytecode });
   ({ sender, send } = chain);
