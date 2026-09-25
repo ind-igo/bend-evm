@@ -24,6 +24,19 @@ def Plain(x: Nat) -> Evm.Log:
 def plain() -> Evm.Contract(Unit):
   Evm.emit(Plain(1n))
 
+# Two events with one signature but different indexed parameters.
+def Moved(from: Evm.Indexed(Evm.Address), amount: Nat) -> Evm.Event:
+  Evm.Log{"Moved(address,uint256)", [from], [amount]}
+
+def other.Moved(from: Evm.Address, amount: Nat) -> Evm.Event:
+  Evm.Log{"Moved(address,uint256)", [], [from, amount]}
+
+def one() -> Evm.Contract(Unit):
+  Evm.emit(Moved(1n, 2n))
+
+def two() -> Evm.Contract(Unit):
+  Evm.emit(other.Moved(1n, 2n))
+
 # A log without an event def.
 def raw() -> Evm.Contract(Unit):
   Evm.emit(Evm.Log{"E(uint256)", [], [0n]})

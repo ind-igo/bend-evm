@@ -155,12 +155,31 @@ def known(+signature: String, seen: List<&2, Emitted>) -> Bool:
     case Emitted{s, _} <> rest:
       Bool.or(String.eq(s, signature), known(signature, rest))
 
-def unique(found: List<&2, Emitted>, +seen: List<&2, Emitted>) -> List<&2, Emitted>:
+# Whether seen has the signature with another number of indexed words.
+def clash(+signature: String, +indexed: Nat, seen: List<&2, Emitted>) -> Bool:
+  match seen:
+    case Nil{}:
+      False{}
+    case Emitted{s, +n} <> rest:
+      Bool.or(Bool.and(String.eq(s, signature), Bool.not(Nat.is_eq(n, indexed))), clash(signature, indexed, rest))
+
+def unique.cons(+e: Emitted, r: Result<&2, &2, String, List<&2, Emitted>>) -> Result<&2, &2, String, List<&2, Emitted>>:
+  do Result<&2, &2, String, List<&2, Emitted>>:
+    rest : List<&2, Emitted> <- r
+    return e <> rest
+
+# Each signature once. Two events with one signature have one topic 0, so
+# they must agree on their indexed parameters, as Solidity requires.
+def unique(found: List<&2, Emitted>, +seen: List<&2, Emitted>) -> Result<&2, &2, String, List<&2, Emitted>>:
   match found:
     case Nil{}:
-      Nil{}
-    case Emitted{+s, +n} <> +rest:
-      Bool.pick(List<&2, Emitted>, known(s, seen), unique(rest, seen), Emitted{s, n} <> unique(rest, Emitted{s, n} <> seen))
+      Done{Nil{}}
+    case Emitted{+s, +n} <> rest:
+      +old = known(s, seen)
+      +r = unique(rest, Bool.pick(List<&2, Emitted>, old, seen, Emitted{s, n} <> seen))
+      Bool.pick(Result<&2, &2, String, List<&2, Emitted>>, clash(s, n, seen),
+        Fail{"Two events have the signature " ++ s ++ " but different indexed parameters"},
+        Bool.pick(Result<&2, &2, String, List<&2, Emitted>>, old, r, unique.cons(Emitted{s, n}, r)))
 
 def upto(s: String, +stop: Char) -> String:
   match s:
@@ -243,10 +262,12 @@ def items(names: List<&2, String>, +evm: String, +decls: List<&2, Core.Declarati
         tail : Items <- items(rest, evm, decls)
         return items.add(head, tail)
 
-def document(all: Items) -> String:
+def document(all: Items) -> Result<&2, &2, String, String>:
   match all:
     case Items{texts, found}:
-      "[" ++ join(List.append(&2, String, texts, event.texts(unique(found, Nil{})))) ++ "]\n"
+      do Result<&2, &2, String, String>:
+        es : List<&2, Emitted> <- unique(found, Nil{})
+        return "[" ++ join(List.append(&2, String, texts, event.texts(es))) ++ "]\n"
 
 def abi(program: Core.Program, +backend: String, +entries: List<&2, String>) -> Result<&2, &2, String, String>:
   match program:
@@ -256,7 +277,7 @@ def abi(program: Core.Program, +backend: String, +entries: List<&2, String>) -> 
         prefix : String <- Read.prefix(decls, leading)
         +evm : String <- Certify.module(entry, prefix, backend)
         all : Items <- items(entries, evm, decls)
-        return document(all)
+        document(all)
 
 def run(file: String, entries: List<String>) -> IO(Unit):
   do IO<Unit>:

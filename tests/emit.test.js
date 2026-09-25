@@ -10,12 +10,18 @@ const host = 'vendor/bend-frontend/host/run.js';
 
 test('compile rejects events that the ABI cannot encode', () => {
   for (const [name, error] of [['late', 'Indexed event fields must come before the others'],
-    ['wide', 'at most three indexed words'], ['raw', 'a def whose result type is Evm.Event'],
-    ['plain', 'a def whose result type is Evm.Event']]) {
+    ['wide', 'at most three indexed words'], ['raw', 'whose result type is Evm.Event'],
+    ['plain', 'whose result type is Evm.Event']]) {
     const result = run(process.execPath, host, 'src/compile.bend', 'tests/fixtures/emit/bad.bend', name);
     expect(result.ok).toBe(false);
     expect(result.err).toContain(error);
   }
+}, 120_000);
+
+test('the ABI rejects one signature with different indexed parameters', () => {
+  const result = run(process.execPath, host, 'src/abi.bend', 'tests/fixtures/emit/bad.bend', 'one', 'two');
+  expect(result.ok).toBe(false);
+  expect(result.err).toContain('Two events have the signature Moved(address,uint256) but different indexed parameters');
 }, 120_000);
 
 test('an event whose body disagrees with its parameters fails the certificate', () => {

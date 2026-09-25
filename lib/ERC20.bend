@@ -21,8 +21,8 @@ def BALANCES() -> Nat:
 def ALLOWANCES() -> Nat:
   2n
 
-# Events. The reader checks each signature and its topics against the
-# parameter types.
+# Events. The reader makes each log from the name and the parameter types,
+# and the certificate proves that the body gives the same log.
 def Transfer(from: Evm.Indexed(Evm.Address), to: Evm.Indexed(Evm.Address), amount: Nat) -> Evm.Event:
   Evm.Log{"Transfer(address,address,uint256)", [from, to], [amount]}
 

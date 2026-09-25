@@ -52,8 +52,8 @@ def Indexed(A: Data) -> Data:
 type Log is Data:
   Log{event: String, topics: List<&2, Nat>, data: List<&2, Nat>}
 
-# The result type of an event def, which is its log. Evm.emit takes only a
-# def written with this result type:
+# The result type of an event def, which is its log. The reader compiles
+# Evm.emit only for a def written with this result type:
 #   def Transfer(from: Evm.Indexed(Evm.Address), to: Evm.Indexed(Evm.Address), amount: Nat) -> Evm.Event:
 #     Evm.Log{"Transfer(address,address,uint256)", [from, to], [amount]}
 def Event() -> Data:

@@ -534,6 +534,8 @@ def field(+evm: String, +domain: Core.Term) -> Result<&2, &2, String, Field>:
 
 def fields(+evm: String, typ: Core.Term) -> Result<&2, &2, String, List<&2, Field>>:
   match typ:
+    case Core.TAnn{value, _}:
+      fields(evm, value)
     case Core.TAll{_, _, _, domain, body}:
       do Result<&2, &2, String, List<&2, Field>>:
         f : Field <- field(evm, strip(evm, domain))
@@ -590,6 +592,8 @@ def is_event(c: Call) -> Bool:
 # Whether a def's result type, after its parameters, is Evm.Event.
 def returns_event(+evm: String, typ: Core.Term) -> Bool:
   match typ:
+    case Core.TAnn{value, _}:
+      returns_event(evm, value)
     case Core.TAll{_, _, _, _, body}:
       returns_event(evm, body)
     case other:
@@ -604,24 +608,26 @@ def emit.event(+event: Bool, +evm: String, typ: Core.Term, +name: String, args: 
         p : Parts <- parts(fs, args, False{}, decls)
         emit.log(name, p)
     case False{}:
-      Fail{"Evm.emit takes an event: a def whose result type is Evm.Event"}
+      Fail{"Evm.emit takes an event: a safe, concrete def whose result type is Evm.Event"}
 
 def emit.found(+evm: String, found: Maybe<&2, Core.Declaration>, +name: String, args: List<&2, Core.Term>,
   +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Effect>:
   match found:
-    case Some{Core.Definition{Core.Header{_, _, _, +typ}, _, _, _, _, _}}:
+    case Some{Core.Definition{Core.Header{_, _, _, +typ}, 0, False{}, Nil{}, _, Some{_}}}:
       emit.event(returns_event(evm, typ), evm, typ, name, args, decls)
     case _:
-      Fail{"Evm.emit takes an event: a def whose result type is Evm.Event"}
+      Fail{"Evm.emit takes an event: a safe, concrete def whose result type is Evm.Event"}
 
 # Evm.emit(Transfer(from, to, amount)): the signature and the topics come
-# from the event def's parameter types. The certificate checks its body.
+# from the event def's name and parameter types. The reader does not read
+# the def's body; the certificate proves it gives the same log. The ABI types
+# are labels: a function must keep an address, uint8 or bool word in range.
 def emit(+evm: String, c: Call, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Effect>:
   match c:
     case Call{_, +name, args}:
       emit.found(evm, Core.find(decls, name), name, args, decls)
     case Other{}:
-      Fail{"Evm.emit takes an event: a def whose result type is Evm.Event"}
+      Fail{"Evm.emit takes an event: a safe, concrete def whose result type is Evm.Event"}
 
 def effect(c: Call, +evm: String, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Effect>:
   match c:
