@@ -60,23 +60,27 @@ def transfer(+to: Evm.Address, +amount: Nat) -> Evm.Contract(Evm.Boolean):
     move(sender, to, amount)
     Evm.Contract.pure(Nat, 1n)
 
-# What transferFrom takes from an allowance: nothing when it is the largest
-# word, which is unlimited.
-def spent(+allowed: Nat, +amount: Nat) -> Evm.Contract(Nat):
+# Moves amount and returns true, the end of transfer and transferFrom.
+def pay(+from: Nat, +to: Nat, +amount: Nat) -> Evm.Contract(Evm.Boolean):
   do Evm.Contract<Nat>:
-    top : Nat <- Evm.max()
-    Evm.select(Nat.is_eq(allowed, top), 0n, amount)
+    move(from, to, amount)
+    Evm.Contract.pure(Nat, 1n)
 
-# The caller spends from the allowance that `from` gave it.
+# Lowers the allowance that from gave spender by amount, then pays.
+def spend(+from: Nat, +to: Nat, +spender: Nat, +allowed: Nat, +amount: Nat) -> Evm.Contract(Evm.Boolean):
+  do Evm.Contract<Nat>:
+    left : Nat <- Evm.sub(allowed, amount)
+    Evm.store2(2n, from, spender, left)
+    pay(from, to, amount)
+
+# The caller spends from the allowance that `from` gave it. As in solmate,
+# the largest allowance is unlimited, and transferFrom does not store it.
 def transferFrom(+from: Evm.Address, +to: Evm.Address, +amount: Nat) -> Evm.Contract(Evm.Boolean):
   do Evm.Contract<Nat>:
     +spender : Nat <- Evm.caller()
     +allowed : Nat <- Evm.load2(2n, from, spender)
-    spend : Nat <- spent(allowed, amount)
-    left : Nat <- Evm.sub(allowed, spend)
-    Evm.store2(2n, from, spender, left)
-    move(from, to, amount)
-    Evm.Contract.pure(Nat, 1n)
+    top : Nat <- Evm.max()
+    Evm.branch(Nat.is_eq(allowed, top), Nat, pay(from, to, amount), spend(from, to, spender, allowed, amount))
 
 def nonces(who: Evm.Address) -> Evm.Contract(Nat):
   Evm.load(3n, who)

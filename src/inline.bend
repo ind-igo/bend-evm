@@ -93,6 +93,8 @@ def top(cmd: IR.Cmd) -> Nat:
       top.effect(e)
     case IR.Stop{}:
       0n
+    case IR.If{c, yes, no}:
+      max(top.cond(c), max(top(yes), top(no)))
 
 # A level is a parameter, replaced by its argument, or moves up by offset.
 def rename.var(+level: Nat, parameters: List<&2, Nat>, args: List<&2, IR.Expr>, +offset: Nat) -> IR.Expr:
@@ -187,6 +189,8 @@ def rename(cmd: IR.Cmd, +parameters: List<&2, Nat>, +args: List<&2, IR.Expr>, +o
       IR.Finish{rename.effect(e, parameters, args, offset)}
     case IR.Stop{}:
       IR.Stop{}
+    case IR.If{c, yes, no}:
+      IR.If{rename.cond(c, parameters, args, offset), rename(yes, parameters, args, offset), rename(no, parameters, args, offset)}
 
 # Substitutes value for the variable at level: a rename with one parameter
 # and offset 0.
@@ -218,6 +222,8 @@ def splice.word(callee: IR.Cmd, +level: Nat, +rest: IR.Cmd) -> Result<&2, &2, St
       Done{subst(rest, level, v)}
     case IR.Tail{w}:
       Done{IR.Bind{w, level, rest}}
+    case IR.If{_, _, _}:
+      Fail{"A call to a function that branches must be the last step"}
     case _:
       Fail{"A called function returns Unit where a word is bound"}
 
@@ -236,5 +242,7 @@ def splice.unit(callee: IR.Cmd, +rest: IR.Cmd) -> Result<&2, &2, String, IR.Cmd>
       Done{IR.Then{e, rest}}
     case IR.Stop{}:
       Done{rest}
+    case IR.If{_, _, _}:
+      Fail{"A call to a function that branches must be the last step"}
     case _:
       Fail{"A called function returns a word where Unit is expected"}

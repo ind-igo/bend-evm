@@ -35,6 +35,7 @@ type Stmt is Data:
   Result{value: Exp}
   Stop{}
   Revert{}
+  If{test: Exp, yes: Stmt, no: Stmt}
 
 # Yul comparisons return the word 1 or 0.
 def bit(c: Bool) -> Nat:
@@ -102,7 +103,8 @@ def eval(e: Exp, +env: List<&2, IR.Binding>, +s: Evm.State) -> Nat:
     case Recover{digest, v, r, sig}:
       Evm.signer.of(Evm.signers.of(Evm.world.of(s)), IR.eval(digest, env), IR.eval(v, env), IR.eval(r, env), IR.eval(sig, env))
 
-# `if cond { revert(0, 0) }` reverts when cond is not zero.
+# `if cond { revert(0, 0) }` reverts when cond is not zero. An If runs no when
+# its test is zero and yes otherwise.
 def exec(stmt: Stmt, +out: IR.Output, +env: List<&2, IR.Binding>) -> Evm.Contract(IR.value(out)):
   match stmt out:
     case Let{level, value, body} o:
@@ -117,6 +119,8 @@ def exec(stmt: Stmt, +out: IR.Output, +env: List<&2, IR.Binding>) -> Evm.Contrac
       R => k => +s => k(eval(value, env, s), s)
     case Stop{} IR.Stops{}:
       R => k => s => k(Unit{}, s)
+    case If{test, yes, no} o:
+      R => k => +s => Evm.branch(Nat.is_eq(eval(test, env, s), 0n), IR.value(o), exec(no, o, env), exec(yes, o, env), R, k, s)
     case _ o:
       IR.abort(IR.value(o))
 
@@ -216,5 +220,7 @@ def lower(cmd: IR.Cmd, +out: IR.Output) -> Stmt:
       Check{lower.cond(c), Stop{}}
     case IR.Stop{} IR.Stops{}:
       Stop{}
+    case IR.If{c, yes, no} o:
+      If{lower.test(c), lower(yes, o), lower(no, o)}
     case _ _:
       Revert{}

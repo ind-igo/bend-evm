@@ -507,6 +507,25 @@ def called.tail(k: Result<&2, &2, String, Inline.Callee>, +bound: Nat) -> Result
     callee : Inline.Callee <- k
     Inline.place(callee, bound)
 
+# An arm of Evm.branch(ok, A, a, b), or a term that fails to read when c is
+# not a branch.
+def branch.arm(c: Call, +yes: Bool) -> Core.Term:
+  match c:
+    case Call{"Evm.branch", _ <> _ <> a <> b <> Nil{}}:
+      Bool.pick(Core.Term, yes, a, b)
+    case _:
+      Core.TCtr{"Unit", Nil{}}
+
+def branch.cond(c: Call, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Cond>:
+  match c:
+    case Call{"Evm.branch", ok <> _}:
+      cond.go(8n, call(ok, Nil{}), decls)
+    case _:
+      Fail{"Not a branch"}
+
+def branch(c: IR.Cond, yes: IR.Cmd, no: IR.Cmd) -> IR.Cmd:
+  IR.If{c, yes, no}
+
 def final(c: Call, k: Result<&2, &2, String, Inline.Callee>, +bound: Nat, +decls: List<&2, Core.Declaration>) ->
   Result<&2, &2, String, IR.Cmd>:
   match c:
@@ -606,6 +625,21 @@ def level(l: Core.Level) -> Nat:
     case Core.Placeholder{}:
       0n
 
+# A final Evm.branch reads both arms, each to the end of the call; any other
+# final step is a word, an effect or a call.
+def tail(c: Call, cnd: Result<&2, &2, String, IR.Cond>, yes: Result<&2, &2, String, IR.Cmd>,
+  no: Result<&2, &2, String, IR.Cmd>, k: Result<&2, &2, String, Inline.Callee>, +bound: Nat,
+  +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Cmd>:
+  match c:
+    case Call{"Evm.branch", _}:
+      do Result<&2, &2, String, IR.Cmd>:
+        x : IR.Cond <- cnd
+        a : IR.Cmd <- yes
+        b : IR.Cmd <- no
+        return branch(x, a, b)
+    case +other:
+      final(other, k, bound, decls)
+
 # Calls to the contract's own functions are inlined, at most this deep.
 def depth() -> Nat:
   8n
@@ -634,7 +668,8 @@ def cmd(+fuel: Nat, term: Core.Term, +bound: Nat, +evm: String, +decls: List<&2,
             +x : Target <- target(c, evm, decls)
             b : IR.Cmd <- cmd(p, target.body(x), target.arity(x), evm, decls)
             return target.callee(x, b)
-          final(c, k, bound, decls)
+          tail(c, branch.cond(c, decls), cmd(p, branch.arm(c, True{}), bound, evm, decls),
+            cmd(p, branch.arm(c, False{}), bound, evm, decls), k, bound, decls)
 
 def output(c: IR.Cmd) -> IR.Output:
   match c:
@@ -650,6 +685,8 @@ def output(c: IR.Cmd) -> IR.Output:
       IR.Stops{}
     case IR.Stop{}:
       IR.Stops{}
+    case IR.If{_, yes, _}:
+      output(yes)
 
 type Entry is Data:
   Entry{parameters: List<&2, Nat>, body: IR.Cmd}

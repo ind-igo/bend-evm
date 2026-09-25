@@ -45,6 +45,7 @@ type Cmd is Data:
   Tail{word: Word}
   Finish{effect: Effect}
   Stop{}
+  If{cond: Cond, yes: Cmd, no: Cmd}
 
 # What an entry point returns.
 type Output is Data:
@@ -154,6 +155,8 @@ def run(cmd: Cmd, +out: Output, +env: List<&2, Binding>) -> Evm.Contract(value(o
       effect(e, env)
     case Stop{} Stops{}:
       Evm.Contract.pure(Unit, Unit{})
+    case If{c, yes, no} o:
+      Evm.branch(cond(c, env), value(o), run(yes, o, env), run(no, o, env))
     case _ o:
       abort(value(o))
 
@@ -251,6 +254,8 @@ def closed(cmd: Cmd, +scope: List<&2, Nat>) -> Bool:
       closed.effect(e, scope)
     case Stop{}:
       True{}
+    case If{c, yes, no}:
+      Bool.and(closed.cond(c, scope), Bool.and(closed(yes, scope), closed(no, scope)))
 
 def levels(env: List<&2, Binding>) -> List<&2, Nat>:
   match env:

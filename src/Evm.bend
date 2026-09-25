@@ -234,6 +234,22 @@ def require(ok: Bool) -> Contract(Unit):
 def select(ok: Bool, a: Nat, b: Nat) -> Contract(Nat):
   R => k => s => k(Bool.pick(Nat, ok, a, b), s)
 
+# Runs a when ok holds and b otherwise, to the end of the call. It picks a
+# whole contract, so the continuation goes to one arm and is not copied. Code
+# that both arms run after the choice goes in each arm, as a call to a def.
+def branch(ok: Bool, -A: Data, a: Contract(A), b: Contract(A)) -> Contract(A):
+  Bool.pick(Contract(A), ok, a, b)
+
+# The outcome of a branch is the outcome of its arm. When ok is not known, a
+# run stops at the branch, so a law about it uses this fact.
+def branch.run(ok: Bool, -A: Data, -a: Contract(A), -b: Contract(A), +s: State) ->
+  {run(A, branch(ok, A, a, b), s) == Bool.pick(Outcome<A>, ok, run(A, a, s), run(A, b, s)) : Outcome<A>}:
+  match ok:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
 # The largest word, 2^256 - 1 on the EVM.
 def max() -> Contract(Nat):
   R => k => +s => k(Nat.sub(limit.of(s), 1n), s)

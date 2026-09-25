@@ -2,6 +2,8 @@ import Base
 import ../../src/Evm.bend as Evm
 import ../../src/nat.bend as N
 import ./LAWS.bend as Laws
+import ../../lib/ERC20.bend as ERC20
+import ./program.bend as Token
 
 def Laws.transfer(storage, from, limit, logs, world, to, amount):
   {==}
@@ -27,8 +29,10 @@ def Laws.allowance(storage, who, limit, logs, world, holder, spender):
 def Laws.approve(storage, who, limit, logs, world, spender, amount):
   {==}
 
+# A run stops at the branch on the allowance, so the law names both arms.
 def Laws.transferFrom(storage, who, limit, logs, world, from, to, amount):
-  {==}
+  Evm.branch.run(Nat.is_eq(Laws.allowed(storage, from, who), Nat.sub(limit, 1n)), Nat, ERC20.pay(from, to, amount),
+    ERC20.spend(from, to, who, Laws.allowed(storage, from, who), amount), Evm.State{storage, who, limit, logs, world})
 
 def Laws.init(storage, who, limit, logs, world, initial):
   {==}
@@ -361,49 +365,63 @@ def keeps.transferOwnership(+storage: List<&2, Evm.Slot>, +caller: Nat, +limit: 
     _ => ok.owner(storage, next, accounts, h),
     _ => h)
 
-# The storage after transferFrom lowers the allowance.
-def lowered(+storage: List<&2, Evm.Slot>, +holder: Nat, +spender: Nat, +limit: Nat, +amount: Nat) -> List<&2, Evm.Slot>:
-  Evm.Slot{Evm.Mapped{Evm.Mapped{Evm.Plain{2n}, holder}, spender},
-    Nat.sub(Laws.allowed(storage, holder, spender), Laws.spent(storage, holder, spender, limit, amount))} <> storage
-
-def ok.transferFrom(+storage: List<&2, Evm.Slot>, +who: Nat, +from: Nat, +to: Nat, +amount: Nat, +limit: Nat,
-  +logs: List<&2, Evm.Log>, +world: Evm.World, -s: Evm.State, +accounts: List<&2, Nat>,
-  +h: {True{} == Nat.is_eq(Laws.supply(storage), Laws.holdings(storage, accounts)) : Bool},
-  +e: {False{} == Nat.is_lt(Laws.balance(lowered(storage, from, who, limit, amount), from), amount) : Bool},
-  +cf: {1n == Laws.count(from, accounts) : Nat}, +ct: {1n == Laws.count(to, accounts) : Nat}) ->
-  {True{} == Laws.balanced(Laws.after(Nat, Evm.Ok{1n, Evm.State{moved(lowered(storage, from, who, limit, amount), from, to, amount), who, limit, Evm.Log{"Transfer(address,address,uint256)", [from, to], [amount]} <> logs, world}}, s), accounts) : Bool}:
-  %holdings_moved(lowered(storage, from, who, limit, amount), from, to, amount, accounts, e, cf, ct) :
-    {True{} == Nat.is_eq(Laws.supply(storage), _) : Bool}
-  %skip_nested(storage, Evm.Plain{2n}, from, who,
-    Nat.sub(Laws.allowed(storage, from, who), Laws.spent(storage, from, who, limit, amount)), accounts) :
-    {True{} == Nat.is_eq(Laws.supply(storage), _) : Bool}
+# A law's outcome can stand for the run it equals.
+def keep_eq(-A: Data, -x: Evm.Outcome<A>, -y: Evm.Outcome<A>, -s: Evm.State, -accounts: List<&2, Nat>,
+  e: {x == y : Evm.Outcome<A>}, h: {True{} == Laws.balanced(Laws.after(A, y, s), accounts) : Bool}) ->
+  {True{} == Laws.balanced(Laws.after(A, x, s), accounts) : Bool}:
+  %Equal.sym(Evm.Outcome<A>, x, y, e) : {True{} == Laws.balanced(Laws.after(A, _, s), accounts) : Bool}
   h
+
+# The end of transferFrom from storage st keeps the sum when st does: a
+# revert keeps s, and s is balanced.
+def keeps.paid(+st: List<&2, Evm.Slot>, +who: Nat, +from: Nat, +to: Nat, +amount: Nat, +limit: Nat,
+  +logs: List<&2, Evm.Log>, +world: Evm.World, -s: Evm.State, +accounts: List<&2, Nat>,
+  +hs: {True{} == Laws.balanced(s, accounts) : Bool},
+  +hx: {True{} == Nat.is_eq(Laws.supply(st), Laws.holdings(st, accounts)) : Bool},
+  +cf: {1n == Laws.count(from, accounts) : Nat}, +ct: {1n == Laws.count(to, accounts) : Nat}) ->
+  {True{} == Laws.balanced(Laws.after(Nat, Laws.paid(st, who, from, to, amount, limit, logs, world), s), accounts) : Bool}:
+  keep_pick(Nat, Nat.is_lt(Laws.balance(st, from), amount), Evm.Revert{},
+    Bool.pick(Evm.Outcome<Nat>, Nat.is_lt(Nat.add(Laws.balance(Laws.debit(st, from, amount), to), amount), limit),
+      Evm.Ok{1n, Evm.State{moved(st, from, to, amount), who, limit, Evm.Log{"Transfer(address,address,uint256)", [from, to], [amount]} <> logs, world}}, Evm.Revert{}),
+    s, accounts,
+    _ => hs,
+    e => keep_pick(Nat, Nat.is_lt(Nat.add(Laws.balance(Laws.debit(st, from, amount), to), amount), limit),
+      Evm.Ok{1n, Evm.State{moved(st, from, to, amount), who, limit, Evm.Log{"Transfer(address,address,uint256)", [from, to], [amount]} <> logs, world}}, Evm.Revert{},
+      s, accounts,
+      _ => %holdings_moved(st, from, to, amount, accounts, e, cf, ct) : {True{} == Nat.is_eq(Laws.supply(st), _) : Bool}
+        hx,
+      _ => hs))
+
+# The storage after transferFrom lowers a limited allowance.
+def lowered(+storage: List<&2, Evm.Slot>, +holder: Nat, +spender: Nat, +amount: Nat) -> List<&2, Evm.Slot>:
+  Evm.Slot{Evm.Mapped{Evm.Mapped{Evm.Plain{2n}, holder}, spender}, Nat.sub(Laws.allowed(storage, holder, spender), amount)} <> storage
 
 def keeps.transferFrom(+storage: List<&2, Evm.Slot>, +caller: Nat, +limit: Nat, +logs: List<&2, Evm.Log>, +old: Evm.World, +world: Evm.World,
   +who: Nat, +from: Nat, +to: Nat, +amount: Nat, +accounts: List<&2, Nat>,
   +h: {True{} == Nat.is_eq(Laws.supply(storage), Laws.holdings(storage, accounts)) : Bool},
   +cf: {1n == Laws.count(from, accounts) : Nat}, +ct: {1n == Laws.count(to, accounts) : Nat}) ->
   {True{} == Laws.balanced(Laws.step(Laws.Tx{world, Laws.TransferFrom{who, from, to, amount}}, Evm.State{storage, caller, limit, logs, old}), accounts) : Bool}:
-  keep_pick(Nat, Nat.is_lt(Laws.allowed(storage, from, who), Laws.spent(storage, from, who, limit, amount)), Evm.Revert{},
-    Bool.pick(Evm.Outcome<Nat>, Nat.is_lt(Laws.balance(lowered(storage, from, who, limit, amount), from), amount), Evm.Revert{},
-      Bool.pick(Evm.Outcome<Nat>,
-        Nat.is_lt(Nat.add(Laws.balance(Laws.debit(lowered(storage, from, who, limit, amount), from, amount), to), amount), limit),
-        Evm.Ok{1n, Evm.State{moved(lowered(storage, from, who, limit, amount), from, to, amount), who, limit, Evm.Log{"Transfer(address,address,uint256)", [from, to], [amount]} <> logs, world}}, Evm.Revert{})),
-    Evm.State{storage, caller, limit, logs, old}, accounts,
-    _ => h,
-    _ => keep_pick(Nat, Nat.is_lt(Laws.balance(lowered(storage, from, who, limit, amount), from), amount), Evm.Revert{},
-      Bool.pick(Evm.Outcome<Nat>,
-        Nat.is_lt(Nat.add(Laws.balance(Laws.debit(lowered(storage, from, who, limit, amount), from, amount), to), amount), limit),
-        Evm.Ok{1n, Evm.State{moved(lowered(storage, from, who, limit, amount), from, to, amount), who, limit, Evm.Log{"Transfer(address,address,uint256)", [from, to], [amount]} <> logs, world}}, Evm.Revert{}),
-      Evm.State{storage, caller, limit, logs, old}, accounts,
-      _ => h,
-      e => keep_pick(Nat,
-        Nat.is_lt(Nat.add(Laws.balance(Laws.debit(lowered(storage, from, who, limit, amount), from, amount), to), amount), limit),
-        Evm.Ok{1n, Evm.State{moved(lowered(storage, from, who, limit, amount), from, to, amount), who, limit, Evm.Log{"Transfer(address,address,uint256)", [from, to], [amount]} <> logs, world}}, Evm.Revert{},
-        Evm.State{storage, caller, limit, logs, old}, accounts,
-        _ => ok.transferFrom(storage, who, from, to, amount, limit, logs, world, Evm.State{storage, caller, limit, logs, old}, accounts,
-          h, e, cf, ct),
-        _ => h)))
+  +s = {Evm.State{storage, caller, limit, logs, old} : Evm.State}
+  +low = lowered(storage, from, who, amount)
+  keep_eq(Nat, Evm.run(Nat, Token.transferFrom(from, to, amount), Evm.State{storage, who, limit, logs, world}),
+    Bool.pick(Evm.Outcome<Nat>, Nat.is_eq(Laws.allowed(storage, from, who), Nat.sub(limit, 1n)),
+      Laws.paid(storage, who, from, to, amount, limit, logs, world),
+      Bool.pick(Evm.Outcome<Nat>, Nat.is_lt(Laws.allowed(storage, from, who), amount), Evm.Revert{},
+        Laws.paid(low, who, from, to, amount, limit, logs, world))),
+    s, accounts, Laws.transferFrom(storage, who, limit, logs, world, from, to, amount),
+    keep_pick(Nat, Nat.is_eq(Laws.allowed(storage, from, who), Nat.sub(limit, 1n)),
+      Laws.paid(storage, who, from, to, amount, limit, logs, world),
+      Bool.pick(Evm.Outcome<Nat>, Nat.is_lt(Laws.allowed(storage, from, who), amount), Evm.Revert{},
+        Laws.paid(low, who, from, to, amount, limit, logs, world)),
+      s, accounts,
+      _ => keeps.paid(storage, who, from, to, amount, limit, logs, world, s, accounts, h, h, cf, ct),
+      _ => keep_pick(Nat, Nat.is_lt(Laws.allowed(storage, from, who), amount), Evm.Revert{},
+        Laws.paid(low, who, from, to, amount, limit, logs, world), s, accounts,
+        _ => h,
+        _ => keeps.paid(low, who, from, to, amount, limit, logs, world, s, accounts, h,
+          %skip_nested(storage, Evm.Plain{2n}, from, who, Nat.sub(Laws.allowed(storage, from, who), amount), accounts) :
+            {True{} == Nat.is_eq(Laws.supply(storage), _) : Bool}
+          h, cf, ct))))
 
 # A burn debits the caller: the listed holdings fall by the amount.
 def burn_sum(+storage: List<&2, Evm.Slot>, +who: Nat, +amount: Nat, +accounts: List<&2, Nat>,

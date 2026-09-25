@@ -20,13 +20,19 @@ def balance(storage: List<&2, Evm.Slot>, who: Nat) -> Nat:
 def allowed(storage: List<&2, Evm.Slot>, holder: Nat, spender: Nat) -> Nat:
   Evm.lookup(storage, Evm.Mapped{Evm.Mapped{Evm.Plain{2n}, holder}, spender})
 
-# What transferFrom takes from the allowance: nothing when it is the
-# largest word, limit - 1.
-def spent(storage: List<&2, Evm.Slot>, holder: Nat, spender: Nat, limit: Nat, +amount: Nat) -> Nat:
-  Bool.pick(Nat, Nat.is_eq(allowed(storage, holder, spender), Nat.sub(limit, 1n)), 0n, amount)
-
 def debit(+storage: List<&2, Evm.Slot>, +from: Nat, amount: Nat) -> List<&2, Evm.Slot>:
   Evm.Slot{Evm.Mapped{Evm.Plain{1n}, from}, Nat.sub(balance(storage, from), amount)} <> storage
+
+# The outcome when who moves amount from `from` to `to`, from storage: the
+# end of transferFrom.
+def paid(+storage: List<&2, Evm.Slot>, who: Nat, +from: Nat, +to: Nat, +amount: Nat, +limit: Nat, logs: List<&2, Evm.Log>,
+  world: Evm.World) -> Evm.Outcome<Nat>:
+  Bool.pick(Evm.Outcome<Nat>, Nat.is_lt(balance(storage, from), amount),
+    Evm.Revert{},
+    Bool.pick(Evm.Outcome<Nat>, Nat.is_lt(Nat.add(balance(debit(storage, from, amount), to), amount), limit),
+      Evm.Ok{1n, Evm.State{Evm.Slot{Evm.Mapped{Evm.Plain{1n}, to}, Nat.add(balance(debit(storage, from, amount), to), amount)}
+          <> debit(storage, from, amount), who, limit, Evm.Log{"Transfer(address,address,uint256)", [from, to], [amount]} <> logs, world}},
+      Evm.Revert{}))
 
 # The receiver's balance is read after the debit, so a transfer to oneself
 # keeps the balance. Transfer writes no plain slot, so the supply stays.
@@ -104,9 +110,9 @@ law approve:
   {Evm.run(Nat, Token.approve(spender, amount), Evm.State{storage, who, limit, logs, world})
     == Evm.Ok{1n, Evm.State{Evm.Slot{Evm.Mapped{Evm.Mapped{Evm.Plain{2n}, who}, spender}, amount} <> storage, who, limit, Evm.Log{"Approval(address,address,uint256)", [who, spender], [amount]} <> logs, world}} : Evm.Outcome<Nat>}
 
-# The caller spends from the allowance of `from`. The allowance must cover
-# what is spent and the balance the amount; then the allowance goes down
-# (unless it is unlimited) and the amount moves as in transfer.
+# The caller spends from the allowance of `from`. An allowance of the
+# largest word, limit - 1, is unlimited and stays as it is. Any other must
+# cover the amount, and goes down by it. Then the amount moves as in transfer.
 law transferFrom:
   for +storage: List<&2, Evm.Slot>
   for +who: Nat
@@ -117,15 +123,12 @@ law transferFrom:
   for +to: Nat
   for +amount: Nat
   {Evm.run(Nat, Token.transferFrom(from, to, amount), Evm.State{storage, who, limit, logs, world})
-    == Bool.pick(Evm.Outcome<Nat>, Nat.is_lt(allowed(storage, from, who), spent(storage, from, who, limit, amount)),
-      Evm.Revert{},
-      Bool.pick(Evm.Outcome<Nat>, Nat.is_lt(balance(storage, from), amount),
+    == Bool.pick(Evm.Outcome<Nat>, Nat.is_eq(allowed(storage, from, who), Nat.sub(limit, 1n)),
+      paid(storage, who, from, to, amount, limit, logs, world),
+      Bool.pick(Evm.Outcome<Nat>, Nat.is_lt(allowed(storage, from, who), amount),
         Evm.Revert{},
-        Bool.pick(Evm.Outcome<Nat>, Nat.is_lt(Nat.add(balance(debit(storage, from, amount), to), amount), limit),
-          Evm.Ok{1n, Evm.State{Evm.Slot{Evm.Mapped{Evm.Plain{1n}, to}, Nat.add(balance(debit(storage, from, amount), to), amount)}
-              <> debit(Evm.Slot{Evm.Mapped{Evm.Mapped{Evm.Plain{2n}, from}, who}, Nat.sub(allowed(storage, from, who), spent(storage, from, who, limit, amount))}
-                <> storage, from, amount), who, limit, Evm.Log{"Transfer(address,address,uint256)", [from, to], [amount]} <> logs, world}},
-          Evm.Revert{}))) : Evm.Outcome<Nat>}
+        paid(Evm.Slot{Evm.Mapped{Evm.Mapped{Evm.Plain{2n}, from}, who}, Nat.sub(allowed(storage, from, who), amount)} <> storage,
+          who, from, to, amount, limit, logs, world))) : Evm.Outcome<Nat>}
 
 # The deployer becomes the owner and receives the initial supply by a mint,
 # which reverts only on overflow. At deployment the storage is empty, so

@@ -111,6 +111,8 @@ def writes(cmd: IR.Cmd) -> Bool:
       Bool.or(writes.effect(e), writes(body))
     case IR.Finish{e}:
       writes.effect(e)
+    case IR.If{_, yes, no}:
+      Bool.or(writes(yes), writes(no))
     case _:
       False{}
 
@@ -141,6 +143,8 @@ def events(cmd: IR.Cmd) -> List<&2, Emitted>:
       events(body)
     case IR.Finish{IR.Log{event, topics, _}}:
       [Emitted{event, List.length(&2, IR.Expr, topics)}]
+    case IR.If{_, yes, no}:
+      List.append(&2, Emitted, events(yes), events(no))
     case _:
       Nil{}
 

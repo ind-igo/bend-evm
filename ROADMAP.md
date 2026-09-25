@@ -177,20 +177,10 @@ Solmate's `permit`: an owner approves a spender with a signature, and anyone can
 
 ## M13: branches
 
-`select` picks a value, but a contract cannot run different effects on each side of a condition. The continuation cannot be copied into both branches, so the IR needs a join point that both branches continue to.
+`select` picks a value, but a contract could not run different effects on each side of a condition. The continuation cannot be copied into both arms. `Evm.branch` picks a whole contract, so the continuation goes to one arm. A branch must be the last step, and both arms run to the end of the call. A join point, where both arms go on to shared code, needs a proof hypothesis that is a function used in both arms, and Bend does not copy functions.
 
 ### Done when
 
-- [ ] A contract can branch on a condition with different effects on each side, and the laws for it prove by `{==}`.
-- [ ] The preservation proof covers the branch.
-- [ ] `transferFrom` with a max allowance skips the store, as solmate does, and `bun run gas` shows it at or below optimized Solidity (37159 against 36964 now).
-
-## M13: branches
-
-`select` picks a value, but a contract cannot run different effects on each side of a condition. The continuation cannot be copied into both branches, so the IR needs a join point that both branches continue to.
-
-### Done when
-
-- [ ] A contract can branch on a condition with different effects on each side, and the laws for it prove by `{==}`.
-- [ ] The preservation proof covers the branch.
-- [ ] `transferFrom` with a max allowance skips the store, as solmate does, and `bun run gas` shows it at or below optimized Solidity (37159 against 36964 now).
+- [x] `Evm.branch(cond, A, a, b)` with arms of any result type, read to `IR.If` and lowered to a Yul `switch`. Certificates prove by `{==}`; a law about a branch uses `Evm.branch.run`.
+- [x] The preservation proof covers `If`, nested too. The continuation is erased in the induction, so both arms use it. The lowering test swaps the arms and the proof fails.
+- [x] `transferFrom` skips the store for a max allowance, as solmate does; `supply_sum` still holds. `bun run gas` shows 36899 against 36964 for optimized Solidity.

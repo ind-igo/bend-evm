@@ -128,6 +128,9 @@ def stmt(+pad: String, +halt: String, s: Yul.Stmt) -> String:
       halt
     case Yul.Revert{}:
       pad ++ revert() ++ "\n"
+    case Yul.If{test, yes, no}:
+      pad ++ "switch " ++ exp(test) ++ "\n" ++ pad ++ "case 0 {\n" ++ stmt(pad, halt, no) ++ pad ++ "}\n"
+        ++ pad ++ "default {\n" ++ stmt(pad, halt, yes) ++ pad ++ "}\n"
 
 # An address argument must fit in 160 bits.
 def range(+pad: String, typ: String, +level: Nat) -> String:
@@ -192,6 +195,8 @@ def fixed(cmd: IR.Cmd) -> Bool:
       fixed.loc(l)
     case IR.Finish{IR.SStore{l, _}}:
       fixed.loc(l)
+    case IR.If{_, yes, no}:
+      Bool.and(fixed(yes), fixed(no))
     case _:
       True{}
 

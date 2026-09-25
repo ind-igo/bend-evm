@@ -99,6 +99,9 @@ def show.cmd(c: IR.Cmd) -> String:
       "IR.Finish{" ++ show.effect(e) ++ "}"
     case IR.Stop{}:
       "IR.Stop{}"
+    case IR.If{c, yes, no}:
+      a b = show.cmd(yes) show.cmd(no)
+      "IR.If{" ++ show.cond(c) ++ ",\n    " ++ a ++ ",\n    " ++ b ++ "}"
 
 def param(+level: Nat) -> String:
   "p" ++ Nat.show(level)

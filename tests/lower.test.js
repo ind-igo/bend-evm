@@ -28,6 +28,8 @@ test('the preservation proof rejects a wrong lowering', () => {
       ['Log{event, topics, data, lower(body, o)}', 'lower(body, o)'],
       ['Bool.pick(Nat, Nat.is_eq(c, 0n), n, y)', 'Bool.pick(Nat, Nat.is_eq(c, 0n), y, n)'],
       ['Not{Atom{IR.Lit{0n}}}', 'Atom{IR.Lit{0n}}'],
+      ['If{lower.test(c), lower(yes, o), lower(no, o)}', 'If{lower.test(c), lower(no, o), lower(yes, o)}'],
+      ['exec(no, o, env), exec(yes, o, env), R, k, s)', 'exec(yes, o, env), exec(no, o, env), R, k, s)'],
     ]) {
       expect(yul).toContain(from);
       writeFileSync(path.join(dir, 'yul.bend'), yul.replace(from, to));
