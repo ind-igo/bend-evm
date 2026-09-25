@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { deploy, must, run } from './chain.js';
 import { generator } from './random.js';
+import { keys, separator, sign } from './permit.js';
 
 // A differential test against Solidity. The Bend token and the same token in
 // Solidity with solmate's logic (tests/fixtures/reference/Token.sol) get the
@@ -11,12 +12,13 @@ import { generator } from './random.js';
 // SEED=<n> runs another sequence.
 const seed = Number(process.env.SEED ?? 1);
 const top = (1n << 256n) - 1n;
-const people = ['0x0000000000000000000000000000000000001001', '0x0000000000000000000000000000000000001002',
-  '0x0000000000000000000000000000000000001003', '0x0000000000000000000000000000000000001004'];
+// The deployer and three accounts that can sign permits.
+const people = ['0x0000000000000000000000000000000000001001', ...Object.keys(keys)];
 const functions = ['name', 'symbol', 'decimals', 'init', 'owner', 'transferOwnership', 'totalSupply', 'balanceOf',
-  'transfer', 'mint', 'burn', 'allowance', 'approve', 'transferFrom'];
+  'transfer', 'mint', 'burn', 'allowance', 'approve', 'transferFrom', 'nonces', 'DOMAIN_SEPARATOR', 'permit'];
+const permit = 'permit(address,address,uint256,uint256,uint8,bytes32,bytes32)';
 const views = new Set(['name()', 'symbol()', 'decimals()', 'owner()', 'totalSupply()', 'balanceOf(address)',
-  'allowance(address,address)']);
+  'allowance(address,address)', 'nonces(address)', 'DOMAIN_SEPARATOR()']);
 
 // Calls that reach the paths that matter, before the random ones.
 function scripted() {
@@ -37,6 +39,12 @@ function scripted() {
     [b, 'transferOwnership(address)', b],
     [a, 'transferOwnership(address)', b],
     [b, 'mint(address,uint256)', a, '5'],
+    [a, permit, b, c, '9', 'later', 'owner'],
+    [a, 'allowance(address,address)', b, c],
+    [a, permit, b, c, '9', 'later', 'owner'],
+    [a, permit, b, c, '9', 'earlier', 'owner'],
+    [a, permit, b, c, '9', 'later', 'other'],
+    [a, permit, b, c, '9', 'later', 'junk'],
   ];
 }
 
@@ -61,7 +69,9 @@ function sequence(random, length) {
       [who, 'allowance(address,address)', a, b],
       [who, 'totalSupply()'],
       [who, 'owner()'],
-      [who, pick(['name()', 'symbol()', 'decimals()'])],
+      [who, pick(['name()', 'symbol()', 'decimals()', 'DOMAIN_SEPARATOR()'])],
+      [who, 'nonces(address)', a],
+      [who, permit, pick(people.slice(1)), b, amount(), pick(['later', 'later', 'earlier']), pick(['owner', 'owner', 'other', 'junk'])],
       [pick(people), 'transferOwnership(address)', a],
     ]));
   }
@@ -84,13 +94,29 @@ beforeAll(async () => {
 
 afterAll(() => chain?.stop());
 
+let now, chainId;
+
+// A permit's words for one contract: signed over that contract's domain, for
+// the nonce that the Solidity reference reports, by the owner, by another
+// account, or not at all.
+function permitArgs(address, [owner, spender, value, when, signer]) {
+  const deadline = String(when === 'later' ? now + 100000 : now - 100000);
+  if (signer === 'junk') return [owner, spender, value, deadline, '27', '0x' + '11'.repeat(32), '0x' + '22'.repeat(32)];
+  const nonce = BigInt(must(chain.cast('call', solidity, 'nonces(address)(uint256)', owner)).split(' ')[0]);
+  const key = keys[signer === 'owner' ? owner : Object.keys(keys).find(k => k !== owner)];
+  const domain = separator('Bend Token', chainId, address);
+  return [owner, spender, value, deadline, ...sign(key, domain, owner, spender, value, nonce, deadline)];
+}
+
 // What one contract did: "ok <returndata>" or "revert", then its logs.
-function effect(address, [from, signature, ...args]) {
+function effect(address, [from, signature, ...rest]) {
+  const args = signature === permit ? permitArgs(address, rest) : rest;
   const call = chain.cast('call', '--from', from, address, signature, ...args);
   if (!call.ok) {
     expect(call.err).toMatch(/revert/i);
     return ['revert'];
   }
+  if (signature === 'DOMAIN_SEPARATOR()') return ['ok ' + (call.out === separator('Bend Token', chainId, address))];
   if (views.has(signature)) return ['ok ' + call.out];
   const receipt = JSON.parse(must(chain.cast('send', '--unlocked', '--from', from, '--json', address, signature, ...args)));
   expect(receipt.status).toBe('0x1');
@@ -98,6 +124,8 @@ function effect(address, [from, signature, ...args]) {
 }
 
 test(`the Bend token and the Solidity token agree on random calls (SEED=${seed})`, () => {
+  now = Number(must(chain.cast('block', 'latest', '--field', 'timestamp')));
+  chainId = must(chain.cast('chain-id'));
   const calls = [...scripted(), ...sequence(generator(seed), 120)];
   const logs = receipt => receipt.logs.map(log => `log ${log.topics.join(' ')} ${log.data}`);
   const bend = ['deploy', ...logs(chain.receipt)], sol = ['deploy', ...logs(created)];

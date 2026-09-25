@@ -15,7 +15,7 @@ def decimals():
 
 def ir.init() -> IR.Cmd:
   IR.Bind{IR.Caller{}, 1n,
-    IR.Then{IR.SStore{IR.Plain{IR.Lit{3n}}, IR.Var{1n}},
+    IR.Then{IR.SStore{IR.Plain{IR.Lit{4n}}, IR.Var{1n}},
     IR.Then{IR.Log{"OwnershipTransferred(address,address)", [IR.Lit{0n}, IR.Var{1n}], []},
     IR.Bind{IR.SLoad{IR.Plain{IR.Lit{0n}}}, 12n,
     IR.Bind{IR.Add{IR.Var{12n}, IR.Var{0n}}, 13n,
@@ -33,7 +33,7 @@ def init(p0):
   {==}
 
 def ir.owner() -> IR.Cmd:
-  IR.Tail{IR.SLoad{IR.Plain{IR.Lit{3n}}}}
+  IR.Tail{IR.SLoad{IR.Plain{IR.Lit{4n}}}}
 
 law owner:
   {IR.call(ir.owner(), IR.Returns{}, []) == Program.owner() : Evm.Contract(Nat)}
@@ -43,9 +43,9 @@ def owner():
 
 def ir.transferOwnership() -> IR.Cmd:
   IR.Bind{IR.Caller{}, 1n,
-    IR.Bind{IR.SLoad{IR.Plain{IR.Lit{3n}}}, 2n,
+    IR.Bind{IR.SLoad{IR.Plain{IR.Lit{4n}}}, 2n,
     IR.Then{IR.Require{IR.Eq{IR.Var{1n}, IR.Var{2n}}},
-    IR.Then{IR.SStore{IR.Plain{IR.Lit{3n}}, IR.Var{0n}},
+    IR.Then{IR.SStore{IR.Plain{IR.Lit{4n}}, IR.Var{0n}},
     IR.Finish{IR.Log{"OwnershipTransferred(address,address)", [IR.Var{2n}, IR.Var{0n}], []}}}}}}
 
 law transferOwnership:
@@ -95,7 +95,7 @@ def transfer(p0, p1):
 
 def ir.mint() -> IR.Cmd:
   IR.Bind{IR.Caller{}, 2n,
-    IR.Bind{IR.SLoad{IR.Plain{IR.Lit{3n}}}, 3n,
+    IR.Bind{IR.SLoad{IR.Plain{IR.Lit{4n}}}, 3n,
     IR.Then{IR.Require{IR.Eq{IR.Var{2n}, IR.Var{3n}}},
     IR.Bind{IR.SLoad{IR.Plain{IR.Lit{0n}}}, 12n,
     IR.Bind{IR.Add{IR.Var{12n}, IR.Var{1n}}, 13n,
@@ -178,5 +178,63 @@ law transferFrom:
   {IR.call(ir.transferFrom(), IR.Returns{}, [IR.Binding{0n, p0}, IR.Binding{1n, p1}, IR.Binding{2n, p2}]) == Program.transferFrom(p0, p1, p2) : Evm.Contract(Nat)}
 
 def transferFrom(p0, p1, p2):
+  {==}
+
+def ir.nonces() -> IR.Cmd:
+  IR.Tail{IR.SLoad{IR.Mapped{IR.Plain{IR.Lit{3n}}, IR.Var{0n}}}}
+
+law nonces:
+  for +p0: Nat
+  {IR.call(ir.nonces(), IR.Returns{}, [IR.Binding{0n, p0}]) == Program.nonces(p0) : Evm.Contract(Nat)}
+
+def nonces(p0):
+  {==}
+
+def ir.DOMAIN_SEPARATOR() -> IR.Cmd:
+  IR.Bind{IR.Id{"Bend Token"}, 0n,
+    IR.Bind{IR.Id{"EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"}, 6n,
+    IR.Bind{IR.Id{"1"}, 7n,
+    IR.Bind{IR.ChainId{}, 8n,
+    IR.Bind{IR.Self{}, 9n,
+    IR.Tail{IR.Keccak{[IR.Var{6n}, IR.Var{0n}, IR.Var{7n}, IR.Var{8n}, IR.Var{9n}]}}}}}}}
+
+law DOMAIN_SEPARATOR:
+  {IR.call(ir.DOMAIN_SEPARATOR(), IR.Returns{}, []) == Program.DOMAIN_SEPARATOR() : Evm.Contract(Nat)}
+
+def DOMAIN_SEPARATOR():
+  {==}
+
+def ir.permit() -> IR.Cmd:
+  IR.Bind{IR.Id{"Bend Token"}, 34n,
+    IR.Bind{IR.Id{"EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"}, 40n,
+    IR.Bind{IR.Id{"1"}, 41n,
+    IR.Bind{IR.ChainId{}, 42n,
+    IR.Bind{IR.Self{}, 43n,
+    IR.Bind{IR.Keccak{[IR.Var{40n}, IR.Var{34n}, IR.Var{41n}, IR.Var{42n}, IR.Var{43n}]}, 7n,
+    IR.Bind{IR.Timestamp{}, 25n,
+    IR.Then{IR.Require{IR.Not{IR.Lt{IR.Var{3n}, IR.Var{25n}}}},
+    IR.Bind{IR.SLoad{IR.Mapped{IR.Plain{IR.Lit{3n}}, IR.Var{0n}}}, 27n,
+    IR.Bind{IR.Add{IR.Var{27n}, IR.Lit{1n}}, 28n,
+    IR.Then{IR.SStore{IR.Mapped{IR.Plain{IR.Lit{3n}}, IR.Var{0n}}, IR.Var{28n}},
+    IR.Bind{IR.Id{"Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)"}, 30n,
+    IR.Bind{IR.Keccak{[IR.Var{30n}, IR.Var{0n}, IR.Var{1n}, IR.Var{2n}, IR.Var{27n}, IR.Var{3n}]}, 31n,
+    IR.Bind{IR.Typed{IR.Var{7n}, IR.Var{31n}}, 32n,
+    IR.Bind{IR.Recover{IR.Var{32n}, IR.Var{4n}, IR.Var{5n}, IR.Var{6n}}, 33n,
+    IR.Then{IR.Require{IR.Not{IR.Eq{IR.Var{33n}, IR.Lit{0n}}}},
+    IR.Then{IR.Require{IR.Eq{IR.Var{33n}, IR.Var{0n}}},
+    IR.Then{IR.SStore{IR.Mapped{IR.Mapped{IR.Plain{IR.Lit{2n}}, IR.Var{0n}}, IR.Var{1n}}, IR.Var{2n}},
+    IR.Finish{IR.Log{"Approval(address,address,uint256)", [IR.Var{0n}, IR.Var{1n}], [IR.Var{2n}]}}}}}}}}}}}}}}}}}}}}
+
+law permit:
+  for +p0: Nat
+  for +p1: Nat
+  for +p2: Nat
+  for +p3: Nat
+  for +p4: Nat
+  for +p5: Nat
+  for +p6: Nat
+  {IR.call(ir.permit(), IR.Stops{}, [IR.Binding{0n, p0}, IR.Binding{1n, p1}, IR.Binding{2n, p2}, IR.Binding{3n, p3}, IR.Binding{4n, p4}, IR.Binding{5n, p5}, IR.Binding{6n, p6}]) == Program.permit(p0, p1, p2, p3, p4, p5, p6) : Evm.Contract(Unit)}
+
+def permit(p0, p1, p2, p3, p4, p5, p6):
   {==}
 

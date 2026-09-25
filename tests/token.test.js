@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { deploy, must, reverts, run } from './chain.js';
+import { keys, separator, sign } from './permit.js';
 
 const bob = '0x0000000000000000000000000000000000000b0b';
 const carol = '0x0000000000000000000000000000000000000ca1';
@@ -11,7 +12,7 @@ const approval = must(run('cast', 'keccak', 'Approval(address,address,uint256)')
 const ownership = must(run('cast', 'keccak', 'OwnershipTransferred(address,address)'));
 const word = x => '0x' + BigInt(x).toString(16).padStart(64, '0');
 const functions = ['name', 'symbol', 'decimals', 'init', 'owner', 'transferOwnership', 'totalSupply', 'balanceOf',
-  'transfer', 'mint', 'burn', 'allowance', 'approve', 'transferFrom'];
+  'transfer', 'mint', 'burn', 'allowance', 'approve', 'transferFrom', 'nonces', 'DOMAIN_SEPARATOR', 'permit'];
 const out = path.join(mkdtempSync(path.join(tmpdir(), 'bend-evm-token-')), 'Token');
 let chain, sender, send, owner;
 
@@ -161,4 +162,31 @@ test('a holder burns its own tokens, and burn logs a Transfer to zero', () => {
   expect(data).toBe(word(1));
   expect(balance(bob)).toBe(before - 1n);
   expect(supply()).toBe(total - 1n);
+});
+
+test('a permit signed by the owner sets the allowance once, before its deadline', () => {
+  const [holder, other] = Object.keys(keys);
+  const domain = must(chain.cast('call', chain.address, 'DOMAIN_SEPARATOR()(bytes32)'));
+  const chainId = must(chain.cast('chain-id'));
+  expect(domain).toBe(separator('Bend Token', chainId, chain.address));
+  const now = Number(must(chain.cast('block', 'latest', '--field', 'timestamp')));
+  const permit = (signer, owner, value, deadline, nonce = 0) =>
+    [owner, bob, String(value), String(deadline), ...sign(keys[signer], domain, owner, bob, value, nonce, deadline)];
+  const call = args => send(carol, '--json', 'permit(address,address,uint256,uint256,uint8,bytes32,bytes32)', ...args);
+  const nonce = who => chain.word('nonces(address)(uint256)', who);
+
+  reverts(call(permit(other, holder, 5, now + 1000)));
+  reverts(call(permit(holder, holder, 5, now - 1)));
+  // ecrecover gives zero for a bad signature, so the zero owner must not pass.
+  reverts(call(['0x0000000000000000000000000000000000000000', bob, '5', String(now + 1000), '27',
+    '0x' + '11'.repeat(32), '0x' + '22'.repeat(32)]));
+  const good = permit(holder, holder, 5, now + 1000);
+  const [topics, data] = logged(call(good));
+  expect(topics).toEqual([approval, word(holder), word(bob)]);
+  expect(data).toBe(word(5));
+  expect(allowance(holder, bob)).toBe(5n);
+  expect(nonce(holder)).toBe(1n);
+  reverts(call(good));
+  must(call(permit(holder, holder, 7, now + 1000, 1)));
+  expect(allowance(holder, bob)).toBe(7n);
 });

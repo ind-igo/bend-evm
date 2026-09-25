@@ -9,13 +9,19 @@ const main = path.join(root, 'vendor/bend-frontend/vendor/bend/bend2/main.ts');
 test('the preservation proof rejects a wrong lowering', () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'bend-evm-lower-'));
   try {
-    for (const file of ['Evm.bend', 'ir.bend', 'yul.bend', 'LAWS.bend', 'PROOF.bend']) {
+    for (const file of ['Evm.bend', 'ir.bend', 'yul.bend', 'nat.bend', 'LAWS.bend', 'PROOF.bend']) {
       copyFileSync(path.join(root, 'src', file), path.join(dir, file));
     }
+    const check = () => Bun.spawnSync([process.execPath, main, path.join(dir, 'PROOF.bend'), '--check-only']);
+    // The copy must check before it is broken, or a missing file would pass the test.
+    expect(check().stdout.toString()).toContain('All terms check.');
     const yul = readFileSync(path.join(dir, 'yul.bend'), 'utf8');
     for (const [from, to] of [
       ['Let{level, SLoad{loc}, lower(body, o)}', 'Let{level, Caller{}, lower(body, o)}'],
-      ['IsZero{Lt{Atom{left}, Atom{right}}}', 'IsZero{Lt{Atom{right}, Atom{left}}}'],
+      ['      Lt{Atom{left}, Atom{right}}\n', '      Lt{Atom{right}, Atom{left}}\n'],
+      ['      IsZero{lower.test(c)}', '      lower.test(c)'],
+      ['def lower.cond(c: IR.Cond) -> Exp:\n  IsZero{lower.test(c)}', 'def lower.cond(c: IR.Cond) -> Exp:\n  lower.test(c)'],
+      ['      Evm.time.of(Evm.world.of(s))', '      Evm.chain.of(Evm.world.of(s))'],
       ['Gt{Atom{right}, Sub{', 'Lt{Atom{right}, Sub{'],
       ['Nat.sub(Nat.sub(l, 1n), x)', 'Nat.sub(l, x)'],
       ['Check{Lt{Atom{left}, Atom{right}}, Let{', 'Check{Lt{Atom{right}, Atom{left}}, Let{'],
@@ -25,7 +31,7 @@ test('the preservation proof rejects a wrong lowering', () => {
     ]) {
       expect(yul).toContain(from);
       writeFileSync(path.join(dir, 'yul.bend'), yul.replace(from, to));
-      const checked = Bun.spawnSync([process.execPath, main, path.join(dir, 'PROOF.bend'), '--check-only']);
+      const checked = check();
       expect(checked.exitCode).not.toBe(0);
       expect(checked.stdout.toString() + checked.stderr.toString()).toContain('Location:');
     }

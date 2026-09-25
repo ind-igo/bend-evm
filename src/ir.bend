@@ -10,6 +10,7 @@ type Expr is Data:
 type Cond is Data:
   Eq{left: Expr, right: Expr}
   Lt{left: Expr, right: Expr}
+  Not{cond: Cond}
 
 # A storage location: a plain slot or an entry of the mapping at base.
 type Loc is Data:
@@ -24,6 +25,13 @@ type Word is Data:
   Sub{left: Expr, right: Expr}
   Select{cond: Cond, yes: Expr, no: Expr}
   Max{}
+  Timestamp{}
+  ChainId{}
+  Self{}
+  Keccak{words: List<&2, Expr>}
+  Typed{domain: Expr, message: Expr}
+  Id{text: String}
+  Recover{digest: Expr, v: Expr, r: Expr, s: Expr}
 
 type Effect is Data:
   SStore{loc: Loc, value: Expr}
@@ -87,6 +95,8 @@ def cond(c: Cond, +env: List<&2, Binding>) -> Bool:
       Nat.is_eq(eval(left, env), eval(right, env))
     case Lt{left, right}:
       Nat.is_lt(eval(left, env), eval(right, env))
+    case Not{c}:
+      Bool.not(cond(c, env))
 
 def word(w: Word, +env: List<&2, Binding>) -> Evm.Contract(Nat):
   match w:
@@ -102,6 +112,20 @@ def word(w: Word, +env: List<&2, Binding>) -> Evm.Contract(Nat):
       Evm.select(cond(c, env), eval(yes, env), eval(no, env))
     case Max{}:
       Evm.max()
+    case Timestamp{}:
+      Evm.timestamp()
+    case ChainId{}:
+      Evm.chainid()
+    case Self{}:
+      Evm.self()
+    case Keccak{words}:
+      Evm.keccak(evals(words, env))
+    case Typed{domain, message}:
+      Evm.typed(eval(domain, env), eval(message, env))
+    case Id{text}:
+      Evm.id(text)
+    case Recover{digest, v, r, s}:
+      Evm.recover(eval(digest, env), eval(v, env), eval(r, env), eval(s, env))
 
 def effect(e: Effect, +env: List<&2, Binding>) -> Evm.Contract(Unit):
   match e:
@@ -165,6 +189,8 @@ def closed.cond(c: Cond, +scope: List<&2, Nat>) -> Bool:
       closed.two(left, right, scope)
     case Lt{left, right}:
       closed.two(left, right, scope)
+    case Not{c}:
+      closed.cond(c, scope)
 
 def closed.loc(l: Loc, +scope: List<&2, Nat>) -> Bool:
   match l:
@@ -187,6 +213,20 @@ def closed.word(w: Word, +scope: List<&2, Nat>) -> Bool:
       Bool.and(closed.cond(c, scope), closed.two(yes, no, scope))
     case Max{}:
       True{}
+    case Timestamp{}:
+      True{}
+    case ChainId{}:
+      True{}
+    case Self{}:
+      True{}
+    case Keccak{words}:
+      closed.list(words, scope)
+    case Typed{domain, message}:
+      closed.two(domain, message, scope)
+    case Id{_}:
+      True{}
+    case Recover{digest, v, r, s}:
+      Bool.and(closed.two(digest, v, scope), closed.two(r, s, scope))
 
 def closed.effect(e: Effect, +scope: List<&2, Nat>) -> Bool:
   match e:

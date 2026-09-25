@@ -223,6 +223,25 @@ def max_eq(+l: Nat) -> {Nat.sub(l, 1n) == Yul.not(0n, l) : Nat}:
         case 1n+_:
           {==}
 
+# `iszero(test)` inverts a test, so a Not lowers to it.
+def not_bit(+x: Bool) -> {Yul.bit(Bool.not(x)) == Yul.bit(Nat.is_eq(Yul.bit(x), 0n)) : Nat}:
+  match x:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+# A lowered test is 1 exactly when the condition holds.
+def test_bit(c: IR.Cond, +env: List<&2, IR.Binding>, +s: Evm.State) -> {Yul.bit(IR.cond(c, env)) == Yul.eval(Yul.lower.test(c), env, s) : Nat}:
+  match c:
+    case IR.Eq{_, _}:
+      {==}
+    case IR.Lt{_, _}:
+      {==}
+    case IR.Not{+d}:
+      %test_bit(d, env, s) : {Yul.bit(Bool.not(IR.cond(d, env))) == Yul.bit(Nat.is_eq(_, 0n)) : Nat}
+      not_bit(IR.cond(d, env))
+
 # Induction on the command. Both runs pass the same state and continuation on,
 # so only the checks need lemmas.
 def Laws.preserves(cmd, out, env, R, k, s):
@@ -248,33 +267,52 @@ def Laws.preserves(cmd, out, env, R, k, s):
         x => Yul.exec(Yul.lower(body, o), o, IR.Binding{level, x} <> env, R, k, s),
         x => IR.run(body, o, IR.Binding{level, x} <> env, R, k, s),
         Laws.preserves(body, o, IR.Binding{level, Yul.sub(a, b, l)} <> env, R, k, s))
-    case IR.Bind{IR.Select{IR.Eq{left, right}, +yes, +no}, level, body} o:
-      +c = Nat.is_eq(IR.eval(left, env), IR.eval(right, env))
-      +v = Bool.pick(Nat, c, IR.eval(yes, env), IR.eval(no, env))
-      %select_eq(c, IR.eval(yes, env), IR.eval(no, env)) : {Yul.exec(Yul.lower(body, o), o, IR.Binding{level, _} <> env, R, k, s)
-        == IR.run(body, o, IR.Binding{level, v} <> env, R, k, s) : Evm.Outcome<R>}
-      Laws.preserves(body, o, IR.Binding{level, v} <> env, R, k, s)
-    case IR.Bind{IR.Select{IR.Lt{left, right}, +yes, +no}, level, body} o:
-      +c = Nat.is_lt(IR.eval(left, env), IR.eval(right, env))
-      +v = Bool.pick(Nat, c, IR.eval(yes, env), IR.eval(no, env))
-      %select_eq(c, IR.eval(yes, env), IR.eval(no, env)) : {Yul.exec(Yul.lower(body, o), o, IR.Binding{level, _} <> env, R, k, s)
-        == IR.run(body, o, IR.Binding{level, v} <> env, R, k, s) : Evm.Outcome<R>}
-      Laws.preserves(body, o, IR.Binding{level, v} <> env, R, k, s)
     case IR.Bind{IR.Max{}, level, body} o:
       +l = Evm.limit.of(s)
       %max_eq(l) : {Yul.exec(Yul.lower(body, o), o, IR.Binding{level, _} <> env, R, k, s)
         == IR.run(body, o, IR.Binding{level, Nat.sub(l, 1n)} <> env, R, k, s) : Evm.Outcome<R>}
       Laws.preserves(body, o, IR.Binding{level, Nat.sub(l, 1n)} <> env, R, k, s)
+    case IR.Bind{IR.Timestamp{}, level, body} o:
+      Laws.preserves(body, o, IR.Binding{level, Evm.time.of(Evm.world.of(s))} <> env, R, k, s)
+    case IR.Bind{IR.ChainId{}, level, body} o:
+      Laws.preserves(body, o, IR.Binding{level, Evm.chain.of(Evm.world.of(s))} <> env, R, k, s)
+    case IR.Bind{IR.Self{}, level, body} o:
+      Laws.preserves(body, o, IR.Binding{level, Evm.self.of(Evm.world.of(s))} <> env, R, k, s)
+    case IR.Bind{IR.Keccak{words}, level, body} o:
+      Laws.preserves(body, o, IR.Binding{level, Evm.hash.of(Evm.hashes.of(Evm.world.of(s)), Evm.Words{IR.evals(words, env)})} <> env, R, k, s)
+    case IR.Bind{IR.Typed{d, m}, level, body} o:
+      Laws.preserves(body, o, IR.Binding{level, Evm.hash.of(Evm.hashes.of(Evm.world.of(s)), Evm.Typed{IR.eval(d, env), IR.eval(m, env)})} <> env, R, k, s)
+    case IR.Bind{IR.Id{t}, level, body} o:
+      Laws.preserves(body, o, IR.Binding{level, Evm.hash.of(Evm.hashes.of(Evm.world.of(s)), Evm.Text{t})} <> env, R, k, s)
+    case IR.Bind{IR.Recover{d, v, r, g}, level, body} o:
+      Laws.preserves(body, o, IR.Binding{level, Evm.signer.of(Evm.signers.of(Evm.world.of(s)), IR.eval(d, env), IR.eval(v, env), IR.eval(r, env), IR.eval(g, env))} <> env, R, k, s)
+    case IR.Bind{IR.Select{+c, +yes, +no}, level, body} o:
+      +v = Bool.pick(Nat, IR.cond(c, env), IR.eval(yes, env), IR.eval(no, env))
+      %test_bit(c, env, s) : {Yul.exec(Yul.lower(body, o), o,
+        IR.Binding{level, Bool.pick(Nat, Nat.is_eq(_, 0n), IR.eval(no, env), IR.eval(yes, env))} <> env, R, k, s)
+        == IR.run(body, o, IR.Binding{level, v} <> env, R, k, s) : Evm.Outcome<R>}
+      %select_eq(IR.cond(c, env), IR.eval(yes, env), IR.eval(no, env)) : {Yul.exec(Yul.lower(body, o), o, IR.Binding{level, _} <> env, R, k, s)
+        == IR.run(body, o, IR.Binding{level, v} <> env, R, k, s) : Evm.Outcome<R>}
+      Laws.preserves(body, o, IR.Binding{level, v} <> env, R, k, s)
+    case IR.Then{IR.Require{+c}, body} o:
+      %test_bit(c, env, s) : {Bool.pick(Evm.Outcome<R>, Nat.is_eq(Yul.bit(Nat.is_eq(_, 0n)), 0n), Yul.exec(Yul.lower(body, o), o, env, R, k, s),
+        Evm.Revert{}) == Bool.pick(Evm.Outcome<R>, IR.cond(c, env), IR.run(body, o, env, R, k, s), Evm.Revert{}) : Evm.Outcome<R>}
+      require_step(IR.cond(c, env), R, Yul.exec(Yul.lower(body, o), o, env, R, k, s), IR.run(body, o, env, R, k, s),
+        Laws.preserves(body, o, env, R, k, s))
+    case IR.Tail{IR.Select{+c, +yes, +no}} IR.Returns{}:
+      %test_bit(c, env, s) : {k(Bool.pick(Nat, Nat.is_eq(_, 0n), IR.eval(no, env), IR.eval(yes, env)), s)
+        == k(Bool.pick(Nat, IR.cond(c, env), IR.eval(yes, env), IR.eval(no, env)), s) : Evm.Outcome<R>}
+      %select_eq(IR.cond(c, env), IR.eval(yes, env), IR.eval(no, env)) : {k(_, s)
+        == k(Bool.pick(Nat, IR.cond(c, env), IR.eval(yes, env), IR.eval(no, env)), s) : Evm.Outcome<R>}
+      {==}
+    case IR.Finish{IR.Require{+c}} IR.Stops{}:
+      %test_bit(c, env, s) : {Bool.pick(Evm.Outcome<R>, Nat.is_eq(Yul.bit(Nat.is_eq(_, 0n)), 0n), k(Unit{}, s), Evm.Revert{})
+        == Bool.pick(Evm.Outcome<R>, IR.cond(c, env), k(Unit{}, s), Evm.Revert{}) : Evm.Outcome<R>}
+      require_step(IR.cond(c, env), R, k(Unit{}, s), k(Unit{}, s), {==})
     case IR.Then{IR.SStore{loc, value}, body} o:
       Laws.preserves(body, o, env, R, k, Evm.write.go(IR.loc(loc, env), IR.eval(value, env), s))
     case IR.Then{IR.Log{event, topics, data}, body} o:
       Laws.preserves(body, o, env, R, k, Evm.log.go(event, IR.evals(topics, env), IR.evals(data, env), s))
-    case IR.Then{IR.Require{IR.Eq{left, right}}, body} o:
-      require_step(Nat.is_eq(IR.eval(left, env), IR.eval(right, env)), R,
-        Yul.exec(Yul.lower(body, o), o, env, R, k, s), IR.run(body, o, env, R, k, s), Laws.preserves(body, o, env, R, k, s))
-    case IR.Then{IR.Require{IR.Lt{left, right}}, body} o:
-      require_step(Nat.is_lt(IR.eval(left, env), IR.eval(right, env)), R,
-        Yul.exec(Yul.lower(body, o), o, env, R, k, s), IR.run(body, o, env, R, k, s), Laws.preserves(body, o, env, R, k, s))
     case IR.Return{_} IR.Returns{}:
       {==}
     case IR.Return{_} IR.Stops{}:
@@ -296,18 +334,36 @@ def Laws.preserves(cmd, out, env, R, k, s):
       +l = Evm.limit.of(s)
       sub_step(Nat.is_lt(a, b), Bool.pick(Nat, Nat.is_lt(b, l), Nat.sub(l, Nat.sub(b, a)), l), Nat.sub(a, b), R,
         x => k(x, s), x => k(x, s), {==})
-    case IR.Tail{IR.Select{IR.Eq{left, right}, +yes, +no}} IR.Returns{}:
-      +c = Nat.is_eq(IR.eval(left, env), IR.eval(right, env))
-      %select_eq(c, IR.eval(yes, env), IR.eval(no, env)) : {k(_, s)
-        == k(Bool.pick(Nat, c, IR.eval(yes, env), IR.eval(no, env)), s) : Evm.Outcome<R>}
-      {==}
-    case IR.Tail{IR.Select{IR.Lt{left, right}, +yes, +no}} IR.Returns{}:
-      +c = Nat.is_lt(IR.eval(left, env), IR.eval(right, env))
-      %select_eq(c, IR.eval(yes, env), IR.eval(no, env)) : {k(_, s)
-        == k(Bool.pick(Nat, c, IR.eval(yes, env), IR.eval(no, env)), s) : Evm.Outcome<R>}
-      {==}
     case IR.Tail{IR.Max{}} IR.Returns{}:
       %max_eq(Evm.limit.of(s)) : {k(_, s) == k(Nat.sub(Evm.limit.of(s), 1n), s) : Evm.Outcome<R>}
+      {==}
+    case IR.Tail{IR.Timestamp{}} IR.Returns{}:
+      {==}
+    case IR.Tail{IR.Timestamp{}} IR.Stops{}:
+      {==}
+    case IR.Tail{IR.ChainId{}} IR.Returns{}:
+      {==}
+    case IR.Tail{IR.ChainId{}} IR.Stops{}:
+      {==}
+    case IR.Tail{IR.Self{}} IR.Returns{}:
+      {==}
+    case IR.Tail{IR.Self{}} IR.Stops{}:
+      {==}
+    case IR.Tail{IR.Keccak{_}} IR.Returns{}:
+      {==}
+    case IR.Tail{IR.Keccak{_}} IR.Stops{}:
+      {==}
+    case IR.Tail{IR.Typed{_, _}} IR.Returns{}:
+      {==}
+    case IR.Tail{IR.Typed{_, _}} IR.Stops{}:
+      {==}
+    case IR.Tail{IR.Id{_}} IR.Returns{}:
+      {==}
+    case IR.Tail{IR.Id{_}} IR.Stops{}:
+      {==}
+    case IR.Tail{IR.Recover{_, _, _, _}} IR.Returns{}:
+      {==}
+    case IR.Tail{IR.Recover{_, _, _, _}} IR.Stops{}:
       {==}
     case IR.Tail{IR.Select{_, _, _}} IR.Stops{}:
       {==}
@@ -325,10 +381,6 @@ def Laws.preserves(cmd, out, env, R, k, s):
       {==}
     case IR.Finish{IR.Log{_, _, _}} IR.Stops{}:
       {==}
-    case IR.Finish{IR.Require{IR.Eq{left, right}}} IR.Stops{}:
-      require_step(Nat.is_eq(IR.eval(left, env), IR.eval(right, env)), R, k(Unit{}, s), k(Unit{}, s), {==})
-    case IR.Finish{IR.Require{IR.Lt{left, right}}} IR.Stops{}:
-      require_step(Nat.is_lt(IR.eval(left, env), IR.eval(right, env)), R, k(Unit{}, s), k(Unit{}, s), {==})
     case IR.Finish{IR.SStore{_, _}} IR.Returns{}:
       {==}
     case IR.Finish{IR.Log{_, _, _}} IR.Returns{}:

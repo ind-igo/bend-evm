@@ -27,6 +27,8 @@ def show.cond(c: IR.Cond) -> String:
       show.two("IR.Eq", left, right)
     case IR.Lt{left, right}:
       show.two("IR.Lt", left, right)
+    case IR.Not{c}:
+      "IR.Not{" ++ show.cond(c) ++ "}"
 
 def show.loc(l: IR.Loc) -> String:
   match l:
@@ -34,6 +36,13 @@ def show.loc(l: IR.Loc) -> String:
       "IR.Plain{" ++ show.expr(slot) ++ "}"
     case IR.Mapped{base, key}:
       "IR.Mapped{" ++ show.loc(base) ++ ", " ++ show.expr(key) ++ "}"
+
+def show.list(exprs: List<&2, IR.Expr>) -> List<&2, String>:
+  match exprs:
+    case Nil{}:
+      Nil{}
+    case e <> rest:
+      show.expr(e) <> show.list(rest)
 
 def show.word(w: IR.Word) -> String:
   match w:
@@ -49,13 +58,20 @@ def show.word(w: IR.Word) -> String:
       "IR.Select{" ++ show.cond(c) ++ ", " ++ show.expr(yes) ++ ", " ++ show.expr(no) ++ "}"
     case IR.Max{}:
       "IR.Max{}"
-
-def show.list(exprs: List<&2, IR.Expr>) -> List<&2, String>:
-  match exprs:
-    case Nil{}:
-      Nil{}
-    case e <> rest:
-      show.expr(e) <> show.list(rest)
+    case IR.Timestamp{}:
+      "IR.Timestamp{}"
+    case IR.ChainId{}:
+      "IR.ChainId{}"
+    case IR.Self{}:
+      "IR.Self{}"
+    case IR.Keccak{words}:
+      "IR.Keccak{[" ++ String.join(show.list(words), ", ") ++ "]}"
+    case IR.Typed{domain, message}:
+      show.two("IR.Typed", domain, message)
+    case IR.Id{text}:
+      "IR.Id{\"" ++ text ++ "\"}"
+    case IR.Recover{digest, v, r, s}:
+      "IR.Recover{" ++ String.join(show.list([digest, v, r, s]), ", ") ++ "}"
 
 # The reader only accepts signature characters, so the quotes stay closed.
 def show.effect(e: IR.Effect) -> String:

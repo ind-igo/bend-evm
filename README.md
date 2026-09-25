@@ -14,7 +14,7 @@ contract.bend ─ Frontend.check ─ read ─→ IR ─ lower ─→ Yul ─ sol
 
 ## Write an ERC-20
 
-[lib/ERC20.bend](lib/ERC20.bend) is an ERC-20 base, after solmate's: the standard functions and events, and internal `mint` and `burn`. A token imports it, gives its name, symbol and decimals, and exposes each function with a one-line def. [examples/token/program.bend](examples/token/program.bend) is a complete token: the deployer owns it and receives the initial supply, the owner can mint, and holders can burn.
+[lib/ERC20.bend](lib/ERC20.bend) is an ERC-20 base, after solmate's: the standard functions and events, EIP-2612 `permit` with `nonces` and the EIP-712 `domain`, and internal `mint` and `burn`. A token imports it, gives its name, symbol and decimals, and exposes each function with a one-line def. [examples/token/program.bend](examples/token/program.bend) is a complete token: the deployer owns it and receives the initial supply, the owner can mint, and holders can burn.
 
 ```bend
 import ../../lib/ERC20.bend as ERC20
@@ -38,12 +38,13 @@ Build it, then deploy the bytecode with the constructor arguments after it:
 
 ```sh
 bun run build --out build/Token examples/token/program.bend name symbol decimals init owner \
-  transferOwnership totalSupply balanceOf transfer mint burn allowance approve transferFrom
+  transferOwnership totalSupply balanceOf transfer mint burn allowance approve transferFrom \
+  nonces DOMAIN_SEPARATOR permit
 ARGS=$(cast abi-encode "constructor(uint256)" 1000000000000000000000000)
 cast send --rpc-url $RPC --private-key $KEY --create "0x$(cat build/Token.bin)${ARGS#0x}"
 ```
 
-`build` writes the Yul, the bytecode (`.bin`) and the ABI (`.abi.json`) only when the contract's certificate and `PROOF.bend` check; wallets and `cast` read the token through the ABI. A string entry such as `name()` is a constant with no parameters. `Evm.Uint8` and `Evm.Boolean` are words that the dispatcher checks for range, so results and parameters get the right ABI types.
+`build` writes the Yul, the bytecode (`.bin`) and the ABI (`.abi.json`) only when the contract's certificate and `PROOF.bend` check; wallets and `cast` read the token through the ABI. A string entry such as `name()` is a constant with no parameters. `Evm.Uint8` and `Evm.Boolean` are words that the dispatcher checks for range, so results and parameters get the right ABI types; `Evm.Bytes32` is any word, with the ABI type `bytes32`.
 
 ## Use
 
@@ -58,7 +59,7 @@ bun run build examples/counter/program.bend get increment decrement set > build/
 solc --strict-assembly --evm-version shanghai --bin build/Counter.yul
 ```
 
-[tests/counter.test.js](tests/counter.test.js) and [tests/token.test.js](tests/token.test.js) deploy the examples on `anvil` and call them through the standard ABI. The token's functions are `name symbol decimals init owner transferOwnership totalSupply balanceOf transfer mint burn allowance approve transferFrom`. An entry named `init` is the constructor: it returns `Unit` and runs in the deploy code, so the deployer is `caller()`. Its parameters are the ABI words that follow the deploy code, as in Solidity; the token's `init(supply)` gives the initial supply to the deployer.
+[tests/counter.test.js](tests/counter.test.js) and [tests/token.test.js](tests/token.test.js) deploy the examples on `anvil` and call them through the standard ABI. The token's functions are `name symbol decimals init owner transferOwnership totalSupply balanceOf transfer mint burn allowance approve transferFrom nonces DOMAIN_SEPARATOR permit`. An entry named `init` is the constructor: it returns `Unit` and runs in the deploy code, so the deployer is `caller()`. Its parameters are the ABI words that follow the deploy code, as in Solidity; the token's `init(supply)` gives the initial supply to the deployer.
 
 The frontend is a submodule at `vendor/bend-frontend`, and it pins Bend at `vendor/bend-frontend/vendor/bend`. Its `host/run.js` launches the Bend drivers here with the checker attached, and keeps compiled tools in `vendor/bend-frontend/build/cache`. See [Connecting Bend to backends](https://github.com/ind-igo/bend-frontend/blob/main/docs/backends.md) for how a backend uses the frontend, and the frontend's README for what it trusts.
 
@@ -82,6 +83,7 @@ The proofs cover deployed code only when the certificate covers the same entries
 
 - A contract passes its result and state to a continuation, and `Evm.run(A, m, s)` gives its outcome. Each check is then a `Bool.pick` at the top of the normal form. So a law can state every outcome from any state, with symbolic storage, caller, addresses and amounts, and `{==}` proves it. See the [counter](examples/counter/LAWS.bend) and [token](examples/token/LAWS.bend) laws.
 - Laws can also cover many calls. The token's `supply_sum` law runs any list of calls from deployment, with a `Call` for each function that writes storage, and proves that `totalSupply` is the sum of the balances of any list of accounts that has the deployer and each sender and receiver once. The list of every address qualifies, so the supply is the sum of all balances. Its proof is by induction over the calls and the list, with Nat facts from [nat.bend](src/nat.bend).
+- A state also has a `World`: the block time, the chain id, the contract's address, and tables that stand for `keccak256` and `ecrecover`. A law holds for every table, so no law depends on how either function works, and the printer uses the real ones: `keccak256` over memory, and the `ecrecover` precompile, which gives zero for a bad signature. `permit` checks that the signer is not zero.
 - Words are `Nat`. Checked `add` reverts at the state's `limit`, which is 2^256 on the EVM, and checked `sub` reverts below zero. Proofs keep the limit symbolic: the checker writes any closed Nat near 2^256 out in unary.
 - Storage is an association list: the newest slot wins and missing slots read as zero. A key is a plain slot or an entry of a mapping, `Mapped{base, key}`, where `base` is a key too. The printer puts an entry at `keccak256(key . base)`, as Solidity does, so the model assumes that Keccak has no collisions. That is not enough for a slot that a variable gives, which could equal an entry's `keccak256(key . base)`, so `compile.bend` refuses an entry whose plain slots and mapping bases are not literals. Keys can be variables. A revert discards all state.
 - Events are `log(signature, topics, data)`: an ABI signature, at most three indexed words and a list of data words, one word for each parameter of the signature. The state keeps them newest first, so a revert drops them too. Topic 0 is the signature's Keccak-256, which the printer computes.

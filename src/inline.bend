@@ -38,6 +38,8 @@ def top.cond(c: IR.Cond) -> Nat:
       top.two(left, right)
     case IR.Lt{left, right}:
       top.two(left, right)
+    case IR.Not{c}:
+      top.cond(c)
 
 def top.loc(l: IR.Loc) -> Nat:
   match l:
@@ -58,7 +60,13 @@ def top.word(w: IR.Word) -> Nat:
       top.two(left, right)
     case IR.Select{c, yes, no}:
       max(top.cond(c), top.two(yes, no))
-    case IR.Max{}:
+    case IR.Keccak{words}:
+      top.list(words)
+    case IR.Typed{domain, message}:
+      top.two(domain, message)
+    case IR.Recover{digest, v, r, s}:
+      max(top.two(digest, v), top.two(r, s))
+    case _:
       0n
 
 def top.effect(e: IR.Effect) -> Nat:
@@ -115,6 +123,8 @@ def rename.cond(c: IR.Cond, +parameters: List<&2, Nat>, +args: List<&2, IR.Expr>
       IR.Eq{rename.expr(left, parameters, args, offset), rename.expr(right, parameters, args, offset)}
     case IR.Lt{left, right}:
       IR.Lt{rename.expr(left, parameters, args, offset), rename.expr(right, parameters, args, offset)}
+    case IR.Not{c}:
+      IR.Not{rename.cond(c, parameters, args, offset)}
 
 def rename.loc(l: IR.Loc, +parameters: List<&2, Nat>, +args: List<&2, IR.Expr>, +offset: Nat) -> IR.Loc:
   match l:
@@ -138,6 +148,21 @@ def rename.word(w: IR.Word, +parameters: List<&2, Nat>, +args: List<&2, IR.Expr>
         rename.expr(no, parameters, args, offset)}
     case IR.Max{}:
       IR.Max{}
+    case IR.Timestamp{}:
+      IR.Timestamp{}
+    case IR.ChainId{}:
+      IR.ChainId{}
+    case IR.Self{}:
+      IR.Self{}
+    case IR.Keccak{words}:
+      IR.Keccak{rename.list(words, parameters, args, offset)}
+    case IR.Typed{domain, message}:
+      IR.Typed{rename.expr(domain, parameters, args, offset), rename.expr(message, parameters, args, offset)}
+    case IR.Id{text}:
+      IR.Id{text}
+    case IR.Recover{digest, v, r, s}:
+      IR.Recover{rename.expr(digest, parameters, args, offset), rename.expr(v, parameters, args, offset),
+        rename.expr(r, parameters, args, offset), rename.expr(s, parameters, args, offset)}
 
 def rename.effect(e: IR.Effect, +parameters: List<&2, Nat>, +args: List<&2, IR.Expr>, +offset: Nat) -> IR.Effect:
   match e:

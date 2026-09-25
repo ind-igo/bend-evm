@@ -18,6 +18,13 @@ type Exp is Data:
   Gt{left: Exp, right: Exp}
   IsZero{value: Exp}
   Select{cond: Exp, yes: Exp, no: Exp}
+  Timestamp{}
+  ChainId{}
+  Address{}
+  Keccak{words: List<&2, IR.Expr>}
+  Typed{domain: IR.Expr, message: IR.Expr}
+  Id{text: String}
+  Recover{digest: IR.Expr, v: IR.Expr, r: IR.Expr, sig: IR.Expr}
 
 # Each statement holds the rest of its block, so a block is one Stmt.
 type Stmt is Data:
@@ -80,6 +87,20 @@ def eval(e: Exp, +env: List<&2, IR.Binding>, +s: Evm.State) -> Nat:
     case Select{cond, yes, no}:
       c y n = eval(cond, env, s) eval(yes, env, s) eval(no, env, s)
       Bool.pick(Nat, Nat.is_eq(c, 0n), n, y)
+    case Timestamp{}:
+      Evm.time.of(Evm.world.of(s))
+    case ChainId{}:
+      Evm.chain.of(Evm.world.of(s))
+    case Address{}:
+      Evm.self.of(Evm.world.of(s))
+    case Keccak{words}:
+      Evm.hash.of(Evm.hashes.of(Evm.world.of(s)), Evm.Words{IR.evals(words, env)})
+    case Typed{domain, message}:
+      Evm.hash.of(Evm.hashes.of(Evm.world.of(s)), Evm.Typed{IR.eval(domain, env), IR.eval(message, env)})
+    case Id{text}:
+      Evm.hash.of(Evm.hashes.of(Evm.world.of(s)), Evm.Text{text})
+    case Recover{digest, v, r, sig}:
+      Evm.signer.of(Evm.signers.of(Evm.world.of(s)), IR.eval(digest, env), IR.eval(v, env), IR.eval(r, env), IR.eval(sig, env))
 
 # `if cond { revert(0, 0) }` reverts when cond is not zero.
 def exec(stmt: Stmt, +out: IR.Output, +env: List<&2, IR.Binding>) -> Evm.Contract(IR.value(out)):
@@ -99,21 +120,19 @@ def exec(stmt: Stmt, +out: IR.Output, +env: List<&2, IR.Binding>) -> Evm.Contrac
     case _ o:
       IR.abort(IR.value(o))
 
-# The condition under which a Require reverts.
-def lower.cond(c: IR.Cond) -> Exp:
-  match c:
-    case IR.Eq{left, right}:
-      IsZero{Eq{Atom{left}, Atom{right}}}
-    case IR.Lt{left, right}:
-      IsZero{Lt{Atom{left}, Atom{right}}}
-
-# The test under which a Select picks its first word.
+# A test that is 1 when the condition holds and 0 when it does not.
 def lower.test(c: IR.Cond) -> Exp:
   match c:
     case IR.Eq{left, right}:
       Eq{Atom{left}, Atom{right}}
     case IR.Lt{left, right}:
       Lt{Atom{left}, Atom{right}}
+    case IR.Not{c}:
+      IsZero{lower.test(c)}
+
+# The condition under which a Require reverts.
+def lower.cond(c: IR.Cond) -> Exp:
+  IsZero{lower.test(c)}
 
 def lower.select(c: IR.Cond, +yes: IR.Expr, +no: IR.Expr) -> Exp:
   Select{lower.test(c), Atom{yes}, Atom{no}}
@@ -141,6 +160,20 @@ def lower(cmd: IR.Cmd, +out: IR.Output) -> Stmt:
       Let{level, lower.select(c, yes, no), lower(body, o)}
     case IR.Bind{IR.Max{}, level, body} o:
       Let{level, max(), lower(body, o)}
+    case IR.Bind{IR.Timestamp{}, level, body} o:
+      Let{level, Timestamp{}, lower(body, o)}
+    case IR.Bind{IR.ChainId{}, level, body} o:
+      Let{level, ChainId{}, lower(body, o)}
+    case IR.Bind{IR.Self{}, level, body} o:
+      Let{level, Address{}, lower(body, o)}
+    case IR.Bind{IR.Keccak{words}, level, body} o:
+      Let{level, Keccak{words}, lower(body, o)}
+    case IR.Bind{IR.Typed{domain, message}, level, body} o:
+      Let{level, Typed{domain, message}, lower(body, o)}
+    case IR.Bind{IR.Id{text}, level, body} o:
+      Let{level, Id{text}, lower(body, o)}
+    case IR.Bind{IR.Recover{digest, v, r, sig}, level, body} o:
+      Let{level, Recover{digest, v, r, sig}, lower(body, o)}
     case IR.Then{IR.SStore{loc, value}, body} o:
       SStore{loc, Atom{value}, lower(body, o)}
     case IR.Then{IR.Log{event, topics, data}, body} o:
@@ -161,6 +194,20 @@ def lower(cmd: IR.Cmd, +out: IR.Output) -> Stmt:
       Result{lower.select(c, yes, no)}
     case IR.Tail{IR.Max{}} IR.Returns{}:
       Result{max()}
+    case IR.Tail{IR.Timestamp{}} IR.Returns{}:
+      Result{Timestamp{}}
+    case IR.Tail{IR.ChainId{}} IR.Returns{}:
+      Result{ChainId{}}
+    case IR.Tail{IR.Self{}} IR.Returns{}:
+      Result{Address{}}
+    case IR.Tail{IR.Keccak{words}} IR.Returns{}:
+      Result{Keccak{words}}
+    case IR.Tail{IR.Typed{domain, message}} IR.Returns{}:
+      Result{Typed{domain, message}}
+    case IR.Tail{IR.Id{text}} IR.Returns{}:
+      Result{Id{text}}
+    case IR.Tail{IR.Recover{digest, v, r, sig}} IR.Returns{}:
+      Result{Recover{digest, v, r, sig}}
     case IR.Finish{IR.SStore{loc, value}} IR.Stops{}:
       SStore{loc, Atom{value}, Stop{}}
     case IR.Finish{IR.Log{event, topics, data}} IR.Stops{}:

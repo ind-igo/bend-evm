@@ -65,6 +65,20 @@ def exp(e: Yul.Exp) -> String:
     case Yul.Select{cond, yes, no}:
       c y n = exp(cond) exp(yes) exp(no)
       call("select", [c, y, n])
+    case Yul.Timestamp{}:
+      "timestamp()"
+    case Yul.ChainId{}:
+      "chainid()"
+    case Yul.Address{}:
+      "address()"
+    case Yul.Keccak{words}:
+      call("keccak256", ["0", nat(Nat.mul(32n, List.length(&2, IR.Expr, words)))])
+    case Yul.Typed{domain, message}:
+      call("typed", [atom(domain), atom(message)])
+    case Yul.Id{text}:
+      Keccak.digest(text)
+    case Yul.Recover{digest, v, r, sig}:
+      call("recover", [atom(digest), atom(v), atom(r), atom(sig)])
 
 def atoms(exprs: List<&2, IR.Expr>) -> List<&2, String>:
   match exprs:
@@ -84,12 +98,20 @@ def stores(+pad: String, data: List<&2, IR.Expr>, +offset: Nat) -> String:
     case d <> rest:
       pad ++ call("mstore", [nat(offset), atom(d)]) ++ "\n" ++ stores(pad, rest, Nat.add(32n, offset))
 
+# keccak256 of words reads them from memory at 0, so they are stored first.
+def prelude(+pad: String, value: Yul.Exp) -> String:
+  match value:
+    case Yul.Keccak{words}:
+      stores(pad, words, 0n)
+    case _:
+      ""
+
 # halt is the text for a final stop: stop() in the runtime code, nothing in
 # the deploy code.
 def stmt(+pad: String, +halt: String, s: Yul.Stmt) -> String:
   match s:
-    case Yul.Let{level, value, body}:
-      pad ++ "let " ++ var(level) ++ " := " ++ exp(value) ++ "\n" ++ stmt(pad, halt, body)
+    case Yul.Let{level, +value, body}:
+      prelude(pad, value) ++ pad ++ "let " ++ var(level) ++ " := " ++ exp(value) ++ "\n" ++ stmt(pad, halt, body)
     case Yul.SStore{l, value, body}:
       pad ++ call("sstore", [loc(l), exp(value)]) ++ "\n" ++ stmt(pad, halt, body)
     case Yul.Log{event, +topics, +data, body}:
@@ -100,8 +122,8 @@ def stmt(+pad: String, +halt: String, s: Yul.Stmt) -> String:
         ++ stmt(pad, halt, body)
     case Yul.Check{cond, body}:
       pad ++ "if " ++ exp(cond) ++ " { " ++ revert() ++ " }\n" ++ stmt(pad, halt, body)
-    case Yul.Result{value}:
-      pad ++ "mstore(0, " ++ exp(value) ++ ")\n" ++ pad ++ "return(0, 32)\n"
+    case Yul.Result{+value}:
+      prelude(pad, value) ++ pad ++ "mstore(0, " ++ exp(value) ++ ")\n" ++ pad ++ "return(0, 32)\n"
     case Yul.Stop{}:
       halt
     case Yul.Revert{}:
@@ -279,6 +301,21 @@ def helpers(+pad: String) -> String:
     ++ pad ++ "function select(c, a, b) -> v {\n"
     ++ pad ++ "  v := b\n"
     ++ pad ++ "  if c { v := a }\n"
+    ++ pad ++ "}\n"
+    ++ pad ++ "function typed(domain, message) -> digest {\n"
+    ++ pad ++ "  mstore(0, 0x1901000000000000000000000000000000000000000000000000000000000000)\n"
+    ++ pad ++ "  mstore(2, domain)\n"
+    ++ pad ++ "  mstore(34, message)\n"
+    ++ pad ++ "  digest := keccak256(0, 66)\n"
+    ++ pad ++ "}\n"
+    ++ pad ++ "function recover(digest, v, r, s) -> signer {\n"
+    ++ pad ++ "  mstore(0, digest)\n"
+    ++ pad ++ "  mstore(32, v)\n"
+    ++ pad ++ "  mstore(64, r)\n"
+    ++ pad ++ "  mstore(96, s)\n"
+    ++ pad ++ "  mstore(128, 0)\n"
+    ++ pad ++ "  pop(staticcall(gas(), 1, 0, 128, 128, 32))\n"
+    ++ pad ++ "  signer := mload(128)\n"
     ++ pad ++ "}\n"
 
 def object(init: String, body: String) -> String:

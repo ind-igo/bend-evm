@@ -176,6 +176,47 @@ def text(term: Core.Term, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, 
     case _:
       Fail{"Expected an event signature literal"}
 
+# A text that keccak256 hashes, such as an EIP-712 type string: printable
+# ASCII without quotes or backslashes, so the certificate can quote it, and
+# one Keccak block, which the printer can hash.
+def phrase.chars(s: String) -> Bool:
+  match s:
+    case SNil{}:
+      True{}
+    case SCon{c, rest}:
+      +n = U32.to_nat(Char.to_u32(c))
+      Bool.and(Bool.and(Bool.and(Nat.is_lt(31n, n), Nat.is_lt(n, 127n)), Bool.and(Bool.not(Nat.is_eq(n, 34n)),
+        Bool.not(Nat.is_eq(n, 92n)))), phrase.chars(rest))
+
+def phrase.check(+s: String) -> Result<&2, &2, String, String>:
+  Bool.pick(Result<&2, &2, String, String>, Bool.and(phrase.chars(s), Nat.is_lt(String.length(s), 136n)),
+    Done{s}, Fail{"A hashed text must be printable ASCII under 136 bytes, without quotes or backslashes"})
+
+def phrase.body(term: Core.Term) -> Result<&2, &2, String, String>:
+  match term:
+    case Core.TLit{Core.Text{value}}:
+      phrase.check(value)
+    case _:
+      Fail{"Expected a text literal"}
+
+def phrase.found(found: Maybe<&2, Core.Declaration>) -> Result<&2, &2, String, String>:
+  match found:
+    case Some{Core.Definition{Core.Header{_, _, 0, _}, 0, False{}, Nil{}, _, Some{body}}}:
+      phrase.body(Core.bare(body))
+    case _:
+      Fail{"Expected a text literal"}
+
+def phrase(term: Core.Term, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, String>:
+  match term:
+    case Core.TAnn{value, _}:
+      phrase(value, decls)
+    case Core.TLit{Core.Text{value}}:
+      phrase.check(value)
+    case Core.TRef{+name, _}:
+      phrase.found(Core.find(decls, name))
+    case _:
+      Fail{"Expected a text literal"}
+
 def commas(s: String) -> Nat:
   match s:
     case SNil{}:
@@ -247,6 +288,16 @@ def select(c: IR.Cond, pair: Operands) -> IR.Word:
     case Operands{y, n}:
       IR.Select{c, y, n}
 
+def typed(pair: Operands) -> IR.Word:
+  match pair:
+    case Operands{d, m}:
+      IR.Typed{d, m}
+
+def recover(first: Operands, second: Operands) -> IR.Word:
+  match first second:
+    case Operands{d, v} Operands{r, s}:
+      IR.Recover{d, v, r, s}
+
 def mapped(pair: Operands) -> IR.Loc:
   match pair:
     case Operands{s, k}:
@@ -264,6 +315,19 @@ def cond(c: Call, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, 
         return lt(pair)
     case _:
       Fail{"Unsupported condition"}
+
+def negate(c: IR.Cond) -> IR.Cond:
+  IR.Not{c}
+
+# Conditions nest through Bool.not, at most fuel deep.
+def cond.go(+fuel: Nat, c: Call, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Cond>:
+  match fuel c:
+    case 1n+(+f) Call{"Bool.not", inner <> Nil{}}:
+      do Result<&2, &2, String, IR.Cond>:
+        x : IR.Cond <- cond.go(f, call(inner, Nil{}), decls)
+        return negate(x)
+    case _ +other:
+      cond(other, decls)
 
 def word(c: Call, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Word>:
   match c:
@@ -284,9 +348,32 @@ def word(c: Call, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, 
       Done{IR.Caller{}}
     case Call{"Evm.max", Nil{}}:
       Done{IR.Max{}}
+    case Call{"Evm.timestamp", Nil{}}:
+      Done{IR.Timestamp{}}
+    case Call{"Evm.chainid", Nil{}}:
+      Done{IR.ChainId{}}
+    case Call{"Evm.self", Nil{}}:
+      Done{IR.Self{}}
+    case Call{"Evm.keccak", words <> Nil{}}:
+      do Result<&2, &2, String, IR.Word>:
+        ws : List<&2, IR.Expr> <- exprs(words, decls)
+        return IR.Keccak{ws}
+    case Call{"Evm.typed", domain <> message <> Nil{}}:
+      do Result<&2, &2, String, IR.Word>:
+        pair : Operands <- operands(domain, message, decls)
+        return typed(pair)
+    case Call{"Evm.id", text <> Nil{}}:
+      do Result<&2, &2, String, IR.Word>:
+        t : String <- phrase(text, decls)
+        return IR.Id{t}
+    case Call{"Evm.recover", digest <> v <> r <> s <> Nil{}}:
+      do Result<&2, &2, String, IR.Word>:
+        first : Operands <- operands(digest, v, decls)
+        second : Operands <- operands(r, s, decls)
+        return recover(first, second)
     case Call{"Evm.select", test <> yes <> no <> Nil{}}:
       do Result<&2, &2, String, IR.Word>:
-        c : IR.Cond <- cond(call(test, Nil{}), decls)
+        c : IR.Cond <- cond.go(8n, call(test, Nil{}), decls)
         pair : Operands <- operands(yes, no, decls)
         return select(c, pair)
     case Call{"Evm.add", left <> right <> Nil{}}:
@@ -326,7 +413,7 @@ def effect(c: Call, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String
         log(e, t, d)
     case Call{"Evm.require", condition <> Nil{}}:
       do Result<&2, &2, String, IR.Effect>:
-        c : IR.Cond <- cond(call(condition, Nil{}), decls)
+        c : IR.Cond <- cond.go(8n, call(condition, Nil{}), decls)
         return IR.Require{c}
     case _:
       Fail{"Unsupported effect"}
@@ -625,6 +712,8 @@ def abi(name: String) -> Result<&2, &2, String, String>:
       Done{"uint8"}
     case "Evm.Boolean":
       Done{"bool"}
+    case "Evm.Bytes32":
+      Done{"bytes32"}
     case other:
       Fail{"Unsupported parameter type: " ++ other}
 

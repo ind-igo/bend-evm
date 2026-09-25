@@ -33,6 +33,10 @@ def Address() -> Data:
 def Uint8() -> Data:
   Nat
 
+# A bytes32 word, such as a signature's r and s. Every word is one.
+def Bytes32() -> Data:
+  Nat
+
 # A bool word: 1 is true and 0 is false. The dispatcher reverts on a larger
 # argument.
 def Boolean() -> Data:
@@ -44,27 +48,113 @@ def Boolean() -> Data:
 type Log is Data:
   Log{event: String, topics: List<&2, Nat>, data: List<&2, Nat>}
 
+# What keccak256 hashes: words of 32 bytes; an EIP-712 digest, which hashes
+# 0x1901 . domain . message; or an ASCII text, such as a type string.
+type Preimage is Data:
+  Words{words: List<&2, Nat>}
+  Typed{domain: Nat, message: Nat}
+  Text{text: String}
+
+type Hashed is Data:
+  Hashed{preimage: Preimage, hash: Nat}
+
+type Signed is Data:
+  Signed{digest: Nat, v: Nat, r: Nat, s: Nat, signer: Nat}
+
+# The chain around a call: the block time, the chain id, the contract's own
+# address, and tables that stand for keccak256 and ecrecover. A law holds for
+# every table, so no law depends on how either function works; the printer
+# uses the real ones. A missing entry reads as zero, as ecrecover gives zero
+# for a bad signature.
+type World is Data:
+  World{time: Nat, chain: Nat, self: Nat, hashes: List<&2, Hashed>, signers: List<&2, Signed>}
+
 # Logs are newest first.
 type State is Data:
-  State{storage: List<&2, Slot>, caller: Nat, limit: Nat, logs: List<&2, Log>}
+  State{storage: List<&2, Slot>, caller: Nat, limit: Nat, logs: List<&2, Log>, world: World}
 
 # The limit is state, not a constant: a symbolic limit keeps proofs from
 # expanding 2^256 as a unary Nat. Laws proved for every limit hold on the EVM.
 
 def storage.of(s: State) -> List<&2, Slot>:
   match s:
-    case State{storage, _, _, _}:
+    case State{storage, _, _, _, _}:
       storage
 
 def caller.of(s: State) -> Nat:
   match s:
-    case State{_, caller, _, _}:
+    case State{_, caller, _, _, _}:
       caller
 
 def limit.of(s: State) -> Nat:
   match s:
-    case State{_, _, limit, _}:
+    case State{_, _, limit, _, _}:
       limit
+
+def world.of(s: State) -> World:
+  match s:
+    case State{_, _, _, _, world}:
+      world
+
+def time.of(w: World) -> Nat:
+  match w:
+    case World{time, _, _, _, _}:
+      time
+
+def chain.of(w: World) -> Nat:
+  match w:
+    case World{_, chain, _, _, _}:
+      chain
+
+def self.of(w: World) -> Nat:
+  match w:
+    case World{_, _, self, _, _}:
+      self
+
+def same.words(a: List<&2, Nat>, b: List<&2, Nat>) -> Bool:
+  match a b:
+    case Nil{} Nil{}:
+      True{}
+    case x <> xs y <> ys:
+      Bool.and(Nat.is_eq(x, y), same.words(xs, ys))
+    case _ _:
+      False{}
+
+def same.preimage(a: Preimage, b: Preimage) -> Bool:
+  match a b:
+    case Words{x} Words{y}:
+      same.words(x, y)
+    case Typed{d, m} Typed{e, n}:
+      Bool.and(Nat.is_eq(d, e), Nat.is_eq(m, n))
+    case Text{x} Text{y}:
+      String.eq(x, y)
+    case _ _:
+      False{}
+
+def hash.of(hashes: List<&2, Hashed>, +p: Preimage) -> Nat:
+  match hashes:
+    case Nil{}:
+      0n
+    case Hashed{q, h} <> rest:
+      Bool.pick(Nat, same.preimage(q, p), h, hash.of(rest, p))
+
+def signer.of(signers: List<&2, Signed>, +digest: Nat, +v: Nat, +r: Nat, +s: Nat) -> Nat:
+  match signers:
+    case Nil{}:
+      0n
+    case Signed{d, x, y, z, who} <> rest:
+      Bool.pick(Nat, Bool.and(Bool.and(Nat.is_eq(d, digest), Nat.is_eq(x, v)), Bool.and(Nat.is_eq(y, r), Nat.is_eq(z, s))),
+        who, signer.of(rest, digest, v, r, s))
+
+def hashes.of(w: World) -> List<&2, Hashed>:
+  match w:
+    case World{_, _, _, hashes, _}:
+      hashes
+
+def signers.of(w: World) -> List<&2, Signed>:
+  match w:
+    case World{_, _, _, _, signers}:
+      signers
 
 # A revert discards every state change, so it carries no state.
 type Outcome<-A: Data> is Data:
@@ -110,8 +200,8 @@ def load2(slot: Nat, outer: Nat, inner: Nat) -> Contract(Nat):
 
 def write.go(key: Key, value: Nat, s: State) -> State:
   match s:
-    case State{storage, caller, limit, logs}:
-      State{Slot{key, value} <> storage, caller, limit, logs}
+    case State{storage, caller, limit, logs, world}:
+      State{Slot{key, value} <> storage, caller, limit, logs, world}
 
 def write(key: Key, value: Nat) -> Contract(Unit):
   R => k => s => k(Unit{}, write.go(key, value, s))
@@ -130,8 +220,8 @@ def caller() -> Contract(Nat):
 
 def log.go(event: String, topics: List<&2, Nat>, data: List<&2, Nat>, s: State) -> State:
   match s:
-    case State{storage, caller, limit, logs}:
-      State{storage, caller, limit, Log{event, topics, data} <> logs}
+    case State{storage, caller, limit, logs, world}:
+      State{storage, caller, limit, Log{event, topics, data} <> logs, world}
 
 def log(event: String, topics: List<&2, Nat>, data: List<&2, Nat>) -> Contract(Unit):
   R => k => s => k(Unit{}, log.go(event, topics, data, s))
@@ -147,6 +237,30 @@ def select(ok: Bool, a: Nat, b: Nat) -> Contract(Nat):
 # The largest word, 2^256 - 1 on the EVM.
 def max() -> Contract(Nat):
   R => k => +s => k(Nat.sub(limit.of(s), 1n), s)
+
+# The block's timestamp, the chain id and the contract's own address.
+def timestamp() -> Contract(Nat):
+  R => k => +s => k(time.of(world.of(s)), s)
+
+def chainid() -> Contract(Nat):
+  R => k => +s => k(chain.of(world.of(s)), s)
+
+def self() -> Contract(Nat):
+  R => k => +s => k(self.of(world.of(s)), s)
+
+# keccak256 of words, of an EIP-712 digest, and of an ASCII text.
+def keccak(words: List<&2, Nat>) -> Contract(Nat):
+  R => k => +s => k(hash.of(hashes.of(world.of(s)), Words{words}), s)
+
+def typed(domain: Nat, message: Nat) -> Contract(Nat):
+  R => k => +s => k(hash.of(hashes.of(world.of(s)), Typed{domain, message}), s)
+
+def id(text: String) -> Contract(Nat):
+  R => k => +s => k(hash.of(hashes.of(world.of(s)), Text{text}), s)
+
+# The address that signed digest, or zero, like ecrecover.
+def recover(digest: Nat, v: Nat, r: Nat, sig: Nat) -> Contract(Nat):
+  R => k => +s => k(signer.of(signers.of(world.of(s)), digest, v, r, sig), s)
 
 # Checked addition: reverts on overflow, like Solidity 0.8.
 def add(+a: Nat, +b: Nat) -> Contract(Nat):

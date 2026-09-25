@@ -11,7 +11,7 @@ const bend = (...args) => Bun.spawnSync([process.execPath, ...args], { cwd: root
 for (const [example, functions] of [
   ['counter', ['get', 'increment', 'decrement', 'set']],
   ['token', ['name', 'symbol', 'decimals', 'init', 'owner', 'transferOwnership', 'totalSupply', 'balanceOf', 'transfer', 'mint', 'burn', 'allowance', 'approve',
-    'transferFrom']],
+    'transferFrom', 'nonces', 'DOMAIN_SEPARATOR', 'permit']],
 ]) {
   test(`the committed ${example} certificate is current`, () => {
     const generated = bend(run, 'src/certify.bend', `examples/${example}/program.bend`, ...functions);

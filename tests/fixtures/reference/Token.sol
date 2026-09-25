@@ -17,6 +17,7 @@ contract Token {
     mapping(address => uint256) public balanceOf;
     mapping(address => mapping(address => uint256)) public allowance;
     address public owner;
+    mapping(address => uint256) public nonces;
 
     constructor(uint256 supply) {
         owner = msg.sender;
@@ -44,6 +45,24 @@ contract Token {
         balanceOf[to] += amount;
         emit Transfer(from, to, amount);
         return true;
+    }
+
+    function DOMAIN_SEPARATOR() public view returns (bytes32) {
+        return keccak256(abi.encode(
+            keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+            keccak256(bytes(name)), keccak256("1"), block.chainid, address(this)));
+    }
+
+    function permit(address owner_, address spender, uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s)
+        public
+    {
+        require(deadline >= block.timestamp);
+        address signer = ecrecover(keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR(), keccak256(abi.encode(
+            keccak256("Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)"),
+            owner_, spender, value, nonces[owner_]++, deadline)))), v, r, s);
+        require(signer != address(0) && signer == owner_);
+        allowance[signer][spender] = value;
+        emit Approval(owner_, spender, value);
     }
 
     function transferOwnership(address next) public {

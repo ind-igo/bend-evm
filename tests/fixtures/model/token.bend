@@ -45,15 +45,15 @@ def show.unit(u: Unit) -> String:
 # A revert keeps the state from before the call.
 def after(-A: Data, show: A -> String, o: Evm.Outcome<A>, +before: Evm.State) -> Step:
   match o:
-    case Evm.Ok{value, Evm.State{storage, caller, limit, logs}}:
-      Step{"ok" ++ show(value) ++ "\n" ++ show.logs(logs), Evm.State{storage, caller, limit, []}}
+    case Evm.Ok{value, Evm.State{storage, caller, limit, logs, world}}:
+      Step{"ok" ++ show(value) ++ "\n" ++ show.logs(logs), Evm.State{storage, caller, limit, [], world}}
     case Evm.Revert{}:
       Step{"revert\n", before}
 
 def call(-A: Data, show: A -> String, m: Evm.Contract(A), +who: Nat, s: Evm.State) -> Step:
   match s:
-    case Evm.State{+storage, _, +limit, _}:
-      after(A, show, Evm.run(A, m, Evm.State{storage, who, limit, []}), Evm.State{storage, who, limit, []})
+    case Evm.State{+storage, _, +limit, _, +world}:
+      after(A, show, Evm.run(A, m, Evm.State{storage, who, limit, [], world}), Evm.State{storage, who, limit, [], world})
 
 def one(name: String, +who: Nat, +a: Nat, +b: Nat, +c: Nat, s: Evm.State) -> Step:
   match name:
@@ -92,7 +92,7 @@ def steps(calls: List<String>, step: Step) -> String:
 def start(args: List<String>) -> String:
   match args:
     case limit <> calls:
-      steps(calls, Step{"", Evm.State{[], 0n, num(limit), []}})
+      steps(calls, Step{"", Evm.State{[], 0n, num(limit), [], Evm.World{0n, 0n, 0n, [], []}}})
     case Nil{}:
       ""
 

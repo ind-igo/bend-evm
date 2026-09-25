@@ -163,4 +163,14 @@ A token that someone can write, deploy and use from a wallet, after solmate's ER
 - [x] Holders can `burn`; its law, the supply proof and both chain tests cover it.
 - [x] A differential test runs the token and the same token in Solidity with solmate's logic on the same calls, with 256-bit amounts, and requires the same successes, return bytes and logs. When the Solidity reference forgets the unlimited allowance, the test fails (checked by hand).
 
-Not in M11 yet: `permit` (EIP-2612).
+
+## M12: permit (EIP-2612)
+
+Solmate's `permit`: an owner approves a spender with a signature, and anyone can send it.
+
+### Done when
+
+- [x] The state has a `World`: the time, the chain id, the contract's address, and tables that stand for `keccak256` and `ecrecover`. Laws hold for every table. Every law and proof that builds a state takes a world, and each call in `supply_sum` runs in its own world.
+- [x] The IR has `timestamp`, `chainid`, `self`, `keccak(words)`, `typed(domain, message)` (the EIP-712 digest), `id(text)` and `recover(digest, v, r, s)`, and conditions have `Not`. One lemma shows that a lowered test is 1 exactly when its condition holds, so the preservation proof covers nested conditions.
+- [x] `ERC20.permit`, `nonces` and `domain`; the token's laws for them prove by `{==}`, and `supply_sum` covers `permit`.
+- [x] The token test signs permits with `cast`: a good one, a replay, an expired one, a wrong signer, and a junk signature for the zero owner. The differential test adds permits to the Solidity reference; when the reference does not use up the nonce, the test fails (checked by hand).

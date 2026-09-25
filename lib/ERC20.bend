@@ -7,8 +7,9 @@ import ../src/Evm.bend as Evm
 # solmate's _mint and _burn. See examples/token.
 #
 # Storage: slot 0 holds the total supply, the mapping at slot 1 the balances,
-# and the mapping at slot 2, for each owner, the allowance of each spender. A
-# token keeps its own state from slot 3 on.
+# the mapping at slot 2, for each owner, the allowance of each spender, and
+# the mapping at slot 3 each owner's next permit nonce. A token keeps its own
+# state from slot 4 on.
 #
 # As in solmate, transfers need no zero-address checks, and an allowance of
 # the largest word is unlimited. Unlike solmate, the receiver's add is
@@ -76,6 +77,39 @@ def transferFrom(+from: Evm.Address, +to: Evm.Address, +amount: Nat) -> Evm.Cont
     Evm.store2(2n, from, spender, left)
     move(from, to, amount)
     Evm.Contract.pure(Nat, 1n)
+
+def nonces(who: Evm.Address) -> Evm.Contract(Nat):
+  Evm.load(3n, who)
+
+# The EIP-712 domain separator of a token whose name hashes to name, at
+# version "1" on this chain and address.
+def domain(+name: Nat) -> Evm.Contract(Evm.Bytes32):
+  do Evm.Contract<Nat>:
+    +kind : Nat <- Evm.id("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)")
+    +version : Nat <- Evm.id("1")
+    +chain : Nat <- Evm.chainid()
+    +me : Nat <- Evm.self()
+    Evm.keccak([kind, name, version, chain, me])
+
+# EIP-2612: owner approves spender by a signature over the domain separator,
+# instead of a transaction. The signature must be the owner's, before the
+# deadline, and for the owner's next nonce, which it uses up.
+def permit(+separator: Nat, +owner: Evm.Address, +spender: Evm.Address, +value: Nat, +deadline: Nat, +v: Evm.Uint8,
+  +r: Evm.Bytes32, +s: Evm.Bytes32) -> Evm.Contract(Unit):
+  do Evm.Contract<Unit>:
+    now : Nat <- Evm.timestamp()
+    Evm.require(Bool.not(Nat.is_lt(deadline, now)))
+    +nonce : Nat <- Evm.load(3n, owner)
+    next : Nat <- Evm.add(nonce, 1n)
+    Evm.store(3n, owner, next)
+    +kind : Nat <- Evm.id("Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)")
+    +message : Nat <- Evm.keccak([kind, owner, spender, value, nonce, deadline])
+    +digest : Nat <- Evm.typed(separator, message)
+    +signer : Nat <- Evm.recover(digest, v, r, s)
+    Evm.require(Bool.not(Nat.is_eq(signer, 0n)))
+    Evm.require(Nat.is_eq(signer, owner))
+    Evm.store2(2n, owner, spender, value)
+    Evm.log(approval_event(), [owner, spender], [value])
 
 # Creates amount for to. The total supply must not overflow.
 def mint(+to: Nat, +amount: Nat) -> Evm.Contract(Unit):
