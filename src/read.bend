@@ -775,7 +775,7 @@ def last(c: Call, yes: Core.Term -> Result<&2, &2, String, IR.Cmd>, no: Core.Ter
   k: Result<&2, &2, String, Inline.Callee>, +bound: Nat, +evm: String, +decls: List<&2, Core.Declaration>) ->
   Result<&2, &2, String, IR.Cmd>:
   match c:
-    case Call{Branch{}, _, ok <> _ <> a <> b <> Nil{}}:
+    case Call{Branch{}, _, _ <> ok <> a <> b <> Nil{}}:
       do Result<&2, &2, String, IR.Cmd>:
         x : IR.Cond <- cond(ok, decls)
         y : IR.Cmd <- yes(a)

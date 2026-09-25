@@ -3,7 +3,7 @@ import ../../src/Evm.bend as Evm
 import ./program.bend as Counter
 
 # Each law gives every outcome from any state: any storage, caller, word
-# limit and earlier logs. The counter is plain slot 0.
+# limit, earlier logs and world. The counter is plain slot 0.
 
 def count(storage: List<&2, Evm.Slot>) -> Nat:
   Evm.lookup(storage, Evm.Plain{0n})
@@ -49,6 +49,6 @@ law set:
   for world: Evm.World
   for value: Nat
   {Evm.run(Unit, Counter.set(value), Evm.State{storage, who, limit, logs, world})
-    == Bool.pick(Evm.Outcome<Unit>, Nat.is_eq(who, Counter.owner()),
+    == Bool.pick(Evm.Outcome<Unit>, Nat.is_eq(who, Counter.OWNER()),
       Evm.Ok{Unit{}, Evm.State{Evm.Slot{Evm.Plain{0n}, value} <> storage, who, limit, logs, world}},
       Evm.Revert{}) : Evm.Outcome<Unit>}

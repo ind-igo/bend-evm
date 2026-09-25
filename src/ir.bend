@@ -156,7 +156,7 @@ def run(cmd: Cmd, +out: Output, +env: List<&2, Binding>) -> Evm.Contract(value(o
     case Stop{} Stops{}:
       Evm.Contract.pure(Unit, Unit{})
     case If{c, yes, no} o:
-      Evm.branch(cond(c, env), value(o), run(yes, o, env), run(no, o, env))
+      Evm.branch(value(o), cond(c, env), run(yes, o, env), run(no, o, env))
     case _ o:
       abort(value(o))
 

@@ -5,99 +5,31 @@ import ./yul.bend as Yul
 import ./LAWS.bend as Laws
 import ./nat.bend as N
 
-# Nat facts for the overflow check. Each is proved by induction.
-
-def lt_zero(+n: Nat) -> {False{} == Nat.is_lt(n, 0n) : Bool}:
-  match n:
-    case 0n:
-      {==}
-    case 1n+_:
-      {==}
-
-def lt_succ(+n: Nat) -> {True{} == Nat.is_lt(n, 1n+n) : Bool}:
-  match n:
-    case 0n:
-      {==}
-    case 1n+(+p):
-      lt_succ(p)
-
-def lt_irrefl(+n: Nat) -> {False{} == Nat.is_lt(n, n) : Bool}:
-  match n:
-    case 0n:
-      {==}
-    case 1n+(+p):
-      lt_irrefl(p)
-
-def lt_step(+x: Nat, +n: Nat, +e: {True{} == Nat.is_lt(x, n) : Bool}) -> {True{} == Nat.is_lt(x, 1n+n) : Bool}:
-  match x n:
-    case 0n _:
-      {==}
-    case 1n+(+y) 0n:
-      N.absurd({True{} == Nat.is_lt(1n+y, 1n) : Bool}, e)
-    case 1n+(+y) 1n+(+m):
-      lt_step(y, m, e)
-
-def sub_lt_succ(+p: Nat, +a: Nat) -> {True{} == Nat.is_lt(Nat.sub(p, a), 1n+p) : Bool}:
-  match p a:
-    case 0n 0n:
-      {==}
-    case 0n 1n+_:
-      {==}
-    case 1n+(+q) 0n:
-      lt_succ(1n+q)
-    case 1n+(+q) 1n+(+b):
-      lt_step(Nat.sub(q, b), 1n+q, sub_lt_succ(q, b))
-
-# a < c + 1 and c < 0 cannot both hold.
-def lt_one(+c: Nat, +e: {True{} == Nat.is_lt(c, 0n) : Bool}) -> {True{} == False{} : Bool}:
-  Equal.trans(Bool, True{}, Nat.is_lt(c, 0n), False{}, e, Equal.sym(Bool, False{}, Nat.is_lt(c, 0n), lt_zero(c)))
+# Nat facts for the overflow checks.
 
 # a <= p, so p < a is false.
 def flip(+a: Nat, +p: Nat, +e: {True{} == Nat.is_lt(a, 1n+p) : Bool}) -> {False{} == Nat.is_lt(p, a) : Bool}:
-  match a p:
-    case 0n +q:
-      lt_zero(q)
-    case 1n+(+c) 0n:
-      N.absurd({False{} == Nat.is_lt(0n, 1n+c) : Bool}, lt_one(c, e))
-    case 1n+(+c) 1n+(+q):
-      flip(c, q, e)
+  %Equal.sym(Bool, True{}, Nat.is_lt(a, 1n+p), e) : {Bool.not(_) == Nat.is_lt(p, a) : Bool}
+  N.lt_flip(p, a)
 
-def lt_flip(+p: Nat, +b: Nat) -> {Bool.not(Nat.is_lt(b, 1n+p)) == Nat.is_lt(p, b) : Bool}:
-  match p b:
-    case 0n 0n:
-      {==}
-    case 0n 1n+(+c):
-      %lt_zero(c) : {Bool.not(_) == True{} : Bool}
-      {==}
-    case 1n+_ 0n:
-      {==}
-    case 1n+(+q) 1n+(+c):
-      lt_flip(q, c)
+# p < a + 1 fails, so p < a.
+def lt_over(+a: Nat, +p: Nat, +e: {False{} == Nat.is_lt(a, 1n+p) : Bool}) -> {True{} == Nat.is_lt(p, a) : Bool}:
+  %Equal.sym(Bool, False{}, Nat.is_lt(a, 1n+p), e) : {Bool.not(_) == Nat.is_lt(p, a) : Bool}
+  N.lt_flip(p, a)
 
 # The heart of the check: for a <= p, p - a < b exactly when a + b >= p + 1.
-def key(+a: Nat, +p: Nat, +b: Nat, +e: {True{} == Nat.is_lt(a, 1n+p) : Bool}) ->
+def sub_check(+a: Nat, +p: Nat, +b: Nat, +e: {True{} == Nat.is_lt(a, 1n+p) : Bool}) ->
   {Bool.not(Nat.is_lt(Nat.add(a, b), 1n+p)) == Nat.is_lt(Nat.sub(p, a), b) : Bool}:
   match a p:
     case 0n +q:
       %N.sub_zero(q) : {Bool.not(Nat.is_lt(b, 1n+q)) == Nat.is_lt(_, b) : Bool}
-      lt_flip(q, b)
+      N.lt_flip(q, b)
     case 1n+(+c) 0n:
-      N.absurd({Bool.not(Nat.is_lt(Nat.add(1n+c, b), 1n)) == Nat.is_lt(Nat.sub(0n, 1n+c), b) : Bool}, lt_one(c, e))
+      N.absurd({Bool.not(Nat.is_lt(Nat.add(1n+c, b), 1n)) == Nat.is_lt(Nat.sub(0n, 1n+c), b) : Bool}, N.no_lt_zero(c, e))
     case 1n+(+c) 1n+(+q):
-      key(c, q, b, e)
+      sub_check(c, q, b, e)
 
-def add_ge(+a: Nat, +b: Nat, +l: Nat, +e: {False{} == Nat.is_lt(a, l) : Bool}) -> {False{} == Nat.is_lt(Nat.add(a, b), l) : Bool}:
-  match a l:
-    case 0n 0n:
-      lt_zero(b)
-    case 0n 1n+(+m):
-      N.absurd({False{} == Nat.is_lt(b, 1n+m) : Bool}, Equal.sym(Bool, False{}, True{}, e))
-    case 1n+_ 0n:
-      {==}
-    case 1n+(+c) 1n+(+m):
-      add_ge(c, b, m, e)
-
-def bit_not(+c: Bool) -> {c == Nat.is_eq(Yul.bit(Bool.not(c)), 0n) : Bool}:
+def zero_of_not(+c: Bool) -> {c == Nat.is_eq(Yul.bit(Bool.not(c)), 0n) : Bool}:
   match c:
     case True{}:
       {==}
@@ -110,16 +42,6 @@ def not_zero(+p: Nat) -> {p == Yul.not(0n, 1n+p) : Nat}:
       {==}
     case 1n+_:
       {==}
-
-# p < a + 1 fails, so p < a.
-def lt_over(+a: Nat, +p: Nat, +e: {False{} == Nat.is_lt(a, 1n+p) : Bool}) -> {True{} == Nat.is_lt(p, a) : Bool}:
-  match a p:
-    case 0n +q:
-      N.absurd({True{} == Nat.is_lt(q, 0n) : Bool}, Equal.sym(Bool, False{}, True{}, e))
-    case 1n+_ 0n:
-      {==}
-    case 1n+(+c) 1n+(+q):
-      lt_over(c, q, e)
 
 def sub_in(+p: Nat, +a: Nat, +e: {True{} == Nat.is_lt(a, 1n+p) : Bool}) -> {Nat.sub(p, a) == Yul.sub(p, a, 1n+p) : Nat}:
   %flip(a, p, e) : {Nat.sub(p, a) == Bool.pick(Nat, _,
@@ -138,7 +60,7 @@ def gt_in(+b: Nat, +x: Nat, +l: Nat, +e: {True{} == Nat.is_lt(x, l) : Bool}) -> 
   {==}
 
 def gt_out(+b: Nat, +l: Nat) -> {1n == Yul.gt(b, l, l) : Nat}:
-  %lt_irrefl(l) : {1n == Bool.pick(Nat, _, Yul.bit(Nat.is_lt(l, b)), 1n) : Nat}
+  %N.lt_irrefl(l) : {1n == Bool.pick(Nat, _, Yul.bit(Nat.is_lt(l, b)), 1n) : Nat}
   {==}
 
 def guard.succ(+a: Nat, +b: Nat, +p: Nat, +c: Bool, +e: {c == Nat.is_lt(a, 1n+p) : Bool}) ->
@@ -146,22 +68,22 @@ def guard.succ(+a: Nat, +b: Nat, +p: Nat, +c: Bool, +e: {c == Nat.is_lt(a, 1n+p)
   match c:
     case True{}:
       %sub_in(p, a, e) : {Nat.is_lt(Nat.add(a, b), 1n+p) == Nat.is_eq(Yul.gt(b, _, 1n+p), 0n) : Bool}
-      %gt_in(b, Nat.sub(p, a), 1n+p, sub_lt_succ(p, a)) : {Nat.is_lt(Nat.add(a, b), 1n+p) == Nat.is_eq(_, 0n) : Bool}
-      %key(a, p, b, e) : {Nat.is_lt(Nat.add(a, b), 1n+p) == Nat.is_eq(Yul.bit(_), 0n) : Bool}
-      bit_not(Nat.is_lt(Nat.add(a, b), 1n+p))
+      %gt_in(b, Nat.sub(p, a), 1n+p, N.sub_lt_succ(p, a)) : {Nat.is_lt(Nat.add(a, b), 1n+p) == Nat.is_eq(_, 0n) : Bool}
+      %sub_check(a, p, b, e) : {Nat.is_lt(Nat.add(a, b), 1n+p) == Nat.is_eq(Yul.bit(_), 0n) : Bool}
+      zero_of_not(Nat.is_lt(Nat.add(a, b), 1n+p))
     case False{}:
       %sub_out(p, a, e) : {Nat.is_lt(Nat.add(a, b), 1n+p) == Nat.is_eq(Yul.gt(b, _, 1n+p), 0n) : Bool}
       %gt_out(b, 1n+p) : {Nat.is_lt(Nat.add(a, b), 1n+p) == Nat.is_eq(_, 0n) : Bool}
-      %add_ge(a, b, 1n+p, e) : {_ == False{} : Bool}
+      %N.add_ge(a, b, 1n+p, e) : {_ == False{} : Bool}
       {==}
 
 # The overflow check `gt(b, sub(not(0), a))` is zero exactly when a + b < limit.
 def guard(+a: Nat, +b: Nat, +l: Nat) -> {Nat.is_lt(Nat.add(a, b), l) == Nat.is_eq(Yul.gt(b, Yul.sub(Yul.not(0n, l), a, l), l), 0n) : Bool}:
   match l:
     case 0n:
-      %lt_zero(Yul.sub(Yul.not(0n, 0n), a, 0n)) : {Nat.is_lt(Nat.add(a, b), 0n)
+      %N.lt_zero(Yul.sub(Yul.not(0n, 0n), a, 0n)) : {Nat.is_lt(Nat.add(a, b), 0n)
         == Nat.is_eq(Bool.pick(Nat, _, Yul.bit(Nat.is_lt(Yul.sub(Yul.not(0n, 0n), a, 0n), b)), 1n), 0n) : Bool}
-      Equal.sym(Bool, False{}, Nat.is_lt(Nat.add(a, b), 0n), lt_zero(Nat.add(a, b)))
+      Equal.sym(Bool, False{}, Nat.is_lt(Nat.add(a, b), 0n), N.lt_zero(Nat.add(a, b)))
     case 1n+(+p):
       %not_zero(p) : {Nat.is_lt(Nat.add(a, b), 1n+p) == Nat.is_eq(Yul.gt(b, Yul.sub(_, a, 1n+p), 1n+p), 0n) : Bool}
       guard.succ(a, b, p, Nat.is_lt(a, 1n+p), {==})
@@ -224,7 +146,7 @@ def max_eq(+l: Nat) -> {Nat.sub(l, 1n) == Yul.not(0n, l) : Nat}:
           {==}
 
 # `iszero(test)` inverts a test, so a Not lowers to it.
-def not_bit(+x: Bool) -> {Yul.bit(Bool.not(x)) == Yul.bit(Nat.is_eq(Yul.bit(x), 0n)) : Nat}:
+def bit_of_not(+x: Bool) -> {Yul.bit(Bool.not(x)) == Yul.bit(Nat.is_eq(Yul.bit(x), 0n)) : Nat}:
   match x:
     case True{}:
       {==}
@@ -240,20 +162,20 @@ def test_bit(c: IR.Cond, +env: List<&2, IR.Binding>, +s: Evm.State) -> {Yul.bit(
       {==}
     case IR.Not{+d}:
       %test_bit(d, env, s) : {Yul.bit(Bool.not(IR.cond(d, env))) == Yul.bit(Nat.is_eq(_, 0n)) : Nat}
-      not_bit(IR.cond(d, env))
+      bit_of_not(IR.cond(d, env))
 
 # An If: the lowered test is zero exactly when the condition fails, so Yul
 # runs the arm that the IR runs.
 def if_step(c: Bool, -n: Nat, e: {Yul.bit(c) == n : Nat}, -A: Data, -R: Data, -ya: Evm.Contract(A), -yb: Evm.Contract(A),
   -ia: Evm.Contract(A), -ib: Evm.Contract(A), -k: A -> Evm.State -> Evm.Outcome<R>, +s: Evm.State,
   ha: {ya(R, k, s) == ia(R, k, s) : Evm.Outcome<R>}, hb: {yb(R, k, s) == ib(R, k, s) : Evm.Outcome<R>}) ->
-  {Evm.branch(Nat.is_eq(n, 0n), A, yb, ya, R, k, s) == Evm.branch(c, A, ia, ib, R, k, s) : Evm.Outcome<R>}:
+  {Evm.branch(A, Nat.is_eq(n, 0n), yb, ya, R, k, s) == Evm.branch(A, c, ia, ib, R, k, s) : Evm.Outcome<R>}:
   match c:
     case True{}:
-      %e : {Evm.branch(Nat.is_eq(_, 0n), A, yb, ya, R, k, s) == ia(R, k, s) : Evm.Outcome<R>}
+      %e : {Evm.branch(A, Nat.is_eq(_, 0n), yb, ya, R, k, s) == ia(R, k, s) : Evm.Outcome<R>}
       ha
     case False{}:
-      %e : {Evm.branch(Nat.is_eq(_, 0n), A, yb, ya, R, k, s) == ib(R, k, s) : Evm.Outcome<R>}
+      %e : {Evm.branch(A, Nat.is_eq(_, 0n), yb, ya, R, k, s) == ib(R, k, s) : Evm.Outcome<R>}
       hb
 
 # Induction on the command. Both runs pass the same state and continuation on,
@@ -284,6 +206,14 @@ def sim(+cmd: IR.Cmd, +out: IR.Output, +env: List<&2, IR.Binding>, -R: Data,
         x => Yul.exec(Yul.lower(body, o), o, IR.Binding{level, x} <> env, R, k, s),
         x => IR.run(body, o, IR.Binding{level, x} <> env, R, k, s),
         sim(body, o, IR.Binding{level, Yul.sub(a, b, l)} <> env, R, k, s))
+    case IR.Bind{IR.Select{+c, +yes, +no}, level, body} o:
+      +v = Bool.pick(Nat, IR.cond(c, env), IR.eval(yes, env), IR.eval(no, env))
+      %test_bit(c, env, s) : {Yul.exec(Yul.lower(body, o), o,
+        IR.Binding{level, Bool.pick(Nat, Nat.is_eq(_, 0n), IR.eval(no, env), IR.eval(yes, env))} <> env, R, k, s)
+        == IR.run(body, o, IR.Binding{level, v} <> env, R, k, s) : Evm.Outcome<R>}
+      %select_eq(IR.cond(c, env), IR.eval(yes, env), IR.eval(no, env)) : {Yul.exec(Yul.lower(body, o), o, IR.Binding{level, _} <> env, R, k, s)
+        == IR.run(body, o, IR.Binding{level, v} <> env, R, k, s) : Evm.Outcome<R>}
+      sim(body, o, IR.Binding{level, v} <> env, R, k, s)
     case IR.Bind{IR.Max{}, level, body} o:
       +l = Evm.limit.of(s)
       %max_eq(l) : {Yul.exec(Yul.lower(body, o), o, IR.Binding{level, _} <> env, R, k, s)
@@ -303,33 +233,15 @@ def sim(+cmd: IR.Cmd, +out: IR.Output, +env: List<&2, IR.Binding>, -R: Data,
       sim(body, o, IR.Binding{level, Evm.hash.of(Evm.hashes.of(Evm.world.of(s)), Evm.Text{t})} <> env, R, k, s)
     case IR.Bind{IR.Recover{d, v, r, g}, level, body} o:
       sim(body, o, IR.Binding{level, Evm.signer.of(Evm.signers.of(Evm.world.of(s)), IR.eval(d, env), IR.eval(v, env), IR.eval(r, env), IR.eval(g, env))} <> env, R, k, s)
-    case IR.Bind{IR.Select{+c, +yes, +no}, level, body} o:
-      +v = Bool.pick(Nat, IR.cond(c, env), IR.eval(yes, env), IR.eval(no, env))
-      %test_bit(c, env, s) : {Yul.exec(Yul.lower(body, o), o,
-        IR.Binding{level, Bool.pick(Nat, Nat.is_eq(_, 0n), IR.eval(no, env), IR.eval(yes, env))} <> env, R, k, s)
-        == IR.run(body, o, IR.Binding{level, v} <> env, R, k, s) : Evm.Outcome<R>}
-      %select_eq(IR.cond(c, env), IR.eval(yes, env), IR.eval(no, env)) : {Yul.exec(Yul.lower(body, o), o, IR.Binding{level, _} <> env, R, k, s)
-        == IR.run(body, o, IR.Binding{level, v} <> env, R, k, s) : Evm.Outcome<R>}
-      sim(body, o, IR.Binding{level, v} <> env, R, k, s)
+    case IR.Then{IR.SStore{loc, value}, body} o:
+      sim(body, o, env, R, k, Evm.write.go(IR.loc(loc, env), IR.eval(value, env), s))
+    case IR.Then{IR.Log{event, topics, data}, body} o:
+      sim(body, o, env, R, k, Evm.log.go(event, IR.evals(topics, env), IR.evals(data, env), s))
     case IR.Then{IR.Require{+c}, body} o:
       %test_bit(c, env, s) : {Bool.pick(Evm.Outcome<R>, Nat.is_eq(Yul.bit(Nat.is_eq(_, 0n)), 0n), Yul.exec(Yul.lower(body, o), o, env, R, k, s),
         Evm.Revert{}) == Bool.pick(Evm.Outcome<R>, IR.cond(c, env), IR.run(body, o, env, R, k, s), Evm.Revert{}) : Evm.Outcome<R>}
       require_step(IR.cond(c, env), R, Yul.exec(Yul.lower(body, o), o, env, R, k, s), IR.run(body, o, env, R, k, s),
         sim(body, o, env, R, k, s))
-    case IR.Tail{IR.Select{+c, +yes, +no}} IR.Returns{}:
-      %test_bit(c, env, s) : {k(Bool.pick(Nat, Nat.is_eq(_, 0n), IR.eval(no, env), IR.eval(yes, env)), s)
-        == k(Bool.pick(Nat, IR.cond(c, env), IR.eval(yes, env), IR.eval(no, env)), s) : Evm.Outcome<R>}
-      %select_eq(IR.cond(c, env), IR.eval(yes, env), IR.eval(no, env)) : {k(_, s)
-        == k(Bool.pick(Nat, IR.cond(c, env), IR.eval(yes, env), IR.eval(no, env)), s) : Evm.Outcome<R>}
-      {==}
-    case IR.Finish{IR.Require{+c}} IR.Stops{}:
-      %test_bit(c, env, s) : {Bool.pick(Evm.Outcome<R>, Nat.is_eq(Yul.bit(Nat.is_eq(_, 0n)), 0n), k(Unit{}, s), Evm.Revert{})
-        == Bool.pick(Evm.Outcome<R>, IR.cond(c, env), k(Unit{}, s), Evm.Revert{}) : Evm.Outcome<R>}
-      require_step(IR.cond(c, env), R, k(Unit{}, s), k(Unit{}, s), {==})
-    case IR.Then{IR.SStore{loc, value}, body} o:
-      sim(body, o, env, R, k, Evm.write.go(IR.loc(loc, env), IR.eval(value, env), s))
-    case IR.Then{IR.Log{event, topics, data}, body} o:
-      sim(body, o, env, R, k, Evm.log.go(event, IR.evals(topics, env), IR.evals(data, env), s))
     case IR.Return{_} IR.Returns{}:
       {==}
     case IR.Return{_} IR.Stops{}:
@@ -351,40 +263,28 @@ def sim(+cmd: IR.Cmd, +out: IR.Output, +env: List<&2, IR.Binding>, -R: Data,
       +l = Evm.limit.of(s)
       sub_step(Nat.is_lt(a, b), Bool.pick(Nat, Nat.is_lt(b, l), Nat.sub(l, Nat.sub(b, a)), l), Nat.sub(a, b), R,
         x => k(x, s), x => k(x, s), {==})
+    case IR.Tail{IR.Select{+c, +yes, +no}} IR.Returns{}:
+      %test_bit(c, env, s) : {k(Bool.pick(Nat, Nat.is_eq(_, 0n), IR.eval(no, env), IR.eval(yes, env)), s)
+        == k(Bool.pick(Nat, IR.cond(c, env), IR.eval(yes, env), IR.eval(no, env)), s) : Evm.Outcome<R>}
+      %select_eq(IR.cond(c, env), IR.eval(yes, env), IR.eval(no, env)) : {k(_, s)
+        == k(Bool.pick(Nat, IR.cond(c, env), IR.eval(yes, env), IR.eval(no, env)), s) : Evm.Outcome<R>}
+      {==}
     case IR.Tail{IR.Max{}} IR.Returns{}:
       %max_eq(Evm.limit.of(s)) : {k(_, s) == k(Nat.sub(Evm.limit.of(s), 1n), s) : Evm.Outcome<R>}
       {==}
     case IR.Tail{IR.Timestamp{}} IR.Returns{}:
       {==}
-    case IR.Tail{IR.Timestamp{}} IR.Stops{}:
-      {==}
     case IR.Tail{IR.ChainId{}} IR.Returns{}:
-      {==}
-    case IR.Tail{IR.ChainId{}} IR.Stops{}:
       {==}
     case IR.Tail{IR.Self{}} IR.Returns{}:
       {==}
-    case IR.Tail{IR.Self{}} IR.Stops{}:
-      {==}
     case IR.Tail{IR.Keccak{_}} IR.Returns{}:
-      {==}
-    case IR.Tail{IR.Keccak{_}} IR.Stops{}:
       {==}
     case IR.Tail{IR.Typed{_, _}} IR.Returns{}:
       {==}
-    case IR.Tail{IR.Typed{_, _}} IR.Stops{}:
-      {==}
     case IR.Tail{IR.Id{_}} IR.Returns{}:
       {==}
-    case IR.Tail{IR.Id{_}} IR.Stops{}:
-      {==}
     case IR.Tail{IR.Recover{_, _, _, _}} IR.Returns{}:
-      {==}
-    case IR.Tail{IR.Recover{_, _, _, _}} IR.Stops{}:
-      {==}
-    case IR.Tail{IR.Select{_, _, _}} IR.Stops{}:
-      {==}
-    case IR.Tail{IR.Max{}} IR.Stops{}:
       {==}
     case IR.Tail{IR.SLoad{_}} IR.Stops{}:
       {==}
@@ -394,10 +294,32 @@ def sim(+cmd: IR.Cmd, +out: IR.Output, +env: List<&2, IR.Binding>, -R: Data,
       {==}
     case IR.Tail{IR.Sub{_, _}} IR.Stops{}:
       {==}
+    case IR.Tail{IR.Select{_, _, _}} IR.Stops{}:
+      {==}
+    case IR.Tail{IR.Max{}} IR.Stops{}:
+      {==}
+    case IR.Tail{IR.Timestamp{}} IR.Stops{}:
+      {==}
+    case IR.Tail{IR.ChainId{}} IR.Stops{}:
+      {==}
+    case IR.Tail{IR.Self{}} IR.Stops{}:
+      {==}
+    case IR.Tail{IR.Keccak{_}} IR.Stops{}:
+      {==}
+    case IR.Tail{IR.Typed{_, _}} IR.Stops{}:
+      {==}
+    case IR.Tail{IR.Id{_}} IR.Stops{}:
+      {==}
+    case IR.Tail{IR.Recover{_, _, _, _}} IR.Stops{}:
+      {==}
     case IR.Finish{IR.SStore{_, _}} IR.Stops{}:
       {==}
     case IR.Finish{IR.Log{_, _, _}} IR.Stops{}:
       {==}
+    case IR.Finish{IR.Require{+c}} IR.Stops{}:
+      %test_bit(c, env, s) : {Bool.pick(Evm.Outcome<R>, Nat.is_eq(Yul.bit(Nat.is_eq(_, 0n)), 0n), k(Unit{}, s), Evm.Revert{})
+        == Bool.pick(Evm.Outcome<R>, IR.cond(c, env), k(Unit{}, s), Evm.Revert{}) : Evm.Outcome<R>}
+      require_step(IR.cond(c, env), R, k(Unit{}, s), k(Unit{}, s), {==})
     case IR.Finish{IR.SStore{_, _}} IR.Returns{}:
       {==}
     case IR.Finish{IR.Log{_, _, _}} IR.Returns{}:

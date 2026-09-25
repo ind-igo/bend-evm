@@ -46,11 +46,11 @@ def Boolean() -> Data:
 def Indexed(A: Data) -> Data:
   A
 
-# An event: its signature, such as "Transfer(address,address,uint256)", the
-# indexed words after topic 0, and the data words. Topic 0 is the signature's
-# Keccak-256, which the printer computes.
+# A log entry: an event's signature, such as "Transfer(address,address,uint256)",
+# the indexed words after topic 0, and the data words. Topic 0 is the
+# signature's Keccak-256, which the printer computes.
 type Log is Data:
-  Log{event: String, topics: List<&2, Nat>, data: List<&2, Nat>}
+  Log{signature: String, topics: List<&2, Nat>, data: List<&2, Nat>}
 
 # The result type of an event def, which is its log. The reader compiles
 # Evm.emit only for a def written with this result type:
@@ -80,12 +80,11 @@ type Signed is Data:
 type World is Data:
   World{time: Nat, chain: Nat, self: Nat, hashes: List<&2, Hashed>, signers: List<&2, Signed>}
 
-# Logs are newest first.
+# A call's state. Logs are newest first. The word limit is state, not a
+# constant: a symbolic limit keeps proofs from expanding 2^256 as a unary
+# Nat, and laws proved for every limit hold on the EVM.
 type State is Data:
   State{storage: List<&2, Slot>, caller: Nat, limit: Nat, logs: List<&2, Log>, world: World}
-
-# The limit is state, not a constant: a symbolic limit keeps proofs from
-# expanding 2^256 as a unary Nat. Laws proved for every limit hold on the EVM.
 
 def storage.of(s: State) -> List<&2, Slot>:
   match s:
@@ -195,6 +194,8 @@ def lookup(storage: List<&2, Slot>, +key: Key) -> Nat:
     case Slot{k, v} <> rest:
       Bool.pick(Nat, same(k, key), v, lookup(rest, key))
 
+# read, write and log are the model's primitives. Contracts use the DSL calls
+# built on them (sload, store2, emit, ...), which the reader knows.
 def read(+key: Key) -> Contract(Nat):
   R => k => +s => k(lookup(storage.of(s), key), s)
 
@@ -257,13 +258,13 @@ def select(ok: Bool, a: Nat, b: Nat) -> Contract(Nat):
 # Runs a when ok holds and b otherwise, to the end of the call. It picks a
 # whole contract, so the continuation goes to one arm and is not copied. Code
 # that both arms run after the choice goes in each arm, as a call to a def.
-def branch(ok: Bool, -A: Data, a: Contract(A), b: Contract(A)) -> Contract(A):
+def branch(-A: Data, ok: Bool, a: Contract(A), b: Contract(A)) -> Contract(A):
   Bool.pick(Contract(A), ok, a, b)
 
 # The outcome of a branch is the outcome of its arm. When ok is not known, a
 # run stops at the branch, so a law about it uses this fact.
-def branch.run(ok: Bool, -A: Data, -a: Contract(A), -b: Contract(A), +s: State) ->
-  {run(A, branch(ok, A, a, b), s) == Bool.pick(Outcome<A>, ok, run(A, a, s), run(A, b, s)) : Outcome<A>}:
+def branch.run(-A: Data, ok: Bool, -a: Contract(A), -b: Contract(A), +s: State) ->
+  {run(A, branch(A, ok, a, b), s) == Bool.pick(Outcome<A>, ok, run(A, a, s), run(A, b, s)) : Outcome<A>}:
   match ok:
     case True{}:
       {==}

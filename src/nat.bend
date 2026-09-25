@@ -1,6 +1,6 @@
 import Base
 
-# Nat and Bool facts for proofs. Each is proved by induction. In `%e : P`,
+# Nat and Bool facts for proofs. In `%e : P`,
 # e : {a == b} rewrites b to a, so facts that simplify a term state it on
 # the right.
 
@@ -129,3 +129,87 @@ def sub_add_cancel(+x: Nat, +k: Nat) -> {x == Nat.sub(Nat.add(k, x), k) : Nat}:
       sub_zero(x)
     case 1n+(+j):
       sub_add_cancel(x, j)
+
+# Order facts.
+
+def lt_zero(+n: Nat) -> {False{} == Nat.is_lt(n, 0n) : Bool}:
+  match n:
+    case 0n:
+      {==}
+    case 1n+_:
+      {==}
+
+def lt_succ(+n: Nat) -> {True{} == Nat.is_lt(n, 1n+n) : Bool}:
+  match n:
+    case 0n:
+      {==}
+    case 1n+(+p):
+      lt_succ(p)
+
+def lt_irrefl(+n: Nat) -> {False{} == Nat.is_lt(n, n) : Bool}:
+  match n:
+    case 0n:
+      {==}
+    case 1n+(+p):
+      lt_irrefl(p)
+
+def lt_step(+x: Nat, +n: Nat, +e: {True{} == Nat.is_lt(x, n) : Bool}) -> {True{} == Nat.is_lt(x, 1n+n) : Bool}:
+  match x n:
+    case 0n _:
+      {==}
+    case 1n+(+y) 0n:
+      absurd({True{} == Nat.is_lt(1n+y, 1n) : Bool}, e)
+    case 1n+(+y) 1n+(+m):
+      lt_step(y, m, e)
+
+def sub_lt_succ(+p: Nat, +a: Nat) -> {True{} == Nat.is_lt(Nat.sub(p, a), 1n+p) : Bool}:
+  match p a:
+    case 0n 0n:
+      {==}
+    case 0n 1n+_:
+      {==}
+    case 1n+(+q) 0n:
+      lt_succ(1n+q)
+    case 1n+(+q) 1n+(+b):
+      lt_step(Nat.sub(q, b), 1n+q, sub_lt_succ(q, b))
+
+# c < 0 never holds.
+def no_lt_zero(+c: Nat, +e: {True{} == Nat.is_lt(c, 0n) : Bool}) -> {True{} == False{} : Bool}:
+  Equal.trans(Bool, True{}, Nat.is_lt(c, 0n), False{}, e, Equal.sym(Bool, False{}, Nat.is_lt(c, 0n), lt_zero(c)))
+
+def lt_flip(+p: Nat, +b: Nat) -> {Bool.not(Nat.is_lt(b, 1n+p)) == Nat.is_lt(p, b) : Bool}:
+  match p b:
+    case 0n 0n:
+      {==}
+    case 0n 1n+(+c):
+      %lt_zero(c) : {Bool.not(_) == True{} : Bool}
+      {==}
+    case 1n+_ 0n:
+      {==}
+    case 1n+(+q) 1n+(+c):
+      lt_flip(q, c)
+
+def add_ge(+a: Nat, +b: Nat, +l: Nat, +e: {False{} == Nat.is_lt(a, l) : Bool}) -> {False{} == Nat.is_lt(Nat.add(a, b), l) : Bool}:
+  match a l:
+    case 0n 0n:
+      lt_zero(b)
+    case 0n 1n+(+m):
+      absurd({False{} == Nat.is_lt(b, 1n+m) : Bool}, Equal.sym(Bool, False{}, True{}, e))
+    case 1n+_ 0n:
+      {==}
+    case 1n+(+c) 1n+(+m):
+      add_ge(c, b, m, e)
+
+def and_left(+x: Bool, +y: Bool, +e: {True{} == Bool.and(x, y) : Bool}) -> {True{} == x : Bool}:
+  match x:
+    case True{}:
+      {==}
+    case False{}:
+      e
+
+def and_right(+x: Bool, +y: Bool, +e: {True{} == Bool.and(x, y) : Bool}) -> {True{} == y : Bool}:
+  match x:
+    case True{}:
+      e
+    case False{}:
+      absurd({True{} == y : Bool}, e)

@@ -3,10 +3,10 @@ import ../../src/Evm.bend as Evm
 import ./program.bend as Token
 
 # Each law gives every outcome from any state: any storage, caller, word
-# limit and earlier logs, and any addresses. Slot 0 holds the total supply,
-# the mapping at slot 1 holds balances, the mapping at slot 2 holds
-# allowances, the mapping at slot 3 holds nonces, and slot 4 holds the owner. Storage is newest first, so new
-# slots shadow old ones.
+# limit, earlier logs and world, and any addresses. Slot 0 holds the total
+# supply, the mapping at slot 1 holds balances, the mapping at slot 2 holds
+# allowances, the mapping at slot 3 holds nonces, and slot 4 holds the
+# owner. Storage is newest first, so new slots shadow old ones.
 
 def supply(storage: List<&2, Evm.Slot>) -> Nat:
   Evm.lookup(storage, Evm.Plain{0n})
@@ -24,7 +24,7 @@ def debit(+storage: List<&2, Evm.Slot>, +from: Nat, amount: Nat) -> List<&2, Evm
   Evm.Slot{Evm.Mapped{Evm.Plain{1n}, from}, Nat.sub(balance(storage, from), amount)} <> storage
 
 # The outcome when who moves amount from `from` to `to`, from storage: the
-# end of transferFrom.
+# end of transfer and of transferFrom.
 def paid(+storage: List<&2, Evm.Slot>, who: Nat, +from: Nat, +to: Nat, +amount: Nat, +limit: Nat, logs: List<&2, Evm.Log>,
   world: Evm.World) -> Evm.Outcome<Nat>:
   Bool.pick(Evm.Outcome<Nat>, Nat.is_lt(balance(storage, from), amount),
@@ -38,19 +38,14 @@ def paid(+storage: List<&2, Evm.Slot>, who: Nat, +from: Nat, +to: Nat, +amount: 
 # keeps the balance. Transfer writes no plain slot, so the supply stays.
 law transfer:
   for +storage: List<&2, Evm.Slot>
-  for +from: Nat
+  for +who: Nat
   for +limit: Nat
   for logs: List<&2, Evm.Log>
   for world: Evm.World
   for +to: Nat
   for +amount: Nat
-  {Evm.run(Nat, Token.transfer(to, amount), Evm.State{storage, from, limit, logs, world})
-    == Bool.pick(Evm.Outcome<Nat>, Nat.is_lt(balance(storage, from), amount),
-      Evm.Revert{},
-      Bool.pick(Evm.Outcome<Nat>, Nat.is_lt(Nat.add(balance(debit(storage, from, amount), to), amount), limit),
-        Evm.Ok{1n, Evm.State{Evm.Slot{Evm.Mapped{Evm.Plain{1n}, to}, Nat.add(balance(debit(storage, from, amount), to), amount)}
-            <> debit(storage, from, amount), from, limit, Evm.Log{"Transfer(address,address,uint256)", [from, to], [amount]} <> logs, world}},
-        Evm.Revert{})) : Evm.Outcome<Nat>}
+  {Evm.run(Nat, Token.transfer(to, amount), Evm.State{storage, who, limit, logs, world})
+    == paid(storage, who, who, to, amount, limit, logs, world) : Evm.Outcome<Nat>}
 
 # Only the owner can mint, and the supply and the balance must not overflow.
 law mint:
@@ -262,7 +257,8 @@ def after(-A: Data, o: Evm.Outcome<A>, s: Evm.State) -> Evm.State:
 type Tx is Data:
   Tx{world: Evm.World, call: Call}
 
-def as(+who: Nat, +world: Evm.World, s: Evm.State) -> Evm.State:
+# The state s as a call from who sees it, in world.
+def called(+who: Nat, +world: Evm.World, s: Evm.State) -> Evm.State:
   match s:
     case Evm.State{storage, _, limit, logs, _}:
       Evm.State{storage, who, limit, logs, world}
@@ -270,19 +266,19 @@ def as(+who: Nat, +world: Evm.World, s: Evm.State) -> Evm.State:
 def run(c: Call, +world: Evm.World, +s: Evm.State) -> Evm.State:
   match c:
     case Transfer{+who, +to, +amount}:
-      after(Nat, Evm.run(Nat, Token.transfer(to, amount), as(who, world, s)), s)
+      after(Nat, Evm.run(Nat, Token.transfer(to, amount), called(who, world, s)), s)
     case Mint{+who, +to, +amount}:
-      after(Unit, Evm.run(Unit, Token.mint(to, amount), as(who, world, s)), s)
+      after(Unit, Evm.run(Unit, Token.mint(to, amount), called(who, world, s)), s)
     case Approve{+who, +spender, +amount}:
-      after(Nat, Evm.run(Nat, Token.approve(spender, amount), as(who, world, s)), s)
+      after(Nat, Evm.run(Nat, Token.approve(spender, amount), called(who, world, s)), s)
     case TransferFrom{+who, +from, +to, +amount}:
-      after(Nat, Evm.run(Nat, Token.transferFrom(from, to, amount), as(who, world, s)), s)
+      after(Nat, Evm.run(Nat, Token.transferFrom(from, to, amount), called(who, world, s)), s)
     case TransferOwnership{+who, +next}:
-      after(Unit, Evm.run(Unit, Token.transferOwnership(next), as(who, world, s)), s)
+      after(Unit, Evm.run(Unit, Token.transferOwnership(next), called(who, world, s)), s)
     case Burn{+who, +amount}:
-      after(Unit, Evm.run(Unit, Token.burn(amount), as(who, world, s)), s)
+      after(Unit, Evm.run(Unit, Token.burn(amount), called(who, world, s)), s)
     case Permit{+who, +owner, +spender, +value, +deadline, +v, +r, +sig}:
-      after(Unit, Evm.run(Unit, Token.permit(owner, spender, value, deadline, v, r, sig), as(who, world, s)), s)
+      after(Unit, Evm.run(Unit, Token.permit(owner, spender, value, deadline, v, r, sig), called(who, world, s)), s)
 
 def step(t: Tx, +s: Evm.State) -> Evm.State:
   match t:

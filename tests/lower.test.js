@@ -14,7 +14,7 @@ test('the preservation proof rejects a wrong lowering', () => {
     expect(check(path.join(src, 'PROOF.bend')).out).toContain('All terms check.');
     const yul = readFileSync(path.join(src, 'yul.bend'), 'utf8');
     for (const [from, to] of [
-      ['Let{level, SLoad{loc}, lower(body, o)}', 'Let{level, Caller{}, lower(body, o)}'],
+      ['    case IR.SLoad{loc}:\n      SLoad{loc}', '    case IR.SLoad{loc}:\n      Caller{}'],
       ['      Lt{Atom{left}, Atom{right}}\n', '      Lt{Atom{right}, Atom{left}}\n'],
       ['      IsZero{lower.test(c)}', '      lower.test(c)'],
       ['def lower.cond(c: IR.Cond) -> Exp:\n  IsZero{lower.test(c)}', 'def lower.cond(c: IR.Cond) -> Exp:\n  lower.test(c)'],

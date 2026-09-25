@@ -69,7 +69,7 @@ def transferFrom(+from: Evm.Address, +to: Evm.Address, +amount: Nat) -> Evm.Cont
     +spender : Nat <- Evm.caller()
     +allowed : Nat <- Evm.load2(ALLOWANCES(), from, spender)
     top : Nat <- Evm.max()
-    Evm.branch(Nat.is_eq(allowed, top), Nat, move(from, to, amount),
+    Evm.branch(Nat, Nat.is_eq(allowed, top), move(from, to, amount),
       do Evm.Contract<Nat>:
         left : Nat <- Evm.sub(allowed, amount)
         Evm.store2(ALLOWANCES(), from, spender, left)

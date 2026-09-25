@@ -120,7 +120,7 @@ def exec(stmt: Stmt, +out: IR.Output, +env: List<&2, IR.Binding>) -> Evm.Contrac
     case Stop{} IR.Stops{}:
       R => k => s => k(Unit{}, s)
     case If{test, yes, no} o:
-      R => k => +s => Evm.branch(Nat.is_eq(eval(test, env, s), 0n), IR.value(o), exec(no, o, env), exec(yes, o, env), R, k, s)
+      R => k => +s => Evm.branch(IR.value(o), Nat.is_eq(eval(test, env, s), 0n), exec(no, o, env), exec(yes, o, env), R, k, s)
     case _ o:
       IR.abort(IR.value(o))
 
@@ -145,39 +145,49 @@ def max() -> Exp:
   Not{Atom{IR.Lit{0n}}}
 
 # Checked add reverts when b > not(0) - a, that is when a + b overflows.
-# Checked sub reverts when a < b.
 def overflow(+left: IR.Expr, +right: IR.Expr) -> Exp:
-  Gt{Atom{right}, Sub{Not{Atom{IR.Lit{0n}}}, Atom{left}}}
+  Gt{Atom{right}, Sub{max(), Atom{left}}}
+
+# A word as a Yul expression. Checked add and sub also need a check, which
+# lower adds before them.
+def lower.word(w: IR.Word) -> Exp:
+  match w:
+    case IR.SLoad{loc}:
+      SLoad{loc}
+    case IR.Caller{}:
+      Caller{}
+    case IR.Add{left, right}:
+      Add{Atom{left}, Atom{right}}
+    case IR.Sub{left, right}:
+      Sub{Atom{left}, Atom{right}}
+    case IR.Select{c, yes, no}:
+      lower.select(c, yes, no)
+    case IR.Max{}:
+      max()
+    case IR.Timestamp{}:
+      Timestamp{}
+    case IR.ChainId{}:
+      ChainId{}
+    case IR.Self{}:
+      Address{}
+    case IR.Keccak{words}:
+      Keccak{words}
+    case IR.Typed{domain, message}:
+      Typed{domain, message}
+    case IR.Id{text}:
+      Id{text}
+    case IR.Recover{digest, v, r, sig}:
+      Recover{digest, v, r, sig}
 
 # The entry's output is known, so a tail of the wrong kind lowers to a revert.
 def lower(cmd: IR.Cmd, +out: IR.Output) -> Stmt:
   match cmd out:
-    case IR.Bind{IR.SLoad{loc}, level, body} o:
-      Let{level, SLoad{loc}, lower(body, o)}
-    case IR.Bind{IR.Caller{}, level, body} o:
-      Let{level, Caller{}, lower(body, o)}
     case IR.Bind{IR.Add{+left, +right}, level, body} o:
       Check{overflow(left, right), Let{level, Add{Atom{left}, Atom{right}}, lower(body, o)}}
     case IR.Bind{IR.Sub{+left, +right}, level, body} o:
       Check{Lt{Atom{left}, Atom{right}}, Let{level, Sub{Atom{left}, Atom{right}}, lower(body, o)}}
-    case IR.Bind{IR.Select{c, yes, no}, level, body} o:
-      Let{level, lower.select(c, yes, no), lower(body, o)}
-    case IR.Bind{IR.Max{}, level, body} o:
-      Let{level, max(), lower(body, o)}
-    case IR.Bind{IR.Timestamp{}, level, body} o:
-      Let{level, Timestamp{}, lower(body, o)}
-    case IR.Bind{IR.ChainId{}, level, body} o:
-      Let{level, ChainId{}, lower(body, o)}
-    case IR.Bind{IR.Self{}, level, body} o:
-      Let{level, Address{}, lower(body, o)}
-    case IR.Bind{IR.Keccak{words}, level, body} o:
-      Let{level, Keccak{words}, lower(body, o)}
-    case IR.Bind{IR.Typed{domain, message}, level, body} o:
-      Let{level, Typed{domain, message}, lower(body, o)}
-    case IR.Bind{IR.Id{text}, level, body} o:
-      Let{level, Id{text}, lower(body, o)}
-    case IR.Bind{IR.Recover{digest, v, r, sig}, level, body} o:
-      Let{level, Recover{digest, v, r, sig}, lower(body, o)}
+    case IR.Bind{w, level, body} o:
+      Let{level, lower.word(w), lower(body, o)}
     case IR.Then{IR.SStore{loc, value}, body} o:
       SStore{loc, Atom{value}, lower(body, o)}
     case IR.Then{IR.Log{event, topics, data}, body} o:
@@ -186,32 +196,12 @@ def lower(cmd: IR.Cmd, +out: IR.Output) -> Stmt:
       Check{lower.cond(c), lower(body, o)}
     case IR.Return{value} IR.Returns{}:
       Result{Atom{value}}
-    case IR.Tail{IR.SLoad{loc}} IR.Returns{}:
-      Result{SLoad{loc}}
-    case IR.Tail{IR.Caller{}} IR.Returns{}:
-      Result{Caller{}}
     case IR.Tail{IR.Add{+left, +right}} IR.Returns{}:
       Check{overflow(left, right), Result{Add{Atom{left}, Atom{right}}}}
     case IR.Tail{IR.Sub{+left, +right}} IR.Returns{}:
       Check{Lt{Atom{left}, Atom{right}}, Result{Sub{Atom{left}, Atom{right}}}}
-    case IR.Tail{IR.Select{c, yes, no}} IR.Returns{}:
-      Result{lower.select(c, yes, no)}
-    case IR.Tail{IR.Max{}} IR.Returns{}:
-      Result{max()}
-    case IR.Tail{IR.Timestamp{}} IR.Returns{}:
-      Result{Timestamp{}}
-    case IR.Tail{IR.ChainId{}} IR.Returns{}:
-      Result{ChainId{}}
-    case IR.Tail{IR.Self{}} IR.Returns{}:
-      Result{Address{}}
-    case IR.Tail{IR.Keccak{words}} IR.Returns{}:
-      Result{Keccak{words}}
-    case IR.Tail{IR.Typed{domain, message}} IR.Returns{}:
-      Result{Typed{domain, message}}
-    case IR.Tail{IR.Id{text}} IR.Returns{}:
-      Result{Id{text}}
-    case IR.Tail{IR.Recover{digest, v, r, sig}} IR.Returns{}:
-      Result{Recover{digest, v, r, sig}}
+    case IR.Tail{w} IR.Returns{}:
+      Result{lower.word(w)}
     case IR.Finish{IR.SStore{loc, value}} IR.Stops{}:
       SStore{loc, Atom{value}, Stop{}}
     case IR.Finish{IR.Log{event, topics, data}} IR.Stops{}:

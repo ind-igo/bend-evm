@@ -12,15 +12,8 @@ import ../../../examples/token/program.bend as Token
 type Step is Data:
   Step{text: String, state: Evm.State}
 
-def or.zero(m: Maybe<&2, Nat>) -> Nat:
-  match m:
-    case None{}:
-      0n
-    case Some{n}:
-      n
-
 def num(text: String) -> Nat:
-  or.zero(Nat.read(text))
+  Maybe.default(&2, Nat, Nat.read(text), 0n)
 
 def words(xs: List<&2, Nat>) -> String:
   match xs:

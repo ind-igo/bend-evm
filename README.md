@@ -46,7 +46,7 @@ Evm.emit(Transfer(from, to, amount))
 
 The reader takes the signature and the topics from the parameter types, and the certificate checks that the body gives the same log, so an event whose body disagrees with its parameters does not build. The def's name is the ABI event name, so `Transfer` and the function `transfer` differ only in case, as in Solidity.
 
-Build it, then deploy the bytecode with the constructor arguments after it:
+Build it, then deploy the bytecode with the constructor arguments after it. An entry named `init` is the constructor: it returns `Unit` and runs in the deploy code, so the deployer is `caller()`, and its parameters are the ABI words after the deploy code, as in Solidity.
 
 ```sh
 bun run build --out build/Token examples/token/program.bend name symbol decimals init owner \
@@ -56,7 +56,21 @@ ARGS=$(cast abi-encode "constructor(uint256)" 1000000000000000000000000)
 cast send --rpc-url $RPC --private-key $KEY --create "0x$(cat build/Token.bin)${ARGS#0x}"
 ```
 
-`build` writes the Yul, the bytecode (`.bin`) and the ABI (`.abi.json`) only when the contract's certificate and `PROOF.bend` check; wallets and `cast` read the token through the ABI. A string entry such as `name()` is a constant with no parameters. `Evm.Uint8` and `Evm.Boolean` are words with those ABI types. The dispatcher reverts when a parameter is out of range, but a result goes out as it is, so the function must keep it in range (the model has no check that a compiled check could match); `Evm.Bytes32` is any word, with the ABI type `bytes32`.
+`build` writes the certificate `CERT.bend` for the listed entries, checks it and the contract's `PROOF.bend`, and only then writes the Yul, the bytecode (`.bin`) and the ABI (`.abi.json`); wallets and `cast` read the token through the ABI.
+
+### ABI types
+
+Every word is a `Nat`. These aliases give it an ABI type:
+
+| Bend | ABI | A parameter reverts when |
+|---|---|---|
+| `Nat` | `uint256` | never |
+| `Evm.Address` | `address` | it is 2^160 or more |
+| `Evm.Uint8` | `uint8` | it is above 255 |
+| `Evm.Boolean` | `bool` | it is above 1 |
+| `Evm.Bytes32` | `bytes32` | never |
+
+The dispatcher checks parameters only. A result or an event field goes out as it is, so the function must keep it in range, or the output is not a valid ABI encoding. A result of `Unit` has no outputs. A string entry, such as `name()`, is a def with no parameters whose body is a text literal; it returns the ABI encoding of a `string`.
 
 ## Gas
 
@@ -74,25 +88,25 @@ cast send --rpc-url $RPC --private-key $KEY --create "0x$(cat build/Token.bin)${
 | approve max | 29292 | 29296 | 29945 | 29362 |
 | transferFrom, max allowance | 36899 | 36832 | 37908 | 36964 |
 | burn | 33538 | 33536 | 34156 | 33604 |
-| permit | 73797 | 73836 | 77561 | 74384 |
+| permit | 73785 | 73836 | 77573 | 74384 |
 | runtime code (bytes) | 2071 | 1779 | 5554 | 3639 |
 
 Every transaction of the Bend token uses a little less gas than optimized Solidity. The runtime code is smaller too, although a branch copies the code after it into both arms. `bun run build` does not use the optimizer: it changes little gas, and the tests run the code that is not optimized.
 
 ## Use
 
-Requires Git and Bun. The tests also need `solc`, `anvil` and `cast`.
+Requires Git and Bun. `bun run build --out` also needs `solc`, and the tests and `bun run gas` need `solc`, `anvil` and `cast`.
 
 ```sh
 git submodule update --init --recursive
-bun run check   # check every Bend entry point and proof
+bun run check   # check every proof, certificate and Bend tool
 bun run test
 mkdir -p build
 bun run build examples/counter/program.bend get increment decrement set > build/Counter.yul
 solc --strict-assembly --evm-version shanghai --bin build/Counter.yul
 ```
 
-[tests/counter.test.js](tests/counter.test.js) and [tests/token.test.js](tests/token.test.js) deploy the examples on `anvil` and call them through the standard ABI. The token's functions are `name symbol decimals init owner transferOwnership totalSupply balanceOf transfer mint burn allowance approve transferFrom nonces DOMAIN_SEPARATOR permit`. An entry named `init` is the constructor: it returns `Unit` and runs in the deploy code, so the deployer is `caller()`. Its parameters are the ABI words that follow the deploy code, as in Solidity; the token's `init(supply)` gives the initial supply to the deployer.
+[tests/counter.test.js](tests/counter.test.js) and [tests/token.test.js](tests/token.test.js) deploy the examples on `anvil` and call them through the standard ABI. [scripts/tools.js](scripts/tools.js) holds what the scripts and tests share, including each example's entry list.
 
 The frontend is a submodule at `vendor/bend-frontend`, and it pins Bend at `vendor/bend-frontend/vendor/bend`. Its `host/run.js` launches the Bend drivers here with the checker attached, and keeps compiled tools in `vendor/bend-frontend/build/cache`. See [Connecting Bend to backends](https://github.com/ind-igo/bend-frontend/blob/main/docs/backends.md) for how a backend uses the frontend, and the frontend's README for what it trusts.
 
@@ -100,7 +114,7 @@ The frontend is a submodule at `vendor/bend-frontend`, and it pins Bend at `vend
 
 [certify.bend](src/certify.bend) prints each entry as a literal [IR](src/ir.bend) value and a law stating that `IR.call` of that value equals the source function. `IR.call` reverts when a variable is not bound, then runs the IR. The IR constructors map one to one to DSL calls, so both sides normalize to the same term and `{==}` proves the law.
 
-The reader ([read.bend](src/read.bend)) is not trusted: a wrong IR makes the certificate fail. It inlines calls to the contract's own functions with [inline.bend](src/inline.bend), so the certificate also checks the inlining. The trusted base is the Bend checker, the semantics in `Evm.bend` and `ir.bend`, and the shape of the law that certify.bend prints. certify.bend rejects a contract that imports a different `Evm.bend`, and a parameter list that does not bind levels 0, 1, ... in order.
+The reader ([read.bend](src/read.bend)) is not trusted: a wrong IR makes the certificate fail. It inlines calls to the contract's own functions with [inline.bend](src/inline.bend), so the certificate also checks the inlining. The trusted base is the Bend checker, the semantics in `Evm.bend` and `ir.bend`, and the shape of the law that certify.bend prints. The tools ([tool.bend](src/tool.bend)) reject a contract that imports a different `Evm.bend`, and the reader rejects a parameter list that does not bind levels 0, 1, ... in order.
 
 ## Lowering
 
@@ -110,7 +124,7 @@ Checked add lowers to `if gt(b, sub(not(0), a)) { revert(0, 0) }` and a wrapping
 
 Proved: contract ≡ IR (certificate) and IR ≡ Yul model (the law). Tested, not proved: the printer, the dispatcher and ABI decoding, the mapping layout, event topics, `solc`, and the match between the Yul model and the EVM on words below 2^256. [tests/model.test.js](tests/model.test.js) runs random call sequences on the token's Bend source and on `anvil`, and requires the same returns, reverts and logs. The Bend runtime holds words below 2^48 only, so that test uses a limit of 2^40 and small amounts: it does not reach the overflow boundary, which token.test.js tests at 2^256. [tests/reference.test.js](tests/reference.test.js) gives the same random calls, with 256-bit amounts, to the token and to the same token in Solidity with solmate's logic ([tests/fixtures/reference/Token.sol](tests/fixtures/reference/Token.sol)), and requires the same successes, return bytes and logs; only the revert data differs.
 
-The proofs cover deployed code only when the certificate covers the same entries. `compile.bend` reads the IR again and does not check that a `CERT.bend` exists or is current. `bun run build` does it in the right order: it writes `CERT.bend` for the listed functions, checks it and the contract's `PROOF.bend`, and prints the Yul only when both check. The model also has no gas: a law that gives `Ok` holds on chain only when the call has enough gas, and otherwise the call reverts.
+The proofs cover deployed code only when the certificate covers the same entries. `compile.bend` reads the IR again and does not check that a `CERT.bend` exists or is current, so build with `bun run build`, which does. The model also has no gas: a law that gives `Ok` holds on chain only when the call has enough gas, and otherwise the call reverts.
 
 ## Model
 
@@ -119,16 +133,16 @@ The proofs cover deployed code only when the certificate covers the same entries
 - A state also has a `World`: the block time, the chain id, the contract's address, and tables that stand for `keccak256` and `ecrecover`. A law holds for every table, so no law depends on how either function works, and the printer uses the real ones: `keccak256` over memory, and the `ecrecover` precompile, which gives zero for a bad signature. `permit` checks that the signer is not zero.
 - Words are `Nat`. Checked `add` reverts at the state's `limit`, which is 2^256 on the EVM, and checked `sub` reverts below zero. Proofs keep the limit symbolic: the checker writes any closed Nat near 2^256 out in unary.
 - Storage is an association list: the newest slot wins and missing slots read as zero. A key is a plain slot or an entry of a mapping, `Mapped{base, key}`, where `base` is a key too. The printer puts an entry at `keccak256(key . base)`, as Solidity does, so the model assumes that Keccak has no collisions. That is not enough for a slot that a variable gives, which could equal an entry's `keccak256(key . base)`, so `compile.bend` refuses an entry whose plain slots and mapping bases are not literals. Keys can be variables. A revert discards all state.
-- `branch(cond, A, a, b)` runs the contract `a` when `cond` holds and `b` otherwise, and must be the last step: each arm runs to the end of the call. Code that both arms run after the choice goes in each arm, as a call to a def, as `ERC20.transferFrom` does with `move`. A run stops at a branch whose condition is not known, so a law about it names both arms with `Evm.branch.run` ([tests/fixtures/branch](tests/fixtures/branch) has examples).
-- Events are `emit(Event(...))` with an event def, as above, or `log(signature, topics, data)`: an ABI signature, at most three indexed words and a list of data words, one word for each parameter of the signature. The indexed parameters must come first in the signature (and in an event def), as in `Transfer(address,address,uint256)`: the ABI marks the first parameters as indexed, one for each topic word. The state keeps them newest first, so a revert drops them too. Topic 0 is the signature's Keccak-256, which the printer computes.
-- Supported now: `sload`, `sstore`, mappings (`load(slot, key)`, `store(slot, key, value)`) and nested mappings (`load2(slot, outer, inner)`, `store2(slot, outer, inner, value)`), `caller`, checked `add` and `sub`, `select(cond, a, b)`, `branch(cond, A, a, b)`, `max()`, `require`, `log`, `emit`, `pure`, Nat and address parameters, literal constants, and calls to the contract's own functions, which the reader inlines. The reader rejects everything else.
+- `branch(A, cond, a, b)` runs the contract `a` when `cond` holds and `b` otherwise, and must be the last step: each arm runs to the end of the call. Code that both arms run after the choice goes in each arm, as a call to a def, as `ERC20.transferFrom` does with `move`. A run stops at a branch whose condition is not known, so a law about it names both arms with `Evm.branch.run` ([tests/fixtures/branch](tests/fixtures/branch) has examples).
+- Events are `emit(Event(...))` with an event def, as above: at most three indexed parameters, before the others, as the ABI marks the first parameters as indexed, one for each topic word. The state keeps logs newest first, so a revert drops them too. Topic 0 is the signature's Keccak-256, which the printer computes. Two events with the same signature must agree on their indexed parameters.
+- Supported now: `sload`, `sstore`, mappings (`load(slot, key)`, `store(slot, key, value)`) and nested mappings (`load2(slot, outer, inner)`, `store2(slot, outer, inner, value)`); `caller`, `timestamp`, `chainid` and `self`; checked `add` and `sub`; `max()`; `select(cond, a, b)` and `branch(A, cond, a, b)`, where a condition is `Nat.is_eq` or `Nat.is_lt` under `Bool.not`; `require`; `emit`; `keccak(words)`, `id(text)`, `typed(domain, message)` (the EIP-712 digest) and `recover(digest, v, r, s)`; `pure`; the parameter types above; literal constants; and calls to the contract's own functions, which the reader inlines. The reader rejects everything else.
 
 ## Limits
 
 - The certificate's imports are relative. Save it as `CERT.bend` beside the contract, or it names other files.
 - certify.bend must run through the frontend's `host/run.js`, which gives it its own path in `BEND_ENTRY`.
 - Literals are limited by `Nat.read` (about 2^48). Source Nat literals already stop at 2^32 - 1.
-- Parameters are `uint256` (`Nat`) or `address` (`Evm.Address`, which is `Nat`); the dispatcher reverts on an address above 2^160. Results are `uint256`; a `bool` result is the word 1 or 0, which has the same encoding. Event fields may also be `uint8`, `bool` and `bytes32`, but their ABI types are labels, as for results: a function must keep an address, uint8 or bool word in range, or the log is not a valid ABI encoding.
+- Parameters, results and event fields are words with the ABI types above; results and event fields are not range-checked.
 - Calls and branches nest at most 8 deep together, so a function cannot call itself. An `else if` chain of 8 branches is too deep.
 - A branch must be the last step, and its arms return `Nat` or `Unit`. There is no join point after a branch; see ROADMAP.md (M13).
 - In the reader, match on `Call` tags, not on nested `Term` patterns or string literals. A string pattern costs the checker 33 splits per character, and each fallback case is copied into every split. Nested Term patterns made checking take 6 GB, and string names made it take 2.5 GB; with tags, `read.bend` checks in about 120 MB. Add a name to `tags()` to read a new DSL call.

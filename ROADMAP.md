@@ -54,7 +54,7 @@ Not in M2: `approve` and `transferFrom`, constructor arguments, a law that `tota
 ### Steps
 
 1. [x] Checked sub: `if lt(a, b) { revert(0, 0) }`, then `sub(a, b)`.
-2. [x] Mappings. Storage keys are data, `Slot{n}` or `Entry{slot, key}`, in the model and the laws. `lower` prints `Entry` as `mstore(0, key) mstore(32, slot) keccak256(0, 64)`. The only assumption is that Keccak has no collisions, as in Solidity.
+2. [x] Mappings. Storage keys are data, `Slot{n}` or `Entry{slot, key}`, in the model and the laws (replaced by `Plain` and `Mapped` in M4). `lower` prints `Entry` as `mstore(0, key) mstore(32, slot) keccak256(0, 64)`. The only assumption is that Keccak has no collisions, as in Solidity.
 3. [x] `address` parameters. The dispatcher reverts when the upper 96 bits are not zero (tested).
 4. [x] Events. The state has a log list, and the outcome includes it, so the proof covers the events. Topics come from Keccak in Bend.
 5. [x] The token example, its laws, certificate and `anvil` test. A `bool` result is the word 1, which has the same ABI encoding.
@@ -83,7 +83,7 @@ Not in M4: the unlimited allowance (`2^256 - 1` is not lowered), which needs bra
 
 ## M5: select and the unlimited allowance
 
-`Evm.select(cond, a, b)` is `a` when `cond` holds and `b` otherwise, and `Evm.max()` is the largest word, 2^256 − 1. With them, `transferFrom` keeps an allowance of `max()`, as OpenZeppelin does.
+`Evm.select(cond, a, b)` is `a` when `cond` holds and `b` otherwise, and `Evm.max()` is the largest word, 2^256 − 1. With them, `transferFrom` keeps an allowance of `max()`, as OpenZeppelin does (replaced by solmate's branch in M13).
 
 A full `if`/`else` is not in M5. A branch must pass the continuation to both arms, and functions cannot be copied, so it needs a `match` in a helper def. The checker keeps that match stuck with its arms unapplied, so a law would have to restate the rest of the program. A select only chooses a word, which is `Data`, so laws stay `{==}`.
 
@@ -94,11 +94,11 @@ A full `if`/`else` is not in M5. A branch must pass the continuation to both arm
 
 ## M6: a constructor
 
-An entry named `init` runs at deploy. The token stores the deployer as its owner in slot 3, and has `owner()` and `transferOwnership(address)`, which emits `OwnershipTransferred`, as OpenZeppelin's `Ownable` does.
+An entry named `init` runs at deploy. The token stores the deployer as its owner in slot 3 (slot 4 since M12), and has `owner()` and `transferOwnership(address)`, which emits `OwnershipTransferred`, as OpenZeppelin's `Ownable` does.
 
 ### Done when
 
-- [x] `compile.bend` puts `init` in the deploy code, where its final stop falls through to returning the runtime code. It rejects an `init` with parameters or a result.
+- [x] `compile.bend` puts `init` in the deploy code, where its final stop falls through to returning the runtime code. It rejects an `init` with parameters (allowed since M9) or a result.
 - [x] Log data is a list of words, so an event may have no data, like `OwnershipTransferred`.
 - [x] Laws for `init`, `owner` and `transferOwnership`; `mint` checks the stored owner. The `anvil` test deploys from a normal account.
 
@@ -111,7 +111,7 @@ A contract function can call the contract's other functions, like `move(from, to
 ### Done when
 
 - [x] The callee's parameters become the argument expressions, and its other levels move above the caller's, so no variable is captured and Yul declares no local twice. A returned value replaces the bound variable; a tail action binds it.
-- [x] `transfer` and `transferFrom` share `move`, and `mint` and `move` share `credit`. The token laws did not change.
+- [x] `transfer` and `transferFrom` share `move`, and `mint` and `move` share `credit` (inlined in M14). The token laws did not change.
 - [x] A test inlines each form of call, runs it on `anvil`, and checks that a wrong join gives a certificate that fails.
 
 Not in M7: recursion (calls nest at most 8 deep), and Yul functions for code size.
@@ -159,10 +159,8 @@ A token that someone can write, deploy and use from a wallet, after solmate's ER
 - [x] `src/abi.bend` prints the ABI JSON, and `bun run build --out` writes the Yul, the bytecode and the ABI.
 - [x] [lib/ERC20.bend](lib/ERC20.bend) is the base, and the example token uses it. Its laws, including `supply_sum`, still hold; `init` now mints, so its law states the overflow checks.
 - [x] The token test deploys the output of `bun run build --out`, reads the name, symbol and decimals with `cast`, and checks the ABI with `cast interface`.
-
 - [x] Holders can `burn`; its law, the supply proof and both chain tests cover it.
 - [x] A differential test runs the token and the same token in Solidity with solmate's logic on the same calls, with 256-bit amounts, and requires the same successes, return bytes and logs. When the Solidity reference forgets the unlimited allowance, the test fails (checked by hand).
-
 
 ## M12: permit (EIP-2612)
 
@@ -181,7 +179,7 @@ Solmate's `permit`: an owner approves a spender with a signature, and anyone can
 
 ### Done when
 
-- [x] `Evm.branch(cond, A, a, b)` with `Nat` or `Unit` arms, read to `IR.If` and lowered to a Yul `switch`. Certificates prove by `{==}`; a law about a branch uses `Evm.branch.run`.
+- [x] `Evm.branch(A, cond, a, b)` (the type came second until M14) with `Nat` or `Unit` arms, read to `IR.If` and lowered to a Yul `switch`. Certificates prove by `{==}`; a law about a branch uses `Evm.branch.run`.
 - [x] The preservation proof covers `If`, nested too. The continuation is erased in the induction, so both arms use it. The lowering test swaps the arms and the proof fails.
 - [x] The reader reads the arms only for a branch, rejects a branch or a call to a branching function before the last step, and counts a branch as one level of the 8-deep limit.
 - [x] `transferFrom` skips the store for a max allowance, as solmate does; `supply_sum` still holds. `bun run gas` shows 36899 against 36964 for optimized Solidity.
@@ -195,4 +193,6 @@ An event is declared once, with its field types, like Solidity's `event` line, a
 - [x] `Evm.Event` is the result type of an event def, `Evm.Indexed(A)` marks an indexed parameter, and `Evm.emit(Transfer(from, to, amount))` logs an event. The reader takes only a def written with `Evm.Event`, and makes the signature, the topics and the data from its parameter types and its name; indexed parameters come first, at most three. The certificate proves the body's log equal to the reader's by `{==}`, so a body that disagrees does not build (tests/emit.test.js).
 - [x] [lib/ERC20.bend](lib/ERC20.bend) is only the ERC-20 core: named storage slots, the `Transfer` and `Approval` events, the standard functions, and internal `mint` and `burn`, with one helper, `move`. `permit`, `nonces`, `DOMAIN_SEPARATOR` and the owner move to the example token, with their own slots and `OwnershipTransferred` event. The token's laws did not change and still hold.
 
-Not in M14: custom errors (every revert is `revert(0, 0)`), and parameter names in the ABI JSON.
+- [x] `Evm.log` is no longer part of the contract language: contracts log with `Evm.emit`, and `Evm.log` stays as the model's primitive.
+
+Not in M14: custom errors (every revert is `revert(0, 0)`), and event parameter names in the ABI JSON.
