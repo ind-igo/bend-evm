@@ -21,17 +21,13 @@ def BALANCES() -> Nat:
 def ALLOWANCES() -> Nat:
   2n
 
-type Events is Data:
-  Transfer{from: Evm.Indexed(Evm.Address), to: Evm.Indexed(Evm.Address), amount: Nat}
-  Approval{owner: Evm.Indexed(Evm.Address), spender: Evm.Indexed(Evm.Address), amount: Nat}
+# Events. The reader checks each signature and its topics against the
+# parameter types.
+def Transfer(from: Evm.Indexed(Evm.Address), to: Evm.Indexed(Evm.Address), amount: Nat) -> Evm.Event:
+  Evm.Log{"Transfer(address,address,uint256)", [from, to], [amount]}
 
-# The certificate checks that each log agrees with the field types.
-def log(e: Events) -> Evm.Log:
-  match e:
-    case Transfer{from, to, amount}:
-      Evm.Log{"Transfer(address,address,uint256)", [from, to], [amount]}
-    case Approval{owner, spender, amount}:
-      Evm.Log{"Approval(address,address,uint256)", [owner, spender], [amount]}
+def Approval(owner: Evm.Indexed(Evm.Address), spender: Evm.Indexed(Evm.Address), amount: Nat) -> Evm.Event:
+  Evm.Log{"Approval(address,address,uint256)", [owner, spender], [amount]}
 
 def totalSupply() -> Evm.Contract(Nat):
   Evm.sload(SUPPLY())
@@ -46,7 +42,7 @@ def approve(+spender: Evm.Address, +amount: Nat) -> Evm.Contract(Evm.Boolean):
   do Evm.Contract<Nat>:
     +owner : Nat <- Evm.caller()
     Evm.store2(ALLOWANCES(), owner, spender, amount)
-    Evm.emit(log(Approval{owner, spender, amount}))
+    Evm.emit(Approval(owner, spender, amount))
     Evm.Contract.pure(Nat, 1n)
 
 # Moves amount from one balance to another and returns true.
@@ -58,7 +54,7 @@ def move(+from: Nat, +to: Nat, +amount: Nat) -> Evm.Contract(Evm.Boolean):
     b : Nat <- Evm.load(BALANCES(), to)
     sum : Nat <- Evm.add(b, amount)
     Evm.store(BALANCES(), to, sum)
-    Evm.emit(log(Transfer{from, to, amount}))
+    Evm.emit(Transfer(from, to, amount))
     Evm.Contract.pure(Nat, 1n)
 
 def transfer(+to: Evm.Address, +amount: Nat) -> Evm.Contract(Evm.Boolean):
@@ -88,7 +84,7 @@ def mint(+to: Nat, +amount: Nat) -> Evm.Contract(Unit):
     b : Nat <- Evm.load(BALANCES(), to)
     sum : Nat <- Evm.add(b, amount)
     Evm.store(BALANCES(), to, sum)
-    Evm.emit(log(Transfer{0n, to, amount}))
+    Evm.emit(Transfer(0n, to, amount))
 
 # Destroys amount from the balance of from, which must cover it.
 def burn(+from: Nat, +amount: Nat) -> Evm.Contract(Unit):
@@ -99,4 +95,4 @@ def burn(+from: Nat, +amount: Nat) -> Evm.Contract(Unit):
     supply : Nat <- Evm.sload(SUPPLY())
     total : Nat <- Evm.sub(supply, amount)
     Evm.sstore(SUPPLY(), total)
-    Evm.emit(log(Transfer{from, 0n, amount}))
+    Evm.emit(Transfer(from, 0n, amount))

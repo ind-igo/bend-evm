@@ -89,6 +89,7 @@ type Tag is Data:
   Branch{}
   Emit{}
   Indexed{}
+  EventType{}
   Unknown{}
 
 type Named is Data:
@@ -124,7 +125,8 @@ def tags() -> List<&2, Named>:
   Named{"Evm.Contract.pure", Pure{}},
   Named{"Evm.branch", Branch{}},
   Named{"Evm.emit", Emit{}},
-  Named{"Evm.Indexed", Indexed{}}]
+  Named{"Evm.Indexed", Indexed{}},
+  Named{"Evm.Event", EventType{}}]
 
 def tag.go(table: List<&2, Named>, +name: String) -> Tag:
   match table:
@@ -492,7 +494,7 @@ def abi.term(+evm: String, typ: Core.Term) -> Result<&2, &2, String, String>:
     case _:
       Fail{"Unsupported parameter type"}
 
-# The text after the last dot of a name: an event constructor's own name.
+# The text after the last dot of a name: an event def's own name.
 def short.go(s: String) -> String:
   match s:
     case SNil{}:
@@ -569,7 +571,7 @@ def parts(fs: List<&2, Field>, args: List<&2, Core.Term>, +late: Bool, +decls: L
     case Field{+indexed, t} <> fr a <> ar:
       parts.add(indexed, late, t, expr(a, decls), parts(fr, ar, Bool.or(late, Bool.not(indexed)), decls))
     case _ _:
-      Fail{"An event constructor needs one argument for each field"}
+      Fail{"An event needs one argument for each field"}
 
 def emit.log(name: String, p: Parts) -> Result<&2, &2, String, IR.Effect>:
   match p:
@@ -578,64 +580,48 @@ def emit.log(name: String, p: Parts) -> Result<&2, &2, String, IR.Effect>:
         +event : String <- signature(short(name) ++ "(" ++ joined(types) ++ ")")
         log(event, topics, data)
 
-def constructor.in(cs: List<&2, Core.Constructor>, +wanted: String) -> Maybe<&2, Core.Constructor>:
-  match cs:
-    case Nil{}:
-      None{}
-    case Core.Constructor{+name, +arity, +typ} <> rest:
-      Bool.pick(Maybe<&2, Core.Constructor>, String.eq(name, wanted), Some{Core.Constructor{name, arity, typ}},
-        constructor.in(rest, wanted))
-
-def constructor.of(d: Core.Declaration, +wanted: String) -> Maybe<&2, Core.Constructor>:
-  match d:
-    case Core.Algebraic{_, _, _, cs}:
-      constructor.in(cs, wanted)
+def is_event(c: Call) -> Bool:
+  match c:
+    case Call{EventType{}, _, Nil{}}:
+      True{}
     case _:
-      None{}
+      False{}
 
-def constructor.or(found: Maybe<&2, Core.Constructor>, rest: Maybe<&2, Core.Constructor>) -> Maybe<&2, Core.Constructor>:
-  match found:
-    case Some{c}:
-      Some{c}
-    case None{}:
-      rest
+# Whether a def's result type, after its parameters, is Evm.Event.
+def returns_event(+evm: String, typ: Core.Term) -> Bool:
+  match typ:
+    case Core.TAll{_, _, _, _, body}:
+      returns_event(evm, body)
+    case other:
+      is_event(call(strip(evm, other), Nil{}))
 
-# The declared constructor named wanted.
-def constructor(decls: List<&2, Core.Declaration>, +wanted: String) -> Maybe<&2, Core.Constructor>:
-  match decls:
-    case Nil{}:
-      None{}
-    case d <> rest:
-      constructor.or(constructor.of(d, wanted), constructor(rest, wanted))
-
-def emit.found(+evm: String, found: Maybe<&2, Core.Constructor>, +name: String, args: List<&2, Core.Term>,
+def emit.event(+event: Bool, +evm: String, typ: Core.Term, +name: String, args: List<&2, Core.Term>,
   +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Effect>:
-  match found:
-    case Some{Core.Constructor{_, _, typ}}:
+  match event:
+    case True{}:
       do Result<&2, &2, String, IR.Effect>:
         fs : List<&2, Field> <- fields(evm, typ)
         p : Parts <- parts(fs, args, False{}, decls)
         emit.log(name, p)
-    case None{}:
-      Fail{"Unknown event constructor: " ++ name}
+    case False{}:
+      Fail{"Evm.emit takes an event: a def whose result type is Evm.Event"}
 
-def emit.value(+evm: String, term: Core.Term, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Effect>:
-  match term:
-    case Core.TAnn{value, _}:
-      emit.value(evm, value, decls)
-    case Core.TCtr{+name, args}:
-      emit.found(evm, constructor(decls, name), name, args, decls)
+def emit.found(+evm: String, found: Maybe<&2, Core.Declaration>, +name: String, args: List<&2, Core.Term>,
+  +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Effect>:
+  match found:
+    case Some{Core.Definition{Core.Header{_, _, _, +typ}, _, _, _, _, _}}:
+      emit.event(returns_event(evm, typ), evm, typ, name, args, decls)
     case _:
-      Fail{"Evm.emit takes an encoder applied to an event constructor"}
+      Fail{"Evm.emit takes an event: a def whose result type is Evm.Event"}
 
-# Evm.emit(encode(Event{...})): the signature and the topics come from the
-# constructor's field types. The certificate checks that encode agrees.
+# Evm.emit(Transfer(from, to, amount)): the signature and the topics come
+# from the event def's parameter types. The certificate checks its body.
 def emit(+evm: String, c: Call, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Effect>:
   match c:
-    case Call{_, _, value <> Nil{}}:
-      emit.value(evm, value, decls)
-    case _:
-      Fail{"Evm.emit takes an encoder applied to an event constructor"}
+    case Call{_, +name, args}:
+      emit.found(evm, Core.find(decls, name), name, args, decls)
+    case Other{}:
+      Fail{"Evm.emit takes an event: a def whose result type is Evm.Event"}
 
 def effect(c: Call, +evm: String, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Effect>:
   match c:

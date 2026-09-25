@@ -13,13 +13,8 @@ def NONCES() -> Nat:
 def OWNER() -> Nat:
   4n
 
-type Events is Data:
-  OwnershipTransferred{previous: Evm.Indexed(Evm.Address), next: Evm.Indexed(Evm.Address)}
-
-def log(e: Events) -> Evm.Log:
-  match e:
-    case OwnershipTransferred{previous, next}:
-      Evm.Log{"OwnershipTransferred(address,address)", [previous, next], []}
+def OwnershipTransferred(previous: Evm.Indexed(Evm.Address), next: Evm.Indexed(Evm.Address)) -> Evm.Event:
+  Evm.Log{"OwnershipTransferred(address,address)", [previous, next], []}
 
 def name() -> String:
   "Bend Token"
@@ -53,7 +48,7 @@ def init(+supply: Nat) -> Evm.Contract(Unit):
   do Evm.Contract<Unit>:
     +who : Nat <- Evm.caller()
     Evm.sstore(OWNER(), who)
-    Evm.emit(log(OwnershipTransferred{0n, who}))
+    Evm.emit(OwnershipTransferred(0n, who))
     ERC20.mint(who, supply)
 
 def owner() -> Evm.Contract(Evm.Address):
@@ -65,7 +60,7 @@ def transferOwnership(+next: Evm.Address) -> Evm.Contract(Unit):
     +boss : Nat <- Evm.sload(OWNER())
     Evm.require(Nat.is_eq(who, boss))
     Evm.sstore(OWNER(), next)
-    Evm.emit(log(OwnershipTransferred{boss, next}))
+    Evm.emit(OwnershipTransferred(boss, next))
 
 def mint(+to: Evm.Address, +amount: Nat) -> Evm.Contract(Unit):
   do Evm.Contract<Unit>:
@@ -113,4 +108,4 @@ def permit(+owner: Evm.Address, +spender: Evm.Address, +value: Nat, +deadline: N
     Evm.require(Bool.not(Nat.is_eq(signer, 0n)))
     Evm.require(Nat.is_eq(signer, owner))
     Evm.store2(ERC20.ALLOWANCES(), owner, spender, value)
-    Evm.emit(ERC20.log(ERC20.Approval{owner, spender, value}))
+    Evm.emit(ERC20.Approval(owner, spender, value))

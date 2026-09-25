@@ -14,7 +14,7 @@ contract.bend ─ Frontend.check ─ read ─→ IR ─ lower ─→ Yul ─ sol
 
 ## Write an ERC-20
 
-[lib/ERC20.bend](lib/ERC20.bend) is the ERC-20 core, after solmate's: its storage slots, its `Transfer` and `Approval` events as a type, the standard functions, and internal `mint` and `burn`. A token imports it, gives its name, symbol and decimals, and exposes each function with a one-line def. [examples/token/program.bend](examples/token/program.bend) is a complete token: it adds EIP-2612 `permit` and an owner, who receives the initial supply and can mint; holders can burn.
+[lib/ERC20.bend](lib/ERC20.bend) is the ERC-20 core, after solmate's: its storage slots, its `Transfer` and `Approval` events, the standard functions, and internal `mint` and `burn`. A token imports it, gives its name, symbol and decimals, and exposes each function with a one-line def. [examples/token/program.bend](examples/token/program.bend) is a complete token: it adds EIP-2612 `permit` and an owner, who receives the initial supply and can mint; holders can burn.
 
 ```bend
 import ../../lib/ERC20.bend as ERC20
@@ -34,21 +34,17 @@ def init(+supply: Nat) -> Evm.Contract(Unit):
     ERC20.mint(who, supply)
 ```
 
-An event is a constructor of a type, and an indexed field has the type `Evm.Indexed(...)`. An encoder gives each event's log, and `Evm.emit` logs it:
+An event is a def whose result type is `Evm.Event`, like Solidity's `event` line; an indexed parameter has the type `Evm.Indexed(...)`. Its body is its log, and `Evm.emit` logs it, like Solidity's `emit`:
 
 ```bend
-type Events is Data:
-  Transfer{from: Evm.Indexed(Evm.Address), to: Evm.Indexed(Evm.Address), amount: Nat}
+# event Transfer(address indexed from, address indexed to, uint256 amount);
+def Transfer(from: Evm.Indexed(Evm.Address), to: Evm.Indexed(Evm.Address), amount: Nat) -> Evm.Event:
+  Evm.Log{"Transfer(address,address,uint256)", [from, to], [amount]}
 
-def log(e: Events) -> Evm.Log:
-  match e:
-    case Transfer{from, to, amount}:
-      Evm.Log{"Transfer(address,address,uint256)", [from, to], [amount]}
-
-Evm.emit(log(Transfer{from, to, amount}))
+Evm.emit(Transfer(from, to, amount))
 ```
 
-The reader takes the signature and the topics from the constructor's field types, and the certificate checks that the encoder gives the same log, so an encoder that disagrees with its type does not build.
+The reader takes the signature and the topics from the parameter types, and the certificate checks that the body gives the same log, so an event whose body disagrees with its parameters does not build. The def's name is the ABI event name, so `Transfer` and the function `transfer` differ only in case, as in Solidity.
 
 Build it, then deploy the bytecode with the constructor arguments after it:
 
@@ -124,7 +120,7 @@ The proofs cover deployed code only when the certificate covers the same entries
 - Words are `Nat`. Checked `add` reverts at the state's `limit`, which is 2^256 on the EVM, and checked `sub` reverts below zero. Proofs keep the limit symbolic: the checker writes any closed Nat near 2^256 out in unary.
 - Storage is an association list: the newest slot wins and missing slots read as zero. A key is a plain slot or an entry of a mapping, `Mapped{base, key}`, where `base` is a key too. The printer puts an entry at `keccak256(key . base)`, as Solidity does, so the model assumes that Keccak has no collisions. That is not enough for a slot that a variable gives, which could equal an entry's `keccak256(key . base)`, so `compile.bend` refuses an entry whose plain slots and mapping bases are not literals. Keys can be variables. A revert discards all state.
 - `branch(cond, A, a, b)` runs the contract `a` when `cond` holds and `b` otherwise, and must be the last step: each arm runs to the end of the call. Code that both arms run after the choice goes in each arm, as a call to a def, as `ERC20.transferFrom` does with `move`. A run stops at a branch whose condition is not known, so a law about it names both arms with `Evm.branch.run` ([tests/fixtures/branch](tests/fixtures/branch) has examples).
-- Events are `emit(encode(Event{...}))` over a type, as above, or `log(signature, topics, data)`: an ABI signature, at most three indexed words and a list of data words, one word for each parameter of the signature. The indexed parameters must come first in the signature (and in an event type), as in `Transfer(address,address,uint256)`: the ABI marks the first parameters as indexed, one for each topic word. The state keeps them newest first, so a revert drops them too. Topic 0 is the signature's Keccak-256, which the printer computes.
+- Events are `emit(Event(...))` with an event def, as above, or `log(signature, topics, data)`: an ABI signature, at most three indexed words and a list of data words, one word for each parameter of the signature. The indexed parameters must come first in the signature (and in an event def), as in `Transfer(address,address,uint256)`: the ABI marks the first parameters as indexed, one for each topic word. The state keeps them newest first, so a revert drops them too. Topic 0 is the signature's Keccak-256, which the printer computes.
 - Supported now: `sload`, `sstore`, mappings (`load(slot, key)`, `store(slot, key, value)`) and nested mappings (`load2(slot, outer, inner)`, `store2(slot, outer, inner, value)`), `caller`, checked `add` and `sub`, `select(cond, a, b)`, `branch(cond, A, a, b)`, `max()`, `require`, `log`, `emit`, `pure`, Nat and address parameters, literal constants, and calls to the contract's own functions, which the reader inlines. The reader rejects everything else.
 
 ## Limits

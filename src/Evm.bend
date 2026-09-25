@@ -52,6 +52,13 @@ def Indexed(A: Data) -> Data:
 type Log is Data:
   Log{event: String, topics: List<&2, Nat>, data: List<&2, Nat>}
 
+# The result type of an event def, which is its log. Evm.emit takes only a
+# def written with this result type:
+#   def Transfer(from: Evm.Indexed(Evm.Address), to: Evm.Indexed(Evm.Address), amount: Nat) -> Evm.Event:
+#     Evm.Log{"Transfer(address,address,uint256)", [from, to], [amount]}
+def Event() -> Data:
+  Log
+
 # What keccak256 hashes: words of 32 bytes; an EIP-712 digest, which hashes
 # 0x1901 . domain . message; or an ASCII text, such as a type string.
 type Preimage is Data:
@@ -230,11 +237,11 @@ def log.go(event: String, topics: List<&2, Nat>, data: List<&2, Nat>, s: State) 
 def log(event: String, topics: List<&2, Nat>, data: List<&2, Nat>) -> Contract(Unit):
   R => k => s => k(Unit{}, log.go(event, topics, data, s))
 
-# Logs an event value through its encoder, as in
-# Evm.emit(ERC20.log(ERC20.Transfer{from, to, amount})). The reader takes
-# the signature and the topics from the constructor's field types, and the
-# certificate checks that the encoder gives the same log.
-def emit(l: Log) -> Contract(Unit):
+# Logs an event, as in Evm.emit(ERC20.Transfer(from, to, amount)), where an
+# event is a def from its fields to Evm.Event. The reader takes the signature
+# and the topics from the def's parameter types, and the certificate checks
+# that its body gives the same log.
+def emit(l: Event) -> Contract(Unit):
   match l:
     case Log{event, topics, data}:
       log(event, topics, data)

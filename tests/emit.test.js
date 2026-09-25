@@ -4,20 +4,21 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { run } from './chain.js';
 
-// Typed events: Evm.emit(encode(Event{...})).
+// Events: Evm.emit(Event(...)) with a def whose result type is Evm.Event.
 const root = path.resolve(import.meta.dir, '..');
 const host = 'vendor/bend-frontend/host/run.js';
 
 test('compile rejects events that the ABI cannot encode', () => {
   for (const [name, error] of [['late', 'Indexed event fields must come before the others'],
-    ['wide', 'at most three indexed words'], ['raw', 'Evm.emit takes an encoder applied to an event constructor']]) {
+    ['wide', 'at most three indexed words'], ['raw', 'a def whose result type is Evm.Event'],
+    ['plain', 'a def whose result type is Evm.Event']]) {
     const result = run(process.execPath, host, 'src/compile.bend', 'tests/fixtures/emit/bad.bend', name);
     expect(result.ok).toBe(false);
     expect(result.err).toContain(error);
   }
 }, 120_000);
 
-test('an encoder that disagrees with its event type fails the certificate', () => {
+test('an event whose body disagrees with its parameters fails the certificate', () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'bend-evm-emit-'));
   try {
     for (const file of ['src/Evm.bend', 'src/ir.bend', 'tests/fixtures/emit']) {

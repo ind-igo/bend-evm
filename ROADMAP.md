@@ -188,11 +188,11 @@ Solmate's `permit`: an owner approves a spender with a signature, and anyone can
 
 ## M14: typed events and a smaller ERC-20 core
 
-An event is a constructor of a Bend type, not a signature string at each log. The model cannot read a value's type, so an encoder def gives each event's `Evm.Log`, and the reader and the certificate keep it honest.
+An event is declared once, with its field types, like Solidity's `event` line, and emitted like Solidity's `emit`. Bend has no `event` keyword and a Bend function cannot see its own name or parameter types, so an event is a def whose result type marks it and whose body is its log; the reader and the certificate keep the body honest.
 
 ### Done when
 
-- [x] `Evm.Indexed(A)` marks an indexed field, and `Evm.emit(encode(Event{...}))` logs an event. The reader finds the constructor's declaration and makes the signature, the topics and the data from its field types; indexed fields come first, at most three. The certificate proves the encoder's log equal to the reader's by `{==}`, so a wrong encoder does not build (tests/emit.test.js).
-- [x] [lib/ERC20.bend](lib/ERC20.bend) is only the ERC-20 core: named storage slots, an `Events` type with `Transfer` and `Approval`, the standard functions, and internal `mint` and `burn`, with one helper, `move`. `permit`, `nonces`, `DOMAIN_SEPARATOR` and the owner move to the example token, with their own slots and `OwnershipTransferred` event. The token's laws did not change and still hold.
+- [x] `Evm.Event` is the result type of an event def, `Evm.Indexed(A)` marks an indexed parameter, and `Evm.emit(Transfer(from, to, amount))` logs an event. The reader takes only a def written with `Evm.Event`, and makes the signature, the topics and the data from its parameter types and its name; indexed parameters come first, at most three. The certificate proves the body's log equal to the reader's by `{==}`, so a body that disagrees does not build (tests/emit.test.js).
+- [x] [lib/ERC20.bend](lib/ERC20.bend) is only the ERC-20 core: named storage slots, the `Transfer` and `Approval` events, the standard functions, and internal `mint` and `burn`, with one helper, `move`. `permit`, `nonces`, `DOMAIN_SEPARATOR` and the owner move to the example token, with their own slots and `OwnershipTransferred` event. The token's laws did not change and still hold.
 
-Not in M14: custom errors (every revert is `revert(0, 0)`), a generated encoder, and field names in the ABI JSON.
+Not in M14: custom errors (every revert is `revert(0, 0)`), and parameter names in the ABI JSON.
