@@ -174,3 +174,23 @@ Solmate's `permit`: an owner approves a spender with a signature, and anyone can
 - [x] The IR has `timestamp`, `chainid`, `self`, `keccak(words)`, `typed(domain, message)` (the EIP-712 digest), `id(text)` and `recover(digest, v, r, s)`, and conditions have `Not`. One lemma shows that a lowered test is 1 exactly when its condition holds, so the preservation proof covers nested conditions.
 - [x] `ERC20.permit`, `nonces` and `domain`; the token's laws for them prove by `{==}`, and `supply_sum` covers `permit`.
 - [x] The token test signs permits with `cast`: a good one, a replay, an expired one, a wrong signer, and a junk signature for the zero owner. The differential test adds permits to the Solidity reference; when the reference does not use up the nonce, the test fails (checked by hand).
+
+## M13: branches
+
+`select` picks a value, but a contract cannot run different effects on each side of a condition. The continuation cannot be copied into both branches, so the IR needs a join point that both branches continue to.
+
+### Done when
+
+- [ ] A contract can branch on a condition with different effects on each side, and the laws for it prove by `{==}`.
+- [ ] The preservation proof covers the branch.
+- [ ] `transferFrom` with a max allowance skips the store, as solmate does, and `bun run gas` shows it at or below optimized Solidity (37159 against 36964 now).
+
+## M13: branches
+
+`select` picks a value, but a contract cannot run different effects on each side of a condition. The continuation cannot be copied into both branches, so the IR needs a join point that both branches continue to.
+
+### Done when
+
+- [ ] A contract can branch on a condition with different effects on each side, and the laws for it prove by `{==}`.
+- [ ] The preservation proof covers the branch.
+- [ ] `transferFrom` with a max allowance skips the store, as solmate does, and `bun run gas` shows it at or below optimized Solidity (37159 against 36964 now).

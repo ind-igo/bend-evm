@@ -46,6 +46,27 @@ cast send --rpc-url $RPC --private-key $KEY --create "0x$(cat build/Token.bin)${
 
 `build` writes the Yul, the bytecode (`.bin`) and the ABI (`.abi.json`) only when the contract's certificate and `PROOF.bend` check; wallets and `cast` read the token through the ABI. A string entry such as `name()` is a constant with no parameters. `Evm.Uint8` and `Evm.Boolean` are words with those ABI types. The dispatcher reverts when a parameter is out of range, but a result goes out as it is, so the function must keep it in range (the model has no check that a compiled check could match); `Evm.Bytes32` is any word, with the ABI type `bytes32`.
 
+## Gas
+
+`bun run gas` ([scripts/gas.js](scripts/gas.js)) runs the same transactions on the token and on the Solidity reference, without and with the solc optimizer (1,000,000 runs, as in solmate), and prints the receipts' `gasUsed`. These numbers include the 21,000 base cost and the calldata cost. They are from solc 0.8.33 on `anvil`:
+
+| | Bend | Bend, optimized | Solidity | Solidity, optimized |
+|---|---:|---:|---:|---:|
+| deploy | 511723 | 470534 | 1293946 | 873554 |
+| mint to a new holder | 70248 | 70243 | 71137 | 70424 |
+| mint to a holder | 36048 | 36043 | 36937 | 36224 |
+| transfer to a new holder | 51175 | 51140 | 52045 | 51252 |
+| transfer to a holder | 34075 | 34040 | 34945 | 34152 |
+| approve | 46032 | 46036 | 46685 | 46102 |
+| transferFrom, finite allowance | 40045 | 39951 | 41182 | 40087 |
+| approve max | 29292 | 29296 | 29945 | 29362 |
+| transferFrom, max allowance | 37270 | 37159 | 37908 | 36964 |
+| burn | 33538 | 33536 | 34156 | 33604 |
+| permit | 73797 | 73836 | 77585 | 74384 |
+| runtime code (bytes) | 1967 | 1778 | 5554 | 3639 |
+
+The Bend token uses a little less gas than optimized Solidity, except for `transferFrom` with a max allowance. There, solmate skips the store with `if`. The Bend base has no branch around an effect, so it writes the unchanged allowance back, which costs about 300 gas. `bun run build` does not use the optimizer: it changes little gas, and the tests run the code that is not optimized.
+
 ## Use
 
 Requires Git and Bun. The tests also need `solc`, `anvil` and `cast`.
