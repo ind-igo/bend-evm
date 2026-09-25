@@ -3,22 +3,9 @@ import ./Evm.bend as Evm
 import ./ir.bend as IR
 import ./yul.bend as Yul
 import ./LAWS.bend as Laws
+import ./nat.bend as N
 
 # Nat facts for the overflow check. Each is proved by induction.
-
-def disc(+b: Bool) -> Type:
-  match b:
-    case True{}:
-      Unit
-    case False{}:
-      Empty
-
-def never(+e: {True{} == False{} : Bool}) -> Empty:
-  %e : disc(_)
-  Unit{}
-
-def absurd(-A: Type, +e: {True{} == False{} : Bool}) -> A:
-  Empty.absurd(A, never(e))
 
 def lt_zero(+n: Nat) -> {False{} == Nat.is_lt(n, 0n) : Bool}:
   match n:
@@ -41,19 +28,12 @@ def lt_irrefl(+n: Nat) -> {False{} == Nat.is_lt(n, n) : Bool}:
     case 1n+(+p):
       lt_irrefl(p)
 
-def sub_zero(+n: Nat) -> {n == Nat.sub(n, 0n) : Nat}:
-  match n:
-    case 0n:
-      {==}
-    case 1n+_:
-      {==}
-
 def lt_step(+x: Nat, +n: Nat, +e: {True{} == Nat.is_lt(x, n) : Bool}) -> {True{} == Nat.is_lt(x, 1n+n) : Bool}:
   match x n:
     case 0n _:
       {==}
     case 1n+(+y) 0n:
-      absurd({True{} == Nat.is_lt(1n+y, 1n) : Bool}, e)
+      N.absurd({True{} == Nat.is_lt(1n+y, 1n) : Bool}, e)
     case 1n+(+y) 1n+(+m):
       lt_step(y, m, e)
 
@@ -78,7 +58,7 @@ def flip(+a: Nat, +p: Nat, +e: {True{} == Nat.is_lt(a, 1n+p) : Bool}) -> {False{
     case 0n +q:
       lt_zero(q)
     case 1n+(+c) 0n:
-      absurd({False{} == Nat.is_lt(0n, 1n+c) : Bool}, lt_one(c, e))
+      N.absurd({False{} == Nat.is_lt(0n, 1n+c) : Bool}, lt_one(c, e))
     case 1n+(+c) 1n+(+q):
       flip(c, q, e)
 
@@ -99,10 +79,10 @@ def key(+a: Nat, +p: Nat, +b: Nat, +e: {True{} == Nat.is_lt(a, 1n+p) : Bool}) ->
   {Bool.not(Nat.is_lt(Nat.add(a, b), 1n+p)) == Nat.is_lt(Nat.sub(p, a), b) : Bool}:
   match a p:
     case 0n +q:
-      %sub_zero(q) : {Bool.not(Nat.is_lt(b, 1n+q)) == Nat.is_lt(_, b) : Bool}
+      %N.sub_zero(q) : {Bool.not(Nat.is_lt(b, 1n+q)) == Nat.is_lt(_, b) : Bool}
       lt_flip(q, b)
     case 1n+(+c) 0n:
-      absurd({Bool.not(Nat.is_lt(Nat.add(1n+c, b), 1n)) == Nat.is_lt(Nat.sub(0n, 1n+c), b) : Bool}, lt_one(c, e))
+      N.absurd({Bool.not(Nat.is_lt(Nat.add(1n+c, b), 1n)) == Nat.is_lt(Nat.sub(0n, 1n+c), b) : Bool}, lt_one(c, e))
     case 1n+(+c) 1n+(+q):
       key(c, q, b, e)
 
@@ -111,7 +91,7 @@ def add_ge(+a: Nat, +b: Nat, +l: Nat, +e: {False{} == Nat.is_lt(a, l) : Bool}) -
     case 0n 0n:
       lt_zero(b)
     case 0n 1n+(+m):
-      absurd({False{} == Nat.is_lt(b, 1n+m) : Bool}, Equal.sym(Bool, False{}, True{}, e))
+      N.absurd({False{} == Nat.is_lt(b, 1n+m) : Bool}, Equal.sym(Bool, False{}, True{}, e))
     case 1n+_ 0n:
       {==}
     case 1n+(+c) 1n+(+m):
@@ -135,7 +115,7 @@ def not_zero(+p: Nat) -> {p == Yul.not(0n, 1n+p) : Nat}:
 def lt_over(+a: Nat, +p: Nat, +e: {False{} == Nat.is_lt(a, 1n+p) : Bool}) -> {True{} == Nat.is_lt(p, a) : Bool}:
   match a p:
     case 0n +q:
-      absurd({True{} == Nat.is_lt(q, 0n) : Bool}, Equal.sym(Bool, False{}, True{}, e))
+      N.absurd({True{} == Nat.is_lt(q, 0n) : Bool}, Equal.sym(Bool, False{}, True{}, e))
     case 1n+_ 0n:
       {==}
     case 1n+(+c) 1n+(+q):

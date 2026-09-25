@@ -146,3 +146,103 @@ law transferOwnership:
       Evm.Ok{Unit{}, Evm.State{Evm.Slot{Evm.Plain{3n}, next} <> storage, who, limit,
         Evm.Log{"OwnershipTransferred(address,address)", [owner_of(storage), next], []} <> logs}},
       Evm.Revert{}) : Evm.Outcome<Unit>}
+
+# Supply across calls. A Call is one call to a function that can change
+# storage; the view functions change nothing (see their laws). A call that
+# reverts keeps the state.
+type Call is Data:
+  Transfer{who: Nat, to: Nat, amount: Nat}
+  Mint{who: Nat, to: Nat, amount: Nat}
+  Approve{who: Nat, spender: Nat, amount: Nat}
+  TransferFrom{who: Nat, from: Nat, to: Nat, amount: Nat}
+  TransferOwnership{who: Nat, next: Nat}
+
+def after(-A: Data, o: Evm.Outcome<A>, s: Evm.State) -> Evm.State:
+  match o:
+    case Evm.Ok{_, t}:
+      t
+    case Evm.Revert{}:
+      s
+
+def as(+who: Nat, s: Evm.State) -> Evm.State:
+  match s:
+    case Evm.State{storage, _, limit, logs}:
+      Evm.State{storage, who, limit, logs}
+
+def step(c: Call, +s: Evm.State) -> Evm.State:
+  match c:
+    case Transfer{+who, +to, +amount}:
+      after(Nat, Evm.run(Nat, Token.transfer(to, amount), as(who, s)), s)
+    case Mint{+who, +to, +amount}:
+      after(Unit, Evm.run(Unit, Token.mint(to, amount), as(who, s)), s)
+    case Approve{+who, +spender, +amount}:
+      after(Nat, Evm.run(Nat, Token.approve(spender, amount), as(who, s)), s)
+    case TransferFrom{+who, +from, +to, +amount}:
+      after(Nat, Evm.run(Nat, Token.transferFrom(from, to, amount), as(who, s)), s)
+    case TransferOwnership{+who, +next}:
+      after(Unit, Evm.run(Unit, Token.transferOwnership(next), as(who, s)), s)
+
+def trace(calls: List<&2, Call>, +s: Evm.State) -> Evm.State:
+  match calls:
+    case Nil{}:
+      s
+    case +c <> rest:
+      trace(rest, step(c, s))
+
+# The state after `deployer` deploys the token with an initial supply.
+def deployed(+deployer: Nat, +limit: Nat, +initial: Nat) -> Evm.State:
+  after(Unit, Evm.run(Unit, Token.init(initial), Evm.State{[], deployer, limit, []}), Evm.State{[], deployer, limit, []})
+
+# The balances of a list of accounts, summed.
+def holdings(+storage: List<&2, Evm.Slot>, accounts: List<&2, Nat>) -> Nat:
+  match accounts:
+    case Nil{}:
+      0n
+    case +a <> rest:
+      Nat.add(balance(storage, a), holdings(storage, rest))
+
+def count(+who: Nat, accounts: List<&2, Nat>) -> Nat:
+  match accounts:
+    case Nil{}:
+      0n
+    case +a <> +rest:
+      Bool.pick(Nat, Nat.is_eq(who, a), 1n+count(who, rest), count(who, rest))
+
+def balanced(s: Evm.State, +accounts: List<&2, Nat>) -> Bool:
+  match s:
+    case Evm.State{+storage, _, _, _}:
+      Nat.is_eq(supply(storage), holdings(storage, accounts))
+
+# Each account whose balance the call can change is in the list once.
+def listed(c: Call, +accounts: List<&2, Nat>) -> Bool:
+  match c:
+    case Transfer{+who, +to, _}:
+      Bool.and(Nat.is_eq(1n, count(who, accounts)), Nat.is_eq(1n, count(to, accounts)))
+    case Mint{_, +to, _}:
+      Nat.is_eq(1n, count(to, accounts))
+    case TransferFrom{_, +from, +to, _}:
+      Bool.and(Nat.is_eq(1n, count(from, accounts)), Nat.is_eq(1n, count(to, accounts)))
+    case _:
+      True{}
+
+def all_listed(calls: List<&2, Call>, +accounts: List<&2, Nat>) -> Bool:
+  match calls:
+    case Nil{}:
+      True{}
+    case +c <> rest:
+      Bool.and(listed(c, accounts), all_listed(rest, accounts))
+
+# From deployment, after any calls by anyone, the total supply is the sum of
+# the balances of any list of accounts that has the deployer and every
+# sender and receiver once. The list of every address below 2^160 is such a
+# list (the dispatcher rejects larger addresses), so the total supply is the
+# sum of all balances. The proof does not use the limit, so it holds at
+# 2^256.
+law supply_sum:
+  for +calls: List<&2, Call>
+  for +accounts: List<&2, Nat>
+  for +deployer: Nat
+  for +limit: Nat
+  for +initial: Nat
+  for +e: {True{} == Bool.and(Nat.is_eq(1n, count(deployer, accounts)), all_listed(calls, accounts)) : Bool}
+  {True{} == balanced(trace(calls, deployed(deployer, limit, initial)), accounts) : Bool}

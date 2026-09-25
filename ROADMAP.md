@@ -136,3 +136,15 @@ Not in M8: words at 2^256. The Bend runtime holds words below 2^48, so the model
 - [x] The deploy code reverts when fewer ABI words follow it than `init` has parameters, copies them to memory, and reads them before the body runs (the body uses memory for `mapped`). An `address` argument above 2^160 reverts, as in the dispatcher.
 - [x] The token law for `init` states the supply, the balance and both logs, for any state, by `{==}`.
 - [x] The differential test deploys with a random supply, and a test deploys with 0, 31 and 32 bytes of arguments.
+
+## M10: the total supply is the sum of the balances
+
+The first law over many calls. From deployment, after any list of calls by anyone, `totalSupply` equals the sum of the balances.
+
+### Done when
+
+- [x] `law supply_sum` in [examples/token/LAWS.bend](examples/token/LAWS.bend) states it for any list of accounts that has the deployer and each sender and receiver exactly once, such as the list of every address. It needs no de-duplication of storage keys: each step is a lookup and Nat arithmetic.
+- [x] The proof shows what one transfer and one mint do to each balance, sums that over the list, and shows that `approve` and `transferOwnership` write no balance. The proof never uses the limit, so it holds at 2^256.
+- [x] With `transfer` changed to credit one more than it debits, the supply proof alone fails (checked by hand, apart from the other laws, which fail too).
+
+Not in M10: view calls in the sequence (they write no storage, as their laws show), and a law that names the sum over all 2^160 addresses directly.
