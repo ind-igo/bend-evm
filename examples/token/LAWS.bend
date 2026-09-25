@@ -67,6 +67,22 @@ law mint:
         Evm.Revert{}),
       Evm.Revert{}) : Evm.Outcome<Unit>}
 
+# A burn lowers the caller's balance and the supply; it reverts unless both
+# cover the amount.
+law burn:
+  for +storage: List<&2, Evm.Slot>
+  for +who: Nat
+  for limit: Nat
+  for logs: List<&2, Evm.Log>
+  for +amount: Nat
+  {Evm.run(Unit, Token.burn(amount), Evm.State{storage, who, limit, logs})
+    == Bool.pick(Evm.Outcome<Unit>, Nat.is_lt(balance(storage, who), amount),
+      Evm.Revert{},
+      Bool.pick(Evm.Outcome<Unit>, Nat.is_lt(supply(storage), amount),
+        Evm.Revert{},
+        Evm.Ok{Unit{}, Evm.State{Evm.Slot{Evm.Plain{0n}, Nat.sub(supply(storage), amount)} <> debit(storage, who, amount),
+          who, limit, Evm.Log{"Transfer(address,address,uint256)", [who, 0n], [amount]} <> logs}})) : Evm.Outcome<Unit>}
+
 law allowance:
   for +storage: List<&2, Evm.Slot>
   for who: Nat
@@ -162,6 +178,7 @@ type Call is Data:
   Approve{who: Nat, spender: Nat, amount: Nat}
   TransferFrom{who: Nat, from: Nat, to: Nat, amount: Nat}
   TransferOwnership{who: Nat, next: Nat}
+  Burn{who: Nat, amount: Nat}
 
 def after(-A: Data, o: Evm.Outcome<A>, s: Evm.State) -> Evm.State:
   match o:
@@ -187,6 +204,8 @@ def step(c: Call, +s: Evm.State) -> Evm.State:
       after(Nat, Evm.run(Nat, Token.transferFrom(from, to, amount), as(who, s)), s)
     case TransferOwnership{+who, +next}:
       after(Unit, Evm.run(Unit, Token.transferOwnership(next), as(who, s)), s)
+    case Burn{+who, +amount}:
+      after(Unit, Evm.run(Unit, Token.burn(amount), as(who, s)), s)
 
 def trace(calls: List<&2, Call>, +s: Evm.State) -> Evm.State:
   match calls:
@@ -228,6 +247,8 @@ def listed(c: Call, +accounts: List<&2, Nat>) -> Bool:
       Nat.is_eq(1n, count(to, accounts))
     case TransferFrom{_, +from, +to, _}:
       Bool.and(Nat.is_eq(1n, count(from, accounts)), Nat.is_eq(1n, count(to, accounts)))
+    case Burn{+who, _}:
+      Nat.is_eq(1n, count(who, accounts))
     case _:
       True{}
 

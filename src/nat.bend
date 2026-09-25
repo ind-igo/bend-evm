@@ -121,3 +121,11 @@ def eq_refl(+x: Nat) -> {True{} == Nat.is_eq(x, x) : Bool}:
       {==}
     case 1n+(+p):
       eq_refl(p)
+
+# (k + x) - k = x.
+def sub_add_cancel(+x: Nat, +k: Nat) -> {x == Nat.sub(Nat.add(k, x), k) : Nat}:
+  match k:
+    case 0n:
+      sub_zero(x)
+    case 1n+(+j):
+      sub_add_cancel(x, j)

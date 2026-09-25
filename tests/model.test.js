@@ -27,6 +27,7 @@ const functions = {
   allowance: ['allowance(address,address)(uint256)', [true, true]],
   approve: ['approve(address,uint256)(uint256)', [true, false]],
   transferFrom: ['transferFrom(address,address,uint256)(uint256)', [true, true, false]],
+  burn: ['burn(uint256)', [false]],
 };
 const views = new Set(['owner', 'totalSupply', 'balanceOf', 'allowance']);
 const events = Object.fromEntries(['Transfer(address,address,uint256)', 'Approval(address,address,uint256)',
@@ -57,6 +58,7 @@ function sequence(random, length) {
       { who, name: 'approve', args: [a, random() < 0.5 ? limit - 1n : amount()] },
       { who, name: 'transferFrom', args: [a, b, amount()] },
       { who, name: 'transferFrom', args: [a, b, amount()] },
+      { who, name: 'burn', args: [amount()] },
       { who, name: 'balanceOf', args: [a] },
       { who, name: 'allowance', args: [a, b] },
       { who, name: 'totalSupply', args: [] },
@@ -125,6 +127,7 @@ test(`anvil agrees with the Bend model on random calls (SEED=${seed})`, () => {
   expect(text).toMatch(/revert/);
   expect(text).toMatch(new RegExp(`Approval\\S* \\d+ \\d+ \\| ${limit - 1n}`));
   expect(text).toMatch(/log Transfer\S* [1-9]\d* \d+ \| [1-9]/);
+  expect(text).toMatch(/log Transfer\S* [1-9]\d* 0 \| [1-9]/);
 }, 300_000);
 
 test('the constructor reverts without its argument', () => {

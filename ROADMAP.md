@@ -160,4 +160,6 @@ A token that someone can write, deploy and use from a wallet, after solmate's ER
 - [x] [lib/ERC20.bend](lib/ERC20.bend) is the base, and the example token uses it. Its laws, including `supply_sum`, still hold; `init` now mints, so its law states the overflow checks.
 - [x] The token test deploys the output of `bun run build --out`, reads the name, symbol and decimals with `cast`, and checks the ABI with `cast interface`.
 
-Not in M11 yet: `permit` (EIP-2612), and a test of `burn`.
+- [x] Holders can `burn`; its law, the supply proof and both chain tests cover it.
+
+Not in M11 yet: `permit` (EIP-2612).

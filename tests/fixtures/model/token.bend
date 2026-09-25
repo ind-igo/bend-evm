@@ -77,6 +77,8 @@ def one(name: String, +who: Nat, +a: Nat, +b: Nat, +c: Nat, s: Evm.State) -> Ste
       call(Nat, show.word, Token.approve(a, b), who, s)
     case "transferFrom":
       call(Nat, show.word, Token.transferFrom(a, b, c), who, s)
+    case "burn":
+      call(Unit, show.unit, Token.burn(a), who, s)
     case _:
       Step{"unknown\n", s}
 

@@ -14,7 +14,7 @@ contract.bend ─ Frontend.check ─ read ─→ IR ─ lower ─→ Yul ─ sol
 
 ## Write an ERC-20
 
-[lib/ERC20.bend](lib/ERC20.bend) is an ERC-20 base, after solmate's: the standard functions and events, and internal `mint` and `burn`. A token imports it, gives its name, symbol and decimals, and exposes each function with a one-line def. [examples/token/program.bend](examples/token/program.bend) is a complete token: the deployer owns it and receives the initial supply, and the owner can mint.
+[lib/ERC20.bend](lib/ERC20.bend) is an ERC-20 base, after solmate's: the standard functions and events, and internal `mint` and `burn`. A token imports it, gives its name, symbol and decimals, and exposes each function with a one-line def. [examples/token/program.bend](examples/token/program.bend) is a complete token: the deployer owns it and receives the initial supply, the owner can mint, and holders can burn.
 
 ```bend
 import ../../lib/ERC20.bend as ERC20
@@ -38,7 +38,7 @@ Build it, then deploy the bytecode with the constructor arguments after it:
 
 ```sh
 bun run build --out build/Token examples/token/program.bend name symbol decimals init owner \
-  transferOwnership totalSupply balanceOf transfer mint allowance approve transferFrom
+  transferOwnership totalSupply balanceOf transfer mint burn allowance approve transferFrom
 ARGS=$(cast abi-encode "constructor(uint256)" 1000000000000000000000000)
 cast send --rpc-url $RPC --private-key $KEY --create "0x$(cat build/Token.bin)${ARGS#0x}"
 ```
@@ -58,7 +58,7 @@ bun run build examples/counter/program.bend get increment decrement set > build/
 solc --strict-assembly --evm-version shanghai --bin build/Counter.yul
 ```
 
-[tests/counter.test.js](tests/counter.test.js) and [tests/token.test.js](tests/token.test.js) deploy the examples on `anvil` and call them through the standard ABI. The token's functions are `name symbol decimals init owner transferOwnership totalSupply balanceOf transfer mint allowance approve transferFrom`. An entry named `init` is the constructor: it returns `Unit` and runs in the deploy code, so the deployer is `caller()`. Its parameters are the ABI words that follow the deploy code, as in Solidity; the token's `init(supply)` gives the initial supply to the deployer.
+[tests/counter.test.js](tests/counter.test.js) and [tests/token.test.js](tests/token.test.js) deploy the examples on `anvil` and call them through the standard ABI. The token's functions are `name symbol decimals init owner transferOwnership totalSupply balanceOf transfer mint burn allowance approve transferFrom`. An entry named `init` is the constructor: it returns `Unit` and runs in the deploy code, so the deployer is `caller()`. Its parameters are the ABI words that follow the deploy code, as in Solidity; the token's `init(supply)` gives the initial supply to the deployer.
 
 The frontend is a submodule at `vendor/bend-frontend`, and it pins Bend at `vendor/bend-frontend/vendor/bend`. Its `host/run.js` launches the Bend drivers here with the checker attached, and keeps compiled tools in `vendor/bend-frontend/build/cache`. See [Connecting Bend to backends](https://github.com/ind-igo/bend-frontend/blob/main/docs/backends.md) for how a backend uses the frontend, and the frontend's README for what it trusts.
 

@@ -113,6 +113,23 @@ law mint:
 def mint(p0, p1):
   {==}
 
+def ir.burn() -> IR.Cmd:
+  IR.Bind{IR.Caller{}, 1n,
+    IR.Bind{IR.SLoad{IR.Mapped{IR.Plain{IR.Lit{1n}}, IR.Var{1n}}}, 9n,
+    IR.Bind{IR.Sub{IR.Var{9n}, IR.Var{0n}}, 10n,
+    IR.Then{IR.SStore{IR.Mapped{IR.Plain{IR.Lit{1n}}, IR.Var{1n}}, IR.Var{10n}},
+    IR.Bind{IR.SLoad{IR.Plain{IR.Lit{0n}}}, 12n,
+    IR.Bind{IR.Sub{IR.Var{12n}, IR.Var{0n}}, 13n,
+    IR.Then{IR.SStore{IR.Plain{IR.Lit{0n}}, IR.Var{13n}},
+    IR.Finish{IR.Log{"Transfer(address,address,uint256)", [IR.Var{1n}, IR.Lit{0n}], [IR.Var{0n}]}}}}}}}}}
+
+law burn:
+  for +p0: Nat
+  {IR.call(ir.burn(), IR.Stops{}, [IR.Binding{0n, p0}]) == Program.burn(p0) : Evm.Contract(Unit)}
+
+def burn(p0):
+  {==}
+
 def ir.allowance() -> IR.Cmd:
   IR.Tail{IR.SLoad{IR.Mapped{IR.Mapped{IR.Plain{IR.Lit{2n}}, IR.Var{0n}}, IR.Var{1n}}}}
 

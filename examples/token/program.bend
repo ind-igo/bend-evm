@@ -3,8 +3,8 @@ import ../../src/Evm.bend as Evm
 import ../../lib/ERC20.bend as ERC20
 
 # A mintable ERC-20 on the ERC20 base. The deployer owns it and receives the
-# initial supply, and the owner can mint more, as with OpenZeppelin's
-# Ownable. Slot 3 holds the owner.
+# initial supply, the owner can mint more, as with OpenZeppelin's Ownable,
+# and holders can burn. Slot 3 holds the owner.
 
 def name() -> String:
   "Bend Token"
@@ -54,6 +54,12 @@ def transferOwnership(+next: Evm.Address) -> Evm.Contract(Unit):
     Evm.require(Nat.is_eq(who, boss))
     Evm.sstore(3n, next)
     Evm.log(ownership_event(), [boss, next], [])
+
+# A holder destroys some of its own tokens.
+def burn(+amount: Nat) -> Evm.Contract(Unit):
+  do Evm.Contract<Unit>:
+    +who : Nat <- Evm.caller()
+    ERC20.burn(who, amount)
 
 def mint(+to: Evm.Address, +amount: Nat) -> Evm.Contract(Unit):
   do Evm.Contract<Unit>:

@@ -9,6 +9,9 @@ def Laws.transfer(storage, from, limit, logs, to, amount):
 def Laws.mint(storage, who, limit, logs, to, amount):
   {==}
 
+def Laws.burn(storage, who, limit, logs, amount):
+  {==}
+
 def Laws.allowance(storage, who, limit, logs, holder, spender):
   {==}
 
@@ -405,6 +408,78 @@ def keeps.transferFrom(+storage: List<&2, Evm.Slot>, +caller: Nat, +limit: Nat, 
           h, e, cf, ct),
         _ => h)))
 
+# A burn debits the caller: the listed holdings fall by the amount.
+def burn_sum(+storage: List<&2, Evm.Slot>, +who: Nat, +amount: Nat, +accounts: List<&2, Nat>,
+  +e: {False{} == Nat.is_lt(Laws.balance(storage, who), amount) : Bool}) ->
+  {Nat.add(Laws.holdings(Laws.debit(storage, who, amount), accounts), hits(who, amount, accounts)) == Laws.holdings(storage, accounts) : Nat}:
+  match accounts:
+    case Nil{}:
+      {==}
+    case +a <> +rest:
+      %Equal.sym(Nat, Nat.add(Nat.add(Laws.balance(Laws.debit(storage, who, amount), a), Laws.holdings(Laws.debit(storage, who, amount), rest)),
+          Nat.add(gain(who, amount, a), hits(who, amount, rest))),
+        Nat.add(Nat.add(Laws.balance(Laws.debit(storage, who, amount), a), gain(who, amount, a)),
+          Nat.add(Laws.holdings(Laws.debit(storage, who, amount), rest), hits(who, amount, rest))),
+        N.swap4(Laws.balance(Laws.debit(storage, who, amount), a), Laws.holdings(Laws.debit(storage, who, amount), rest),
+          gain(who, amount, a), hits(who, amount, rest))) :
+        {_ == Nat.add(Laws.balance(storage, a), Laws.holdings(storage, rest)) : Nat}
+      %Equal.trans(Nat, Laws.balance(storage, a), Nat.add(Laws.balance(storage, a), 0n),
+        Nat.add(Laws.balance(Laws.debit(storage, who, amount), a), gain(who, amount, a)),
+        Equal.sym(Nat, Nat.add(Laws.balance(storage, a), 0n), Laws.balance(storage, a), N.add_zero(Laws.balance(storage, a))),
+        Equal.sym(Nat, Nat.add(Laws.balance(Laws.debit(storage, who, amount), a), gain(who, amount, a)), Nat.add(Laws.balance(storage, a), 0n),
+          off(storage, who, amount, a, e, Nat.is_eq(who, a), {==}))) :
+        {Nat.add(_, Nat.add(Laws.holdings(Laws.debit(storage, who, amount), rest), hits(who, amount, rest)))
+          == Nat.add(Laws.balance(storage, a), Laws.holdings(storage, rest)) : Nat}
+      %burn_sum(storage, who, amount, rest, e) :
+        {Nat.add(Laws.balance(storage, a), Nat.add(Laws.holdings(Laws.debit(storage, who, amount), rest), hits(who, amount, rest)))
+          == Nat.add(Laws.balance(storage, a), _) : Nat}
+      {==}
+
+def burn_total(+storage: List<&2, Evm.Slot>, +who: Nat, +amount: Nat, +accounts: List<&2, Nat>,
+  +e: {False{} == Nat.is_lt(Laws.balance(storage, who), amount) : Bool}, +c: {1n == Laws.count(who, accounts) : Nat}) ->
+  {Nat.add(Laws.holdings(Laws.debit(storage, who, amount), accounts), amount) == Laws.holdings(storage, accounts) : Nat}:
+  %Equal.sym(Nat, amount, hits(who, amount, accounts), hits_once(who, amount, accounts, c)) :
+    {Nat.add(Laws.holdings(Laws.debit(storage, who, amount), accounts), _) == Laws.holdings(storage, accounts) : Nat}
+  burn_sum(storage, who, amount, accounts, e)
+
+def ok.burn(+storage: List<&2, Evm.Slot>, +who: Nat, +amount: Nat, +limit: Nat, +logs: List<&2, Evm.Log>,
+  -s: Evm.State, +accounts: List<&2, Nat>,
+  +h: {True{} == Nat.is_eq(Laws.supply(storage), Laws.holdings(storage, accounts)) : Bool},
+  +e: {False{} == Nat.is_lt(Laws.balance(storage, who), amount) : Bool}, +c: {1n == Laws.count(who, accounts) : Nat}) ->
+  {True{} == Laws.balanced(Laws.after(Unit, Evm.Ok{Unit{}, Evm.State{Evm.Slot{Evm.Plain{0n}, Nat.sub(Laws.supply(storage), amount)}
+    <> Laws.debit(storage, who, amount), who, limit, Evm.Log{"Transfer(address,address,uint256)", [who, 0n], [amount]} <> logs}}, s),
+    accounts) : Bool}:
+  %skip_plain(Laws.debit(storage, who, amount), 0n, Nat.sub(Laws.supply(storage), amount), accounts) :
+    {True{} == Nat.is_eq(Nat.sub(Laws.supply(storage), amount), _) : Bool}
+  %Equal.sym(Nat, Laws.supply(storage), Laws.holdings(storage, accounts),
+    N.eq_sound(Laws.supply(storage), Laws.holdings(storage, accounts), h)) :
+    {True{} == Nat.is_eq(Nat.sub(_, amount), Laws.holdings(Laws.debit(storage, who, amount), accounts)) : Bool}
+  %burn_total(storage, who, amount, accounts, e, c) :
+    {True{} == Nat.is_eq(Nat.sub(_, amount), Laws.holdings(Laws.debit(storage, who, amount), accounts)) : Bool}
+  %N.add_comm(amount, Laws.holdings(Laws.debit(storage, who, amount), accounts)) :
+    {True{} == Nat.is_eq(Nat.sub(_, amount), Laws.holdings(Laws.debit(storage, who, amount), accounts)) : Bool}
+  %N.sub_add_cancel(Laws.holdings(Laws.debit(storage, who, amount), accounts), amount) :
+    {True{} == Nat.is_eq(_, Laws.holdings(Laws.debit(storage, who, amount), accounts)) : Bool}
+  N.eq_refl(Laws.holdings(Laws.debit(storage, who, amount), accounts))
+
+def keeps.burn(+storage: List<&2, Evm.Slot>, +caller: Nat, +limit: Nat, +logs: List<&2, Evm.Log>,
+  +who: Nat, +amount: Nat, +accounts: List<&2, Nat>,
+  +h: {True{} == Nat.is_eq(Laws.supply(storage), Laws.holdings(storage, accounts)) : Bool},
+  +c: {1n == Laws.count(who, accounts) : Nat}) ->
+  {True{} == Laws.balanced(Laws.step(Laws.Burn{who, amount}, Evm.State{storage, caller, limit, logs}), accounts) : Bool}:
+  keep_pick(Unit, Nat.is_lt(Laws.balance(storage, who), amount), Evm.Revert{},
+    Bool.pick(Evm.Outcome<Unit>, Nat.is_lt(Laws.supply(storage), amount), Evm.Revert{},
+      Evm.Ok{Unit{}, Evm.State{Evm.Slot{Evm.Plain{0n}, Nat.sub(Laws.supply(storage), amount)} <> Laws.debit(storage, who, amount),
+        who, limit, Evm.Log{"Transfer(address,address,uint256)", [who, 0n], [amount]} <> logs}}),
+    Evm.State{storage, caller, limit, logs}, accounts,
+    _ => h,
+    e => keep_pick(Unit, Nat.is_lt(Laws.supply(storage), amount), Evm.Revert{},
+      Evm.Ok{Unit{}, Evm.State{Evm.Slot{Evm.Plain{0n}, Nat.sub(Laws.supply(storage), amount)} <> Laws.debit(storage, who, amount),
+        who, limit, Evm.Log{"Transfer(address,address,uint256)", [who, 0n], [amount]} <> logs}},
+      Evm.State{storage, caller, limit, logs}, accounts,
+      _ => h,
+      _ => ok.burn(storage, who, amount, limit, logs, Evm.State{storage, caller, limit, logs}, accounts, h, e, c)))
+
 def and_left(+x: Bool, +y: Bool, +e: {True{} == Bool.and(x, y) : Bool}) -> {True{} == x : Bool}:
   match x:
     case True{}:
@@ -440,6 +515,8 @@ def keeps.step(+c: Laws.Call, +s: Evm.State, +accounts: List<&2, Nat>, +h: {True
         once(to, accounts, and_right(Nat.is_eq(1n, Laws.count(from, accounts)), Nat.is_eq(1n, Laws.count(to, accounts)), l)))
     case Laws.TransferOwnership{+who, +next} Evm.State{+storage, +caller, +limit, +logs}:
       keeps.transferOwnership(storage, caller, limit, logs, who, next, accounts, h)
+    case Laws.Burn{+who, +amount} Evm.State{+storage, +caller, +limit, +logs}:
+      keeps.burn(storage, caller, limit, logs, who, amount, accounts, h, once(who, accounts, l))
 
 def keeps.trace(+calls: List<&2, Laws.Call>, +s: Evm.State, +accounts: List<&2, Nat>, +h: {True{} == Laws.balanced(s, accounts) : Bool},
   +l: {True{} == Laws.all_listed(calls, accounts) : Bool}) -> {True{} == Laws.balanced(Laws.trace(calls, s), accounts) : Bool}:

@@ -11,7 +11,7 @@ const approval = must(run('cast', 'keccak', 'Approval(address,address,uint256)')
 const ownership = must(run('cast', 'keccak', 'OwnershipTransferred(address,address)'));
 const word = x => '0x' + BigInt(x).toString(16).padStart(64, '0');
 const functions = ['name', 'symbol', 'decimals', 'init', 'owner', 'transferOwnership', 'totalSupply', 'balanceOf',
-  'transfer', 'mint', 'allowance', 'approve', 'transferFrom'];
+  'transfer', 'mint', 'burn', 'allowance', 'approve', 'transferFrom'];
 const out = path.join(mkdtempSync(path.join(tmpdir(), 'bend-evm-token-')), 'Token');
 let chain, sender, send, owner;
 
@@ -150,4 +150,15 @@ test('an allowance of max is unlimited', () => {
   must(send(sender, 'approve(address,uint256)', bob, (2n ** 256n - 2n).toString()));
   must(send(bob, 'transferFrom(address,address,uint256)', sender, carol, '10'));
   expect(allowance(sender, bob)).toBe(2n ** 256n - 12n);
+});
+
+test('a holder burns its own tokens, and burn logs a Transfer to zero', () => {
+  const before = balance(bob);
+  const total = supply();
+  reverts(send(bob, 'burn(uint256)', String(before + 1n)));
+  const [topics, data] = logged(send(bob, '--json', 'burn(uint256)', '1'));
+  expect(topics).toEqual([topic, word(bob), word(0)]);
+  expect(data).toBe(word(1));
+  expect(balance(bob)).toBe(before - 1n);
+  expect(supply()).toBe(total - 1n);
 });
