@@ -1,16 +1,16 @@
 import { afterAll, beforeAll, expect, test } from 'bun:test';
-import { deploy, must, run } from './chain.js';
+import { bend, entries, top } from '../scripts/tools.js';
+import { deploy, must, reverts, run } from './chain.js';
 import { generator } from './random.js';
 
 // A differential test: random calls run on the token's Bend source and on
 // the compiled token on anvil must give the same returns, reverts and logs.
 // It tests what the proofs do not cover: the printer, the dispatcher, the
-// topics and solc. (token.test.js checks the storage layout.) The Bend runtime holds words below
+// topics and solc; token.test.js checks the storage layout. The Bend runtime holds words below
 // 2^48, so the model's limit is 2^40 and amounts stay small, so no sum comes
 // near it. The model's max(), 2^40 - 1, stands for the EVM's 2^256 - 1, and
 // only approve uses it. SEED=<n> runs another sequence.
 const limit = 1n << 40n;
-const top = (1n << 256n) - 1n;
 const toChain = x => x === limit - 1n ? top : x;
 const fromChain = x => x === top ? limit - 1n : x;
 const seed = Number(process.env.SEED ?? 1);
@@ -18,7 +18,7 @@ const people = [0x1001n, 0x1002n, 0x1003n, 0x1004n];
 const address = x => '0x' + x.toString(16).padStart(40, '0');
 
 // The ABI signature of each function, and which of its words are addresses.
-const functions = {
+const signatures = {
   owner: ['owner()(uint256)', []],
   transferOwnership: ['transferOwnership(address)', [true]],
   totalSupply: ['totalSupply()(uint256)', []],
@@ -65,9 +65,7 @@ function sequence(random, length) {
 function model(calls) {
   const words = calls.flatMap(({ who, name, args }) =>
     [who, name, ...[...args, 0n, 0n, 0n].slice(0, 3)].map(String));
-  const result = run(process.execPath, 'vendor/bend-frontend/host/run.js', 'tests/fixtures/model/token.bend',
-    String(limit), ...words);
-  return must(result).split('\n');
+  return must(bend('tests/fixtures/model/token.bend', String(limit), ...words)).split('\n');
 }
 
 // The same transcript, read from anvil.
@@ -81,7 +79,7 @@ function logs(receipt) {
 }
 
 function onChain({ who, name, args }) {
-  const [signature, kinds] = functions[name];
+  const [signature, kinds] = signatures[name];
   const words = args.map((x, i) => kinds[i] ? address(x) : String(toChain(x)));
   const from = address(who);
   const call = chain.cast('call', '--from', from, chain.address, signature, ...words);
@@ -101,8 +99,8 @@ const supply = 1n + BigInt(Math.floor(generator(seed)() * 100));
 let chain;
 
 beforeAll(async () => {
-  chain = await deploy('examples/token/program.bend', ['init', ...Object.keys(functions)],
-    { deployer: address(people[0]), args: [supply] });
+  chain = await deploy({ program: 'examples/token/program.bend', functions: entries.token,
+    deployer: address(people[0]), args: [supply] });
   for (const who of people.slice(1)) chain.fund(address(who));
 }, 120_000);
 
@@ -124,7 +122,7 @@ test(`anvil agrees with the Bend model on random calls (SEED=${seed})`, () => {
 test('the constructor reverts without its argument', () => {
   const create = code => chain.cast('send', '--unlocked', '--from', address(people[0]), '--create', code);
   const code = '0x' + chain.bytecode;
-  expect(create(code).ok).toBe(false);
-  expect(create(code + '00'.repeat(31)).ok).toBe(false);
+  reverts(create(code));
+  reverts(create(code + '00'.repeat(31)));
   expect(create(code + '00'.repeat(32)).ok).toBe(true);
 });

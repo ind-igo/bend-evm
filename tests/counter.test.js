@@ -1,11 +1,15 @@
 import { afterAll, beforeAll, expect, test } from 'bun:test';
-import { deploy, must, owner, reverts } from './chain.js';
+import { entries } from '../scripts/tools.js';
+import { deploy, must, reverts } from './chain.js';
 
+// The owner that examples/counter/program.bend names.
+const owner = '0x0000000000000000000000000000000000000007';
 const max = '0x' + 'f'.repeat(64);
 let chain, sender, send, get;
 
 beforeAll(async () => {
-  chain = await deploy('examples/counter/program.bend', ['get', 'increment', 'decrement', 'set']);
+  chain = await deploy({ program: 'examples/counter/program.bend', functions: entries.counter });
+  chain.fund(owner);
   ({ sender, send } = chain);
   get = () => chain.word('get()(uint256)');
 }, 120_000);

@@ -2,6 +2,7 @@ import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { entries, spawn, top } from '../scripts/tools.js';
 import { deploy, must, reverts, run } from './chain.js';
 import { keys, separator, sign } from './permit.js';
 
@@ -11,34 +12,38 @@ const topic = must(run('cast', 'keccak', 'Transfer(address,address,uint256)'));
 const approval = must(run('cast', 'keccak', 'Approval(address,address,uint256)'));
 const ownership = must(run('cast', 'keccak', 'OwnershipTransferred(address,address)'));
 const word = x => '0x' + BigInt(x).toString(16).padStart(64, '0');
-const functions = ['name', 'symbol', 'decimals', 'init', 'owner', 'transferOwnership', 'totalSupply', 'balanceOf',
-  'transfer', 'mint', 'burn', 'allowance', 'approve', 'transferFrom', 'nonces', 'DOMAIN_SEPARATOR', 'permit'];
 const out = path.join(mkdtempSync(path.join(tmpdir(), 'bend-evm-token-')), 'Token');
 let chain, sender, send, owner;
 
 // As a user would: bun run build --out, then deploy the bytecode with no
 // initial supply. The deployer, sender, is the owner. The build writes
-// CERT.bend, so the committed copy goes back after it, for certify.test.js.
+// CERT.bend, which must equal the committed one; the committed copy goes
+// back either way.
+const cert = 'examples/token/CERT.bend';
+const committed = readFileSync(cert, 'utf8');
+let built;
+
 beforeAll(async () => {
-  const cert = 'examples/token/CERT.bend', committed = readFileSync(cert, 'utf8');
   try {
-    must(run(process.execPath, 'scripts/build.js', '--out', out, 'examples/token/program.bend', ...functions));
+    must(spawn([process.execPath, 'scripts/build.js', '--out', out, 'examples/token/program.bend', ...entries.token],
+      { timeout: 600_000 }));
   } finally {
+    built = readFileSync(cert, 'utf8');
     writeFileSync(cert, committed);
   }
-  const bytecode = readFileSync(out + '.bin', 'utf8').trim();
-  chain = await deploy('examples/token/program.bend', functions, { args: [0n], bytecode });
+  chain = await deploy({ bytecode: readFileSync(out + '.bin', 'utf8').trim(), args: [0n] });
   ({ sender, send } = chain);
   owner = sender;
-  for (const who of [bob, carol]) {
-    must(chain.cast('rpc', 'anvil_impersonateAccount', who));
-    must(chain.cast('rpc', 'anvil_setBalance', who, '0x56bc75e2d63100000'));
-  }
-}, 120_000);
+  for (const who of [bob, carol]) chain.fund(who);
+}, 600_000);
 
 afterAll(() => {
   rmSync(path.dirname(out), { recursive: true, force: true });
   return chain?.stop();
+});
+
+test('the committed certificate is current', () => {
+  expect(built).toBe(committed);
 });
 
 test('wallets read the name, symbol and decimals, and the ABI is valid', () => {
@@ -106,9 +111,10 @@ test('transfer reverts above the balance, and to self keeps it', () => {
 });
 
 test('mint reverts when the supply would overflow', () => {
-  must(chain.cast('rpc', 'anvil_setStorageAt', chain.address, '0x0', word(2n ** 256n - 1n)));
+  const before = supply();
+  must(chain.cast('rpc', 'anvil_setStorageAt', chain.address, '0x0', word(top)));
   reverts(send(owner, 'mint(address,uint256)', bob, '1'));
-  must(chain.cast('rpc', 'anvil_setStorageAt', chain.address, '0x0', word(100)));
+  must(chain.cast('rpc', 'anvil_setStorageAt', chain.address, '0x0', word(before)));
 });
 
 test('an address argument above 160 bits reverts', () => {
@@ -148,15 +154,14 @@ test('transferFrom reverts above the allowance or the balance', () => {
 });
 
 test('an allowance of max is unlimited', () => {
-  const max = (2n ** 256n - 1n).toString();
-  must(send(sender, 'approve(address,uint256)', bob, max));
+  must(send(sender, 'approve(address,uint256)', bob, String(top)));
   must(send(bob, 'transferFrom(address,address,uint256)', sender, carol, '10'));
-  expect(allowance(sender, bob)).toBe(2n ** 256n - 1n);
+  expect(allowance(sender, bob)).toBe(top);
   expect(balance(sender)).toBe(40n);
   expect(balance(carol)).toBe(30n);
-  must(send(sender, 'approve(address,uint256)', bob, (2n ** 256n - 2n).toString()));
+  must(send(sender, 'approve(address,uint256)', bob, String(top - 1n)));
   must(send(bob, 'transferFrom(address,address,uint256)', sender, carol, '10'));
-  expect(allowance(sender, bob)).toBe(2n ** 256n - 12n);
+  expect(allowance(sender, bob)).toBe(top - 11n);
 });
 
 test('a holder burns its own tokens, and burn logs a Transfer to zero', () => {

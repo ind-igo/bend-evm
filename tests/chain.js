@@ -1,22 +1,10 @@
 import { expect } from 'bun:test';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
+import { bend, bytecode, must, run } from '../scripts/tools.js';
 
-// Compiles a contract to Yul, deploys it on a local anvil chain with real
-// transactions, and calls it through the standard ABI with cast.
-const root = path.resolve(import.meta.dir, '..');
-export const owner = '0x0000000000000000000000000000000000000007';
+export { must, run } from '../scripts/tools.js';
 
-export function run(command, ...args) {
-  const child = Bun.spawnSync([command, ...args], { cwd: root, timeout: 120_000 });
-  return { ok: child.exitCode === 0, out: child.stdout.toString().trim(), err: child.stderr.toString() };
-}
-
-export function must(result) {
-  if (!result.ok) throw new Error(result.err);
-  return result.out;
-}
+// Deploys a contract on a local anvil chain with real transactions, and calls
+// it through the standard ABI with cast.
 
 // A failed command must be a revert, not a cast usage error.
 export function reverts(result) {
@@ -24,49 +12,61 @@ export function reverts(result) {
   expect(result.err).toMatch(/revert/i);
 }
 
-// Options: the deployer (anvil's first account by default), the constructor
-// arguments, which are words after the code, and bytecode from `bun run
-// build --out` (compiled here when absent).
-export async function deploy(program, functions, { deployer, args = [], bytecode } = {}) {
-  const temp = mkdtempSync(path.join(tmpdir(), 'bend-evm-chain-'));
-  if (!bytecode) {
-    const yul = must(run(process.execPath, 'vendor/bend-frontend/host/run.js', 'src/compile.bend', program, ...functions));
-    writeFileSync(path.join(temp, 'Contract.yul'), yul);
-    const solc = must(run('solc', '--strict-assembly', '--evm-version', 'shanghai', '--bin', path.join(temp, 'Contract.yul')));
-    bytecode = solc.split('Binary representation:')[1].trim();
-  }
+// Compiled bytecode, once per program and entry list in this process.
+const compiled = new Map();
+function code(program, functions) {
+  const key = [program, ...functions].join(' ');
+  if (!compiled.has(key)) compiled.set(key, bytecode(must(bend('src/compile.bend', program, ...functions))));
+  return compiled.get(key);
+}
 
-  const node = Bun.spawn(['anvil', '--host', '127.0.0.1', '--port', '0'], { stdout: 'pipe', stderr: 'pipe' });
+// Resolves to anvil's RPC URL once it listens. It keeps reading anvil's log
+// after that, so the pipe never fills.
+async function listen(node) {
   const reader = node.stdout.getReader();
   let output = '';
-  let rpc;
-  while (!rpc) {
+  for (;;) {
     const chunk = await reader.read();
     if (chunk.done) throw new Error('anvil stopped before it listened');
     output += new TextDecoder().decode(chunk.value);
     const port = output.match(/Listening on 127\.0\.0\.1:(\d+)/)?.[1];
-    if (port) rpc = `http://127.0.0.1:${port}`;
+    if (port) {
+      (async () => { while (!(await reader.read()).done); })();
+      return `http://127.0.0.1:${port}`;
+    }
   }
-  reader.releaseLock();
+}
 
-  const cast = (command, ...args) => run('cast', command, '--rpc-url', rpc, ...args);
-  const fund = who => {
-    must(cast('rpc', 'anvil_impersonateAccount', who));
-    must(cast('rpc', 'anvil_setBalance', who, '0x56bc75e2d63100000'));
+// Deploys program's functions, or the given bytecode, with the constructor
+// arguments as words after the code. The deployer is anvil's first account
+// unless given.
+export async function deploy({ program, functions, bytecode: given, deployer, args = [] }) {
+  const deployed = given ?? code(program, functions);
+  const node = Bun.spawn(['anvil', '--host', '127.0.0.1', '--port', '0'], { stdout: 'pipe', stderr: 'ignore' });
+  const stop = async () => {
+    node.kill();
+    await node.exited;
   };
-  if (deployer) fund(deployer);
-  const sender = deployer ?? must(cast('rpc', 'eth_accounts')).match(/0x[0-9a-fA-F]{40}/)[0];
-  const receipt = JSON.parse(must(cast('send', '--unlocked', '--from', sender, '--json', '--create', '0x' + bytecode + args.map(x => x.toString(16).padStart(64, '0')).join(''))));
-  const address = receipt.contractAddress;
-  fund(owner);
-  return {
-    cast, sender, address, fund, receipt, bytecode,
-    send: (from, ...args) => cast('send', '--unlocked', '--from', from, address, ...args),
-    word: (...args) => BigInt(must(cast('call', address, ...args)).split(' ')[0]),
-    async stop() {
-      node.kill();
-      await node.exited;
-      rmSync(temp, { recursive: true, force: true });
-    },
-  };
+  try {
+    const rpc = await listen(node);
+    const cast = (command, ...rest) => run('cast', command, '--rpc-url', rpc, ...rest);
+    const fund = who => {
+      must(cast('rpc', 'anvil_impersonateAccount', who));
+      must(cast('rpc', 'anvil_setBalance', who, '0x56bc75e2d63100000'));
+    };
+    if (deployer) fund(deployer);
+    const sender = deployer ?? must(cast('rpc', 'eth_accounts')).match(/0x[0-9a-fA-F]{40}/)[0];
+    const words = args.map(x => x.toString(16).padStart(64, '0')).join('');
+    const receipt = JSON.parse(must(cast('send', '--unlocked', '--from', sender, '--json', '--create',
+      '0x' + deployed + words)));
+    const address = receipt.contractAddress;
+    return {
+      cast, sender, address, fund, receipt, bytecode: deployed, stop,
+      send: (from, ...rest) => cast('send', '--unlocked', '--from', from, address, ...rest),
+      word: (...rest) => BigInt(must(cast('call', address, ...rest)).split(' ')[0]),
+    };
+  } catch (error) {
+    await stop();
+    throw error;
+  }
 }

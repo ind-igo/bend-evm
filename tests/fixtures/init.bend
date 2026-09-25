@@ -12,3 +12,7 @@ def get() -> Evm.Contract(Nat):
 # A slot from a parameter could alias a mapping entry on chain.
 def poke(x: Nat, v: Nat) -> Evm.Contract(Unit):
   Evm.sstore(x, v)
+
+# Not a contract function.
+def plain(x: Nat) -> Nat:
+  x

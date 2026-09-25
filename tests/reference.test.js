@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, expect, test } from 'bun:test';
+import { entries, top } from '../scripts/tools.js';
 import { deploy, must, run } from './chain.js';
 import { generator } from './random.js';
 import { keys, separator, sign } from './permit.js';
@@ -11,11 +12,8 @@ import { keys, separator, sign } from './permit.js';
 // arithmetic reverts with Panic(0x11), and Bend reverts with no data.
 // SEED=<n> runs another sequence.
 const seed = Number(process.env.SEED ?? 1);
-const top = (1n << 256n) - 1n;
 // The deployer and three accounts that can sign permits.
 const people = ['0x0000000000000000000000000000000000001001', ...Object.keys(keys)];
-const functions = ['name', 'symbol', 'decimals', 'init', 'owner', 'transferOwnership', 'totalSupply', 'balanceOf',
-  'transfer', 'mint', 'burn', 'allowance', 'approve', 'transferFrom', 'nonces', 'DOMAIN_SEPARATOR', 'permit'];
 const permit = 'permit(address,address,uint256,uint256,uint8,bytes32,bytes32)';
 const views = new Set(['name()', 'symbol()', 'decimals()', 'owner()', 'totalSupply()', 'balanceOf(address)',
   'allowance(address,address)', 'nonces(address)', 'DOMAIN_SEPARATOR()']);
@@ -78,11 +76,14 @@ function sequence(random, length) {
   return calls;
 }
 
+// A transaction's logs, as text.
+const logs = receipt => receipt.logs.map(log => `log ${log.topics.join(' ')} ${log.data}`);
 let chain, solidity, created;
 
 beforeAll(async () => {
   const supply = BigInt(Math.floor(generator(seed)() * 1000));
-  chain = await deploy('examples/token/program.bend', functions, { deployer: people[0], args: [supply] });
+  chain = await deploy({ program: 'examples/token/program.bend', functions: entries.token, deployer: people[0],
+    args: [supply] });
   for (const who of people.slice(1)) chain.fund(who);
   const out = must(run('solc', '--evm-version', 'shanghai', '--bin', 'tests/fixtures/reference/Token.sol'));
   const bytecode = out.split('Binary:')[1].trim();
@@ -120,14 +121,13 @@ function effect(address, [from, signature, ...rest]) {
   if (views.has(signature)) return ['ok ' + call.out];
   const receipt = JSON.parse(must(chain.cast('send', '--unlocked', '--from', from, '--json', address, signature, ...args)));
   expect(receipt.status).toBe('0x1');
-  return ['ok ' + call.out, ...receipt.logs.map(log => `log ${log.topics.join(' ')} ${log.data}`)];
+  return ['ok ' + call.out, ...logs(receipt)];
 }
 
 test(`the Bend token and the Solidity token agree on random calls (SEED=${seed})`, () => {
   now = Number(must(chain.cast('block', 'latest', '--field', 'timestamp')));
   chainId = must(chain.cast('chain-id'));
   const calls = [...scripted(), ...sequence(generator(seed), 120)];
-  const logs = receipt => receipt.logs.map(log => `log ${log.topics.join(' ')} ${log.data}`);
   const bend = ['deploy', ...logs(chain.receipt)], sol = ['deploy', ...logs(created)];
   for (const call of calls) {
     bend.push(call.join(' '), ...effect(chain.address, call));

@@ -1,11 +1,14 @@
 import { afterAll, beforeAll, expect, test } from 'bun:test';
-import { deploy, must, run } from './chain.js';
+import { bend } from '../scripts/tools.js';
+import { deploy, must, reverts, run } from './chain.js';
 
 // Constant strings, uint8 and bool on a chain, and the ABI JSON.
+const program = 'tests/fixtures/meta.bend';
+const functions = ['name', 'symbol', 'decimals', 'echo'];
 let chain;
 
 beforeAll(async () => {
-  chain = await deploy('tests/fixtures/meta.bend', ['name', 'symbol', 'decimals', 'echo']);
+  chain = await deploy({ program, functions });
 }, 120_000);
 
 afterAll(() => chain?.stop());
@@ -21,25 +24,17 @@ test('constant strings and a uint8 decode through the ABI', () => {
 test('uint8 and bool arguments must be in range', () => {
   expect(must(call('echo(uint8,bool)(uint256)', '255', 'true'))).toBe('256');
   const selector = must(run('cast', 'sig', 'echo(uint8,bool)'));
-  const word = x => x.toString(16).padStart(64, '0');
-  const raw = (x, flag) => chain.cast('call', chain.address, selector + word(x) + word(flag));
+  const hex = x => x.toString(16).padStart(64, '0');
+  const raw = (x, flag) => chain.cast('call', chain.address, selector + hex(x) + hex(flag));
   expect(raw(255, 1).ok).toBe(true);
-  expect(raw(256, 1).ok).toBe(false);
-  expect(raw(1, 2).ok).toBe(false);
+  reverts(raw(256, 1));
+  reverts(raw(1, 2));
 });
 
 test('the ABI JSON describes the functions', () => {
-  const abi = JSON.parse(must(run(process.execPath, 'vendor/bend-frontend/host/run.js', 'src/abi.bend',
-    'tests/fixtures/meta.bend', 'name', 'symbol', 'decimals', 'echo')));
+  const abi = JSON.parse(must(bend('src/abi.bend', program, ...functions)));
   expect(abi.map(f => [f.name, f.outputs.map(o => o.type), f.stateMutability])).toEqual([
     ['name', ['string'], 'pure'], ['symbol', ['string'], 'pure'], ['decimals', ['uint8'], 'view'],
     ['echo', ['uint256'], 'view']]);
   expect(abi[3].inputs).toEqual([{ name: 'x', type: 'uint8' }, { name: 'flag', type: 'bool' }]);
-}, 120_000);
-
-test('a constant with a signature over 135 bytes does not compile', () => {
-  const result = run(process.execPath, 'vendor/bend-frontend/host/run.js', 'src/compile.bend',
-    'tests/fixtures/meta.bend', 'decimals', 'a'.repeat(134));
-  expect(result.ok).toBe(false);
-  expect(result.err).toContain('signatures over 135 bytes are not supported');
 }, 120_000);

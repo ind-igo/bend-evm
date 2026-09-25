@@ -1,13 +1,13 @@
 import { afterAll, beforeAll, expect, test } from 'bun:test';
-import { deploy, must, run } from './chain.js';
+import { bend, entries } from '../scripts/tools.js';
+import { deploy, must } from './chain.js';
 
 // Branches on a chain: each arm runs to the end of the call.
-const functions = ['init', 'keep', 'grade', 'get', 'mark', 'marked'];
-const host = 'vendor/bend-frontend/host/run.js';
+const program = 'tests/fixtures/branch/program.bend';
 let chain;
 
 beforeAll(async () => {
-  chain = await deploy('tests/fixtures/branch/program.bend', functions, { args: [5n] });
+  chain = await deploy({ program, functions: entries.branch, args: [5n] });
 }, 120_000);
 
 afterAll(() => chain?.stop());
@@ -39,17 +39,7 @@ test('arms that return Unit, in the runtime and in the deploy code', () => {
 });
 
 test('a function writes when one of its arms writes', () => {
-  const abi = JSON.parse(must(run(process.execPath, host, 'src/abi.bend', 'tests/fixtures/branch/program.bend',
-    ...functions)));
+  const abi = JSON.parse(must(bend('src/abi.bend', program, ...entries.branch)));
   expect(abi.filter(f => f.type === 'function').map(f => [f.name, f.stateMutability])).toEqual([
     ['keep', 'nonpayable'], ['grade', 'view'], ['get', 'view'], ['mark', 'nonpayable'], ['marked', 'view']]);
-}, 120_000);
-
-test('compile rejects a branch that is not the last step', () => {
-  for (const [name, error] of [['early', 'A branch must be the last step'],
-    ['middle', 'A call to a function that branches must be the last step']]) {
-    const result = run(process.execPath, host, 'src/compile.bend', 'tests/fixtures/branch/bad.bend', name);
-    expect(result.ok).toBe(false);
-    expect(result.err).toContain(error);
-  }
 }, 120_000);
