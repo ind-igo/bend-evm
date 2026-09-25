@@ -87,6 +87,8 @@ type Tag is Data:
   Bind{}
   Pure{}
   Branch{}
+  Emit{}
+  Indexed{}
   Unknown{}
 
 type Named is Data:
@@ -120,7 +122,9 @@ def tags() -> List<&2, Named>:
   Named{"Unit", UnitType{}},
   Named{"Evm.Contract.bind", Bind{}},
   Named{"Evm.Contract.pure", Pure{}},
-  Named{"Evm.branch", Branch{}}]
+  Named{"Evm.branch", Branch{}},
+  Named{"Evm.emit", Emit{}},
+  Named{"Evm.Indexed", Indexed{}}]
 
 def tag.go(table: List<&2, Named>, +name: String) -> Tag:
   match table:
@@ -464,7 +468,176 @@ def word(c: Call, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, 
     case _:
       Fail{"Unsupported word action"}
 
-def effect(c: Call, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Effect>:
+# The ABI type of a parameter: Nat is uint256, Evm.Address is address.
+type Abi is Data:
+  Abi{name: String, abi: String}
+
+def abi.go(table: List<&2, Abi>, +name: String) -> Result<&2, &2, String, String>:
+  match table:
+    case Nil{}:
+      Fail{"Unsupported parameter type: " ++ name}
+    case Abi{n, a} <> rest:
+      Bool.pick(Result<&2, &2, String, String>, String.eq(name, n), Done{a}, abi.go(rest, name))
+
+def abi(+name: String) -> Result<&2, &2, String, String>:
+  abi.go([Abi{"Nat", "uint256"}, Abi{"Evm.Address", "address"}, Abi{"Evm.Uint8", "uint8"},
+    Abi{"Evm.Boolean", "bool"}, Abi{"Evm.Bytes32", "bytes32"}], name)
+
+def abi.term(+evm: String, typ: Core.Term) -> Result<&2, &2, String, String>:
+  match typ:
+    case Core.TAnn{value, _}:
+      abi.term(evm, value)
+    case Core.TRef{+name, _}:
+      abi(canonical(after(evm, name), name))
+    case _:
+      Fail{"Unsupported parameter type"}
+
+# The text after the last dot of a name: an event constructor's own name.
+def short.go(s: String) -> String:
+  match s:
+    case SNil{}:
+      ""
+    case SCon{+c, rest}:
+      Bool.pick(String, Char.is_eq(c, '.'), "", SCon{c, short.go(rest)})
+
+def short(name: String) -> String:
+  String.reverse(short.go(String.reverse(name)))
+
+def joined(ts: List<&2, String>) -> String:
+  match ts:
+    case Nil{}:
+      ""
+    case t <> Nil{}:
+      t
+    case t <> rest:
+      t ++ "," ++ joined(rest)
+
+# An event field: whether it is Evm.Indexed, and its ABI type.
+type Field is Data:
+  Field{indexed: Bool, abi: String}
+
+def field.of(+evm: String, c: Call, domain: Core.Term) -> Result<&2, &2, String, Field>:
+  match c:
+    case Call{Indexed{}, _, inner <> Nil{}}:
+      do Result<&2, &2, String, Field>:
+        t : String <- abi.term(evm, inner)
+        return Field{True{}, t}
+    case _:
+      do Result<&2, &2, String, Field>:
+        t : String <- abi.term(evm, domain)
+        return Field{False{}, t}
+
+def field(+evm: String, +domain: Core.Term) -> Result<&2, &2, String, Field>:
+  field.of(evm, call(domain, Nil{}), domain)
+
+def fields(+evm: String, typ: Core.Term) -> Result<&2, &2, String, List<&2, Field>>:
+  match typ:
+    case Core.TAll{_, _, _, domain, body}:
+      do Result<&2, &2, String, List<&2, Field>>:
+        f : Field <- field(evm, strip(evm, domain))
+        rest : List<&2, Field> <- fields(evm, body)
+        return f <> rest
+    case _:
+      Done{Nil{}}
+
+# An event's parameter types, then its indexed words and its data words.
+type Parts is Data:
+  Parts{types: List<&2, String>, topics: List<&2, IR.Expr>, data: List<&2, IR.Expr>}
+
+def parts.put(+wrong: Bool, +indexed: Bool, t: String, x: IR.Expr, p: Parts) -> Result<&2, &2, String, Parts>:
+  match wrong indexed p:
+    case True{} _ _:
+      Fail{"Indexed event fields must come before the others"}
+    case False{} True{} Parts{types, topics, data}:
+      Done{Parts{t <> types, x <> topics, data}}
+    case False{} False{} Parts{types, topics, data}:
+      Done{Parts{t <> types, topics, x <> data}}
+
+def parts.add(+indexed: Bool, +late: Bool, t: String, e: Result<&2, &2, String, IR.Expr>,
+  rest: Result<&2, &2, String, Parts>) -> Result<&2, &2, String, Parts>:
+  do Result<&2, &2, String, Parts>:
+    x : IR.Expr <- e
+    p : Parts <- rest
+    parts.put(Bool.and(indexed, late), indexed, t, x, p)
+
+# late is true after the first field that is not indexed.
+def parts(fs: List<&2, Field>, args: List<&2, Core.Term>, +late: Bool, +decls: List<&2, Core.Declaration>) ->
+  Result<&2, &2, String, Parts>:
+  match fs args:
+    case Nil{} Nil{}:
+      Done{Parts{Nil{}, Nil{}, Nil{}}}
+    case Field{+indexed, t} <> fr a <> ar:
+      parts.add(indexed, late, t, expr(a, decls), parts(fr, ar, Bool.or(late, Bool.not(indexed)), decls))
+    case _ _:
+      Fail{"An event constructor needs one argument for each field"}
+
+def emit.log(name: String, p: Parts) -> Result<&2, &2, String, IR.Effect>:
+  match p:
+    case Parts{types, topics, data}:
+      do Result<&2, &2, String, IR.Effect>:
+        +event : String <- signature(short(name) ++ "(" ++ joined(types) ++ ")")
+        log(event, topics, data)
+
+def constructor.in(cs: List<&2, Core.Constructor>, +wanted: String) -> Maybe<&2, Core.Constructor>:
+  match cs:
+    case Nil{}:
+      None{}
+    case Core.Constructor{+name, +arity, +typ} <> rest:
+      Bool.pick(Maybe<&2, Core.Constructor>, String.eq(name, wanted), Some{Core.Constructor{name, arity, typ}},
+        constructor.in(rest, wanted))
+
+def constructor.of(d: Core.Declaration, +wanted: String) -> Maybe<&2, Core.Constructor>:
+  match d:
+    case Core.Algebraic{_, _, _, cs}:
+      constructor.in(cs, wanted)
+    case _:
+      None{}
+
+def constructor.or(found: Maybe<&2, Core.Constructor>, rest: Maybe<&2, Core.Constructor>) -> Maybe<&2, Core.Constructor>:
+  match found:
+    case Some{c}:
+      Some{c}
+    case None{}:
+      rest
+
+# The declared constructor named wanted.
+def constructor(decls: List<&2, Core.Declaration>, +wanted: String) -> Maybe<&2, Core.Constructor>:
+  match decls:
+    case Nil{}:
+      None{}
+    case d <> rest:
+      constructor.or(constructor.of(d, wanted), constructor(rest, wanted))
+
+def emit.found(+evm: String, found: Maybe<&2, Core.Constructor>, +name: String, args: List<&2, Core.Term>,
+  +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Effect>:
+  match found:
+    case Some{Core.Constructor{_, _, typ}}:
+      do Result<&2, &2, String, IR.Effect>:
+        fs : List<&2, Field> <- fields(evm, typ)
+        p : Parts <- parts(fs, args, False{}, decls)
+        emit.log(name, p)
+    case None{}:
+      Fail{"Unknown event constructor: " ++ name}
+
+def emit.value(+evm: String, term: Core.Term, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Effect>:
+  match term:
+    case Core.TAnn{value, _}:
+      emit.value(evm, value, decls)
+    case Core.TCtr{+name, args}:
+      emit.found(evm, constructor(decls, name), name, args, decls)
+    case _:
+      Fail{"Evm.emit takes an encoder applied to an event constructor"}
+
+# Evm.emit(encode(Event{...})): the signature and the topics come from the
+# constructor's field types. The certificate checks that encode agrees.
+def emit(+evm: String, c: Call, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Effect>:
+  match c:
+    case Call{_, _, value <> Nil{}}:
+      emit.value(evm, value, decls)
+    case _:
+      Fail{"Evm.emit takes an encoder applied to an event constructor"}
+
+def effect(c: Call, +evm: String, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Effect>:
   match c:
     case Call{Sstore{}, _, slot <> value <> Nil{}}:
       do Result<&2, &2, String, IR.Effect>:
@@ -492,6 +665,8 @@ def effect(c: Call, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String
       do Result<&2, &2, String, IR.Effect>:
         c : IR.Cond <- cond.go(8n, call(condition, Nil{}), decls)
         return IR.Require{c}
+    case Call{Emit{}, _, event <> Nil{}}:
+      emit(evm, call(event, Nil{}), decls)
     case _:
       Fail{"Unsupported effect"}
 
@@ -530,7 +705,8 @@ def own.unit(e: Result<&2, &2, String, IR.Effect>, +rest: IR.Cmd) -> Result<&2, 
 # A bind over a word keeps its value; a bind over Unit is a plain step. The
 # action is a DSL call, or else a call to one of the contract's functions.
 def step(typ: Call, +action: Call, +level: Nat, rest: Result<&2, &2, String, IR.Cmd>,
-  k: Result<&2, &2, String, Inline.Callee>, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Cmd>:
+  k: Result<&2, &2, String, Inline.Callee>, +evm: String, +decls: List<&2, Core.Declaration>) ->
+  Result<&2, &2, String, IR.Cmd>:
   match typ:
     case Call{NatType{}, _, Nil{}}:
       do Result<&2, &2, String, IR.Cmd>:
@@ -539,15 +715,15 @@ def step(typ: Call, +action: Call, +level: Nat, rest: Result<&2, &2, String, IR.
     case Call{UnitType{}, _, Nil{}}:
       do Result<&2, &2, String, IR.Cmd>:
         +body : IR.Cmd <- rest
-        first(own.unit(effect(action, decls), body), called.unit(k, level, body))
+        first(own.unit(effect(action, evm, decls), body), called.unit(k, level, body))
     case _:
       Fail{"Only Nat and Unit results can be bound"}
 
 def bind(c: Call, +level: Nat, rest: Result<&2, &2, String, IR.Cmd>, k: Result<&2, &2, String, Inline.Callee>,
-  +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Cmd>:
+  +evm: String, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Cmd>:
   match c:
     case Call{Bind{}, _, typ <> _ <> action <> Nil{}}:
-      step(call(typ, Nil{}), call(action, Nil{}), level, rest, k, decls)
+      step(call(typ, Nil{}), call(action, Nil{}), level, rest, k, evm, decls)
     case _:
       Fail{"Unsupported binding"}
 
@@ -587,13 +763,13 @@ def called.tail(k: Result<&2, &2, String, Inline.Callee>, +bound: Nat) -> Result
 def branch(c: IR.Cond, yes: IR.Cmd, no: IR.Cmd) -> IR.Cmd:
   IR.If{c, yes, no}
 
-def final(c: Call, k: Result<&2, &2, String, Inline.Callee>, +bound: Nat, +decls: List<&2, Core.Declaration>) ->
+def final(c: Call, k: Result<&2, &2, String, Inline.Callee>, +bound: Nat, +evm: String, +decls: List<&2, Core.Declaration>) ->
   Result<&2, &2, String, IR.Cmd>:
   match c:
     case Call{Pure{}, _, typ <> value <> Nil{}}:
       pure(call(typ, Nil{}), value, decls)
     case +other:
-      first(last(word(other, decls), effect(other, decls)), called.tail(k, bound))
+      first(last(word(other, decls), effect(other, evm, decls)), called.tail(k, bound))
 
 # A function's parameter levels and the body under its lambdas.
 type Lambdas is Data:
@@ -691,7 +867,7 @@ def level(l: Core.Level) -> Nat:
 # A final Evm.branch reads both arms, each to the end of the call; any other
 # final step is a word, an effect or a call. yes and no read the arms.
 def tail(c: Call, yes: Core.Term -> Result<&2, &2, String, IR.Cmd>, no: Core.Term -> Result<&2, &2, String, IR.Cmd>,
-  k: Result<&2, &2, String, Inline.Callee>, +bound: Nat, +decls: List<&2, Core.Declaration>) ->
+  k: Result<&2, &2, String, Inline.Callee>, +bound: Nat, +evm: String, +decls: List<&2, Core.Declaration>) ->
   Result<&2, &2, String, IR.Cmd>:
   match c:
     case Call{Branch{}, _, ok <> _ <> a <> b <> Nil{}}:
@@ -701,7 +877,7 @@ def tail(c: Call, yes: Core.Term -> Result<&2, &2, String, IR.Cmd>, no: Core.Ter
         n : IR.Cmd <- no(b)
         return branch(x, y, n)
     case +other:
-      final(other, k, bound, decls)
+      final(other, k, bound, evm, decls)
 
 # Calls to the contract's own functions are inlined, at most this deep.
 def depth() -> Nat:
@@ -724,14 +900,14 @@ def cmd(+fuel: Nat, term: Core.Term, +bound: Nat, +evm: String, +decls: List<&2,
             +x : Target <- t
             b : IR.Cmd <- cmd(p, target.body(x), target.arity(x), evm, decls)
             return target.callee(x, b)
-          bind(c, at, cmd(fuel, body, at, evm, decls), k, decls)
+          bind(c, at, cmd(fuel, body, at, evm, decls), k, evm, decls)
         case other:
           +c = call(other, Nil{})
           +k = do Result<&2, &2, String, Inline.Callee>:
             +x : Target <- target(c, evm, decls)
             b : IR.Cmd <- cmd(p, target.body(x), target.arity(x), evm, decls)
             return target.callee(x, b)
-          tail(c, t => cmd(p, t, bound, evm, decls), t => cmd(p, t, bound, evm, decls), k, bound, decls)
+          tail(c, t => cmd(p, t, bound, evm, decls), t => cmd(p, t, bound, evm, decls), k, bound, evm, decls)
 
 def output(c: IR.Cmd) -> IR.Output:
   match c:
@@ -799,30 +975,6 @@ def entry.found(found: Maybe<&2, Core.Declaration>, +evm: String, +decls: List<&
 
 def entry(+evm: String, +decls: List<&2, Core.Declaration>, name: String) -> Result<&2, &2, String, Entry>:
   entry.found(Core.find(decls, name), evm, decls)
-
-# The ABI type of a parameter: Nat is uint256, Evm.Address is address.
-type Abi is Data:
-  Abi{name: String, abi: String}
-
-def abi.go(table: List<&2, Abi>, +name: String) -> Result<&2, &2, String, String>:
-  match table:
-    case Nil{}:
-      Fail{"Unsupported parameter type: " ++ name}
-    case Abi{n, a} <> rest:
-      Bool.pick(Result<&2, &2, String, String>, String.eq(name, n), Done{a}, abi.go(rest, name))
-
-def abi(+name: String) -> Result<&2, &2, String, String>:
-  abi.go([Abi{"Nat", "uint256"}, Abi{"Evm.Address", "address"}, Abi{"Evm.Uint8", "uint8"},
-    Abi{"Evm.Boolean", "bool"}, Abi{"Evm.Bytes32", "bytes32"}], name)
-
-def abi.term(+evm: String, typ: Core.Term) -> Result<&2, &2, String, String>:
-  match typ:
-    case Core.TAnn{value, _}:
-      abi.term(evm, value)
-    case Core.TRef{+name, _}:
-      abi(canonical(after(evm, name), name))
-    case _:
-      Fail{"Unsupported parameter type"}
 
 def types.go(arity: Nat, +evm: String, typ: Core.Term) -> Result<&2, &2, String, List<&2, String>>:
   match arity typ:

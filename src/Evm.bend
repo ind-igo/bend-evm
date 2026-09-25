@@ -42,6 +42,10 @@ def Bytes32() -> Data:
 def Boolean() -> Data:
   Nat
 
+# An indexed event field: its word is a topic, not data. See emit.
+def Indexed(A: Data) -> Data:
+  A
+
 # An event: its signature, such as "Transfer(address,address,uint256)", the
 # indexed words after topic 0, and the data words. Topic 0 is the signature's
 # Keccak-256, which the printer computes.
@@ -225,6 +229,15 @@ def log.go(event: String, topics: List<&2, Nat>, data: List<&2, Nat>, s: State) 
 
 def log(event: String, topics: List<&2, Nat>, data: List<&2, Nat>) -> Contract(Unit):
   R => k => s => k(Unit{}, log.go(event, topics, data, s))
+
+# Logs an event value through its encoder, as in
+# Evm.emit(ERC20.log(ERC20.Transfer{from, to, amount})). The reader takes
+# the signature and the topics from the constructor's field types, and the
+# certificate checks that the encoder gives the same log.
+def emit(l: Log) -> Contract(Unit):
+  match l:
+    case Log{event, topics, data}:
+      log(event, topics, data)
 
 def require(ok: Bool) -> Contract(Unit):
   R => k => s => Bool.pick(Outcome<R>, ok, k(Unit{}, s), Revert{})

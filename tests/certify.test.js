@@ -11,6 +11,7 @@ const bend = (...args) => Bun.spawnSync([process.execPath, ...args], { cwd: root
 for (const [program, functions] of [
   ['examples/counter', ['get', 'increment', 'decrement', 'set']],
   ['tests/fixtures/branch', ['init', 'keep', 'grade', 'get', 'mark', 'marked']],
+  ['tests/fixtures/emit', ['moved']],
   ['examples/token', ['name', 'symbol', 'decimals', 'init', 'owner', 'transferOwnership', 'totalSupply', 'balanceOf', 'transfer', 'mint', 'burn', 'allowance', 'approve',
     'transferFrom', 'nonces', 'DOMAIN_SEPARATOR', 'permit']],
 ]) {

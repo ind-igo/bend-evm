@@ -5,6 +5,13 @@ import ./LAWS.bend as Laws
 import ../../lib/ERC20.bend as ERC20
 import ./program.bend as Token
 
+# The arm of ERC20.transferFrom that lowers a finite allowance.
+def spend(+from: Nat, +to: Nat, +spender: Nat, +allowed: Nat, +amount: Nat) -> Evm.Contract(Evm.Boolean):
+  do Evm.Contract<Nat>:
+    left : Nat <- Evm.sub(allowed, amount)
+    Evm.store2(ERC20.ALLOWANCES(), from, spender, left)
+    ERC20.move(from, to, amount)
+
 def Laws.transfer(storage, from, limit, logs, world, to, amount):
   {==}
 
@@ -31,8 +38,8 @@ def Laws.approve(storage, who, limit, logs, world, spender, amount):
 
 # A run stops at the branch on the allowance, so the law names both arms.
 def Laws.transferFrom(storage, who, limit, logs, world, from, to, amount):
-  Evm.branch.run(Nat.is_eq(Laws.allowed(storage, from, who), Nat.sub(limit, 1n)), Nat, ERC20.pay(from, to, amount),
-    ERC20.spend(from, to, who, Laws.allowed(storage, from, who), amount), Evm.State{storage, who, limit, logs, world})
+  Evm.branch.run(Nat.is_eq(Laws.allowed(storage, from, who), Nat.sub(limit, 1n)), Nat, ERC20.move(from, to, amount),
+    spend(from, to, who, Laws.allowed(storage, from, who), amount), Evm.State{storage, who, limit, logs, world})
 
 def Laws.init(storage, who, limit, logs, world, initial):
   {==}

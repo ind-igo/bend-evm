@@ -185,3 +185,14 @@ Solmate's `permit`: an owner approves a spender with a signature, and anyone can
 - [x] The preservation proof covers `If`, nested too. The continuation is erased in the induction, so both arms use it. The lowering test swaps the arms and the proof fails.
 - [x] The reader reads the arms only for a branch, rejects a branch or a call to a branching function before the last step, and counts a branch as one level of the 8-deep limit.
 - [x] `transferFrom` skips the store for a max allowance, as solmate does; `supply_sum` still holds. `bun run gas` shows 36899 against 36964 for optimized Solidity.
+
+## M14: typed events and a smaller ERC-20 core
+
+An event is a constructor of a Bend type, not a signature string at each log. The model cannot read a value's type, so an encoder def gives each event's `Evm.Log`, and the reader and the certificate keep it honest.
+
+### Done when
+
+- [x] `Evm.Indexed(A)` marks an indexed field, and `Evm.emit(encode(Event{...}))` logs an event. The reader finds the constructor's declaration and makes the signature, the topics and the data from its field types; indexed fields come first, at most three. The certificate proves the encoder's log equal to the reader's by `{==}`, so a wrong encoder does not build (tests/emit.test.js).
+- [x] [lib/ERC20.bend](lib/ERC20.bend) is only the ERC-20 core: named storage slots, an `Events` type with `Transfer` and `Approval`, the standard functions, and internal `mint` and `burn`, with one helper, `move`. `permit`, `nonces`, `DOMAIN_SEPARATOR` and the owner move to the example token, with their own slots and `OwnershipTransferred` event. The token's laws did not change and still hold.
+
+Not in M14: custom errors (every revert is `revert(0, 0)`), a generated encoder, and field names in the ABI JSON.

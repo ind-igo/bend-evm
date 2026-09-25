@@ -14,7 +14,7 @@ contract.bend ─ Frontend.check ─ read ─→ IR ─ lower ─→ Yul ─ sol
 
 ## Write an ERC-20
 
-[lib/ERC20.bend](lib/ERC20.bend) is an ERC-20 base, after solmate's: the standard functions and events, EIP-2612 `permit` with `nonces` and the EIP-712 `domain`, and internal `mint` and `burn`. A token imports it, gives its name, symbol and decimals, and exposes each function with a one-line def. [examples/token/program.bend](examples/token/program.bend) is a complete token: the deployer owns it and receives the initial supply, the owner can mint, and holders can burn.
+[lib/ERC20.bend](lib/ERC20.bend) is the ERC-20 core, after solmate's: its storage slots, its `Transfer` and `Approval` events as a type, the standard functions, and internal `mint` and `burn`. A token imports it, gives its name, symbol and decimals, and exposes each function with a one-line def. [examples/token/program.bend](examples/token/program.bend) is a complete token: it adds EIP-2612 `permit` and an owner, who receives the initial supply and can mint; holders can burn.
 
 ```bend
 import ../../lib/ERC20.bend as ERC20
@@ -33,6 +33,22 @@ def init(+supply: Nat) -> Evm.Contract(Unit):
     +who : Nat <- Evm.caller()
     ERC20.mint(who, supply)
 ```
+
+An event is a constructor of a type, and an indexed field has the type `Evm.Indexed(...)`. An encoder gives each event's log, and `Evm.emit` logs it:
+
+```bend
+type Events is Data:
+  Transfer{from: Evm.Indexed(Evm.Address), to: Evm.Indexed(Evm.Address), amount: Nat}
+
+def log(e: Events) -> Evm.Log:
+  match e:
+    case Transfer{from, to, amount}:
+      Evm.Log{"Transfer(address,address,uint256)", [from, to], [amount]}
+
+Evm.emit(log(Transfer{from, to, amount}))
+```
+
+The reader takes the signature and the topics from the constructor's field types, and the certificate checks that the encoder gives the same log, so an encoder that disagrees with its type does not build.
 
 Build it, then deploy the bytecode with the constructor arguments after it:
 
@@ -107,9 +123,9 @@ The proofs cover deployed code only when the certificate covers the same entries
 - A state also has a `World`: the block time, the chain id, the contract's address, and tables that stand for `keccak256` and `ecrecover`. A law holds for every table, so no law depends on how either function works, and the printer uses the real ones: `keccak256` over memory, and the `ecrecover` precompile, which gives zero for a bad signature. `permit` checks that the signer is not zero.
 - Words are `Nat`. Checked `add` reverts at the state's `limit`, which is 2^256 on the EVM, and checked `sub` reverts below zero. Proofs keep the limit symbolic: the checker writes any closed Nat near 2^256 out in unary.
 - Storage is an association list: the newest slot wins and missing slots read as zero. A key is a plain slot or an entry of a mapping, `Mapped{base, key}`, where `base` is a key too. The printer puts an entry at `keccak256(key . base)`, as Solidity does, so the model assumes that Keccak has no collisions. That is not enough for a slot that a variable gives, which could equal an entry's `keccak256(key . base)`, so `compile.bend` refuses an entry whose plain slots and mapping bases are not literals. Keys can be variables. A revert discards all state.
-- `branch(cond, A, a, b)` runs the contract `a` when `cond` holds and `b` otherwise, and must be the last step: each arm runs to the end of the call. Code that both arms run after the choice goes in each arm, as a call to a def, as `ERC20.transferFrom` does with `pay`. A run stops at a branch whose condition is not known, so a law about it names both arms with `Evm.branch.run` ([tests/fixtures/branch](tests/fixtures/branch) has examples).
-- Events are `log(signature, topics, data)`: an ABI signature, at most three indexed words and a list of data words, one word for each parameter of the signature. The indexed parameters must come first in the signature, as in `Transfer(address,address,uint256)`: the ABI marks the first parameters as indexed, one for each topic word. The state keeps them newest first, so a revert drops them too. Topic 0 is the signature's Keccak-256, which the printer computes.
-- Supported now: `sload`, `sstore`, mappings (`load(slot, key)`, `store(slot, key, value)`) and nested mappings (`load2(slot, outer, inner)`, `store2(slot, outer, inner, value)`), `caller`, checked `add` and `sub`, `select(cond, a, b)`, `branch(cond, A, a, b)`, `max()`, `require`, `log`, `pure`, Nat and address parameters, literal constants, and calls to the contract's own functions, which the reader inlines. The reader rejects everything else.
+- `branch(cond, A, a, b)` runs the contract `a` when `cond` holds and `b` otherwise, and must be the last step: each arm runs to the end of the call. Code that both arms run after the choice goes in each arm, as a call to a def, as `ERC20.transferFrom` does with `move`. A run stops at a branch whose condition is not known, so a law about it names both arms with `Evm.branch.run` ([tests/fixtures/branch](tests/fixtures/branch) has examples).
+- Events are `emit(encode(Event{...}))` over a type, as above, or `log(signature, topics, data)`: an ABI signature, at most three indexed words and a list of data words, one word for each parameter of the signature. The indexed parameters must come first in the signature (and in an event type), as in `Transfer(address,address,uint256)`: the ABI marks the first parameters as indexed, one for each topic word. The state keeps them newest first, so a revert drops them too. Topic 0 is the signature's Keccak-256, which the printer computes.
+- Supported now: `sload`, `sstore`, mappings (`load(slot, key)`, `store(slot, key, value)`) and nested mappings (`load2(slot, outer, inner)`, `store2(slot, outer, inner, value)`), `caller`, checked `add` and `sub`, `select(cond, a, b)`, `branch(cond, A, a, b)`, `max()`, `require`, `log`, `emit`, `pure`, Nat and address parameters, literal constants, and calls to the contract's own functions, which the reader inlines. The reader rejects everything else.
 
 ## Limits
 
@@ -117,6 +133,6 @@ The proofs cover deployed code only when the certificate covers the same entries
 - certify.bend must run through the frontend's `host/run.js`, which gives it its own path in `BEND_ENTRY`.
 - Literals are limited by `Nat.read` (about 2^48). Source Nat literals already stop at 2^32 - 1.
 - Parameters are `uint256` (`Nat`) or `address` (`Evm.Address`, which is `Nat`); the dispatcher reverts on an address above 2^160. Results are `uint256`; a `bool` result is the word 1 or 0, which has the same encoding.
-- Calls and branches nest at most 8 deep together, so a function cannot call itself. An `else if` chain of 8 branches is too deep, and `ERC20.transferFrom` uses 7 levels.
+- Calls and branches nest at most 8 deep together, so a function cannot call itself. An `else if` chain of 8 branches is too deep.
 - A branch must be the last step, and its arms return `Nat` or `Unit`. There is no join point after a branch; see ROADMAP.md (M13).
 - In the reader, match on `Call` tags, not on nested `Term` patterns or string literals. A string pattern costs the checker 33 splits per character, and each fallback case is copied into every split. Nested Term patterns made checking take 6 GB, and string names made it take 2.5 GB; with tags, `read.bend` checks in about 120 MB. Add a name to `tags()` to read a new DSL call.
