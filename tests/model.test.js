@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { deploy, must, run } from './chain.js';
+import { generator } from './random.js';
 
 // A differential test: random calls run on the token's Bend source and on
 // the compiled token on anvil must give the same returns, reverts and logs.
@@ -32,16 +33,6 @@ const functions = {
 const views = new Set(['owner', 'totalSupply', 'balanceOf', 'allowance']);
 const events = Object.fromEntries(['Transfer(address,address,uint256)', 'Approval(address,address,uint256)',
   'OwnershipTransferred(address,address)'].map(e => [must(run('cast', 'keccak', e)), e]));
-
-// mulberry32: a small seeded generator, so a failing sequence repeats.
-function generator(state) {
-  return () => {
-    state = (state + 0x6D2B79F5) | 0;
-    let t = Math.imul(state ^ (state >>> 15), 1 | state);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
 
 function sequence(random, length) {
   const pick = xs => xs[Math.floor(random() * xs.length)];

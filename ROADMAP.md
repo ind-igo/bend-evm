@@ -161,5 +161,6 @@ A token that someone can write, deploy and use from a wallet, after solmate's ER
 - [x] The token test deploys the output of `bun run build --out`, reads the name, symbol and decimals with `cast`, and checks the ABI with `cast interface`.
 
 - [x] Holders can `burn`; its law, the supply proof and both chain tests cover it.
+- [x] A differential test runs the token and the same token in Solidity with solmate's logic on the same calls, with 256-bit amounts, and requires the same successes, return bytes and logs. When the Solidity reference forgets the unlimited allowance, the test fails (checked by hand).
 
 Not in M11 yet: `permit` (EIP-2612).
