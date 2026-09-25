@@ -55,16 +55,93 @@ def strip(+evm: String, term: Core.Term) -> Core.Term:
 # An application spine: the referenced head and its arguments in order.
 # Readers match names on Call, never deep inside Term: nested patterns over
 # Term's many constructors make the checker's case trees explode.
+# A call's head, when the reader knows it. A string pattern costs the
+# checker 33 splits per character, and a fallback case is copied into each
+# split, so readers match on the tag instead.
+type Tag is Data:
+  Sload{}
+  Load{}
+  Load2{}
+  Caller{}
+  Max{}
+  Timestamp{}
+  Chainid{}
+  Self{}
+  Keccak{}
+  Typed{}
+  Id{}
+  Recover{}
+  Select{}
+  Add{}
+  Sub{}
+  Sstore{}
+  Store{}
+  Store2{}
+  Log{}
+  Require{}
+  IsEq{}
+  IsLt{}
+  Not{}
+  NatType{}
+  UnitType{}
+  Bind{}
+  Pure{}
+  Branch{}
+  Unknown{}
+
+type Named is Data:
+  Named{name: String, tag: Tag}
+
+def tags() -> List<&2, Named>:
+  [Named{"Evm.sload", Sload{}},
+  Named{"Evm.load", Load{}},
+  Named{"Evm.load2", Load2{}},
+  Named{"Evm.caller", Caller{}},
+  Named{"Evm.max", Max{}},
+  Named{"Evm.timestamp", Timestamp{}},
+  Named{"Evm.chainid", Chainid{}},
+  Named{"Evm.self", Self{}},
+  Named{"Evm.keccak", Keccak{}},
+  Named{"Evm.typed", Typed{}},
+  Named{"Evm.id", Id{}},
+  Named{"Evm.recover", Recover{}},
+  Named{"Evm.select", Select{}},
+  Named{"Evm.add", Add{}},
+  Named{"Evm.sub", Sub{}},
+  Named{"Evm.sstore", Sstore{}},
+  Named{"Evm.store", Store{}},
+  Named{"Evm.store2", Store2{}},
+  Named{"Evm.log", Log{}},
+  Named{"Evm.require", Require{}},
+  Named{"Nat.is_eq", IsEq{}},
+  Named{"Nat.is_lt", IsLt{}},
+  Named{"Bool.not", Not{}},
+  Named{"Nat", NatType{}},
+  Named{"Unit", UnitType{}},
+  Named{"Evm.Contract.bind", Bind{}},
+  Named{"Evm.Contract.pure", Pure{}},
+  Named{"Evm.branch", Branch{}}]
+
+def tag.go(table: List<&2, Named>, +name: String) -> Tag:
+  match table:
+    case Nil{}:
+      Unknown{}
+    case Named{n, t} <> rest:
+      Bool.pick(Tag, String.eq(name, n), t, tag.go(rest, name))
+
+def tag(+name: String) -> Tag:
+  tag.go(tags(), name)
+
 type Call is Data:
-  Call{name: String, args: List<&2, Core.Term>}
+  Call{tag: Tag, name: String, args: List<&2, Core.Term>}
   Other{}
 
 def call(term: Core.Term, args: List<&2, Core.Term>) -> Call:
   match term:
     case Core.TApp{func, arg}:
       call(func, arg <> args)
-    case Core.TRef{name, _}:
-      Call{name, args}
+    case Core.TRef{+name, _}:
+      Call{tag(name), name, args}
     case _:
       Other{}
 
@@ -305,11 +382,11 @@ def mapped(pair: Operands) -> IR.Loc:
 
 def cond(c: Call, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Cond>:
   match c:
-    case Call{"Nat.is_eq", left <> right <> Nil{}}:
+    case Call{IsEq{}, _, left <> right <> Nil{}}:
       do Result<&2, &2, String, IR.Cond>:
         pair : Operands <- operands(left, right, decls)
         return eq(pair)
-    case Call{"Nat.is_lt", left <> right <> Nil{}}:
+    case Call{IsLt{}, _, left <> right <> Nil{}}:
       do Result<&2, &2, String, IR.Cond>:
         pair : Operands <- operands(left, right, decls)
         return lt(pair)
@@ -322,7 +399,7 @@ def negate(c: IR.Cond) -> IR.Cond:
 # Conditions nest through Bool.not, at most fuel deep.
 def cond.go(+fuel: Nat, c: Call, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Cond>:
   match fuel c:
-    case 1n+(+f) Call{"Bool.not", inner <> Nil{}}:
+    case 1n+(+f) Call{Not{}, _, inner <> Nil{}}:
       do Result<&2, &2, String, IR.Cond>:
         x : IR.Cond <- cond.go(f, call(inner, Nil{}), decls)
         return negate(x)
@@ -331,56 +408,56 @@ def cond.go(+fuel: Nat, c: Call, +decls: List<&2, Core.Declaration>) -> Result<&
 
 def word(c: Call, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Word>:
   match c:
-    case Call{"Evm.sload", slot <> Nil{}}:
+    case Call{Sload{}, _, slot <> Nil{}}:
       do Result<&2, &2, String, IR.Word>:
         s : IR.Expr <- expr(slot, decls)
         return IR.SLoad{IR.Plain{s}}
-    case Call{"Evm.load", slot <> key <> Nil{}}:
+    case Call{Load{}, _, slot <> key <> Nil{}}:
       do Result<&2, &2, String, IR.Word>:
         pair : Operands <- operands(slot, key, decls)
         return IR.SLoad{mapped(pair)}
-    case Call{"Evm.load2", slot <> outer <> inner <> Nil{}}:
+    case Call{Load2{}, _, slot <> outer <> inner <> Nil{}}:
       do Result<&2, &2, String, IR.Word>:
         pair : Operands <- operands(slot, outer, decls)
         k : IR.Expr <- expr(inner, decls)
         return IR.SLoad{IR.Mapped{mapped(pair), k}}
-    case Call{"Evm.caller", Nil{}}:
+    case Call{Caller{}, _, Nil{}}:
       Done{IR.Caller{}}
-    case Call{"Evm.max", Nil{}}:
+    case Call{Max{}, _, Nil{}}:
       Done{IR.Max{}}
-    case Call{"Evm.timestamp", Nil{}}:
+    case Call{Timestamp{}, _, Nil{}}:
       Done{IR.Timestamp{}}
-    case Call{"Evm.chainid", Nil{}}:
+    case Call{Chainid{}, _, Nil{}}:
       Done{IR.ChainId{}}
-    case Call{"Evm.self", Nil{}}:
+    case Call{Self{}, _, Nil{}}:
       Done{IR.Self{}}
-    case Call{"Evm.keccak", words <> Nil{}}:
+    case Call{Keccak{}, _, words <> Nil{}}:
       do Result<&2, &2, String, IR.Word>:
         ws : List<&2, IR.Expr> <- exprs(words, decls)
         return IR.Keccak{ws}
-    case Call{"Evm.typed", domain <> message <> Nil{}}:
+    case Call{Typed{}, _, domain <> message <> Nil{}}:
       do Result<&2, &2, String, IR.Word>:
         pair : Operands <- operands(domain, message, decls)
         return typed(pair)
-    case Call{"Evm.id", text <> Nil{}}:
+    case Call{Id{}, _, text <> Nil{}}:
       do Result<&2, &2, String, IR.Word>:
         t : String <- phrase(text, decls)
         return IR.Id{t}
-    case Call{"Evm.recover", digest <> v <> r <> s <> Nil{}}:
+    case Call{Recover{}, _, digest <> v <> r <> s <> Nil{}}:
       do Result<&2, &2, String, IR.Word>:
         first : Operands <- operands(digest, v, decls)
         second : Operands <- operands(r, s, decls)
         return recover(first, second)
-    case Call{"Evm.select", test <> yes <> no <> Nil{}}:
+    case Call{Select{}, _, test <> yes <> no <> Nil{}}:
       do Result<&2, &2, String, IR.Word>:
         c : IR.Cond <- cond.go(8n, call(test, Nil{}), decls)
         pair : Operands <- operands(yes, no, decls)
         return select(c, pair)
-    case Call{"Evm.add", left <> right <> Nil{}}:
+    case Call{Add{}, _, left <> right <> Nil{}}:
       do Result<&2, &2, String, IR.Word>:
         pair : Operands <- operands(left, right, decls)
         return add(pair)
-    case Call{"Evm.sub", left <> right <> Nil{}}:
+    case Call{Sub{}, _, left <> right <> Nil{}}:
       do Result<&2, &2, String, IR.Word>:
         pair : Operands <- operands(left, right, decls)
         return sub(pair)
@@ -389,29 +466,29 @@ def word(c: Call, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, 
 
 def effect(c: Call, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Effect>:
   match c:
-    case Call{"Evm.sstore", slot <> value <> Nil{}}:
+    case Call{Sstore{}, _, slot <> value <> Nil{}}:
       do Result<&2, &2, String, IR.Effect>:
         s : IR.Expr <- expr(slot, decls)
         v : IR.Expr <- expr(value, decls)
         return IR.SStore{IR.Plain{s}, v}
-    case Call{"Evm.store", slot <> key <> value <> Nil{}}:
+    case Call{Store{}, _, slot <> key <> value <> Nil{}}:
       do Result<&2, &2, String, IR.Effect>:
         pair : Operands <- operands(slot, key, decls)
         v : IR.Expr <- expr(value, decls)
         return IR.SStore{mapped(pair), v}
-    case Call{"Evm.store2", slot <> outer <> inner <> value <> Nil{}}:
+    case Call{Store2{}, _, slot <> outer <> inner <> value <> Nil{}}:
       do Result<&2, &2, String, IR.Effect>:
         pair : Operands <- operands(slot, outer, decls)
         k : IR.Expr <- expr(inner, decls)
         v : IR.Expr <- expr(value, decls)
         return IR.SStore{IR.Mapped{mapped(pair), k}, v}
-    case Call{"Evm.log", event <> topics <> data <> Nil{}}:
+    case Call{Log{}, _, event <> topics <> data <> Nil{}}:
       do Result<&2, &2, String, IR.Effect>:
         e : String <- text(event, decls)
         t : List<&2, IR.Expr> <- exprs(topics, decls)
         d : List<&2, IR.Expr> <- exprs(data, decls)
         log(e, t, d)
-    case Call{"Evm.require", condition <> Nil{}}:
+    case Call{Require{}, _, condition <> Nil{}}:
       do Result<&2, &2, String, IR.Effect>:
         c : IR.Cond <- cond.go(8n, call(condition, Nil{}), decls)
         return IR.Require{c}
@@ -455,11 +532,11 @@ def own.unit(e: Result<&2, &2, String, IR.Effect>, +rest: IR.Cmd) -> Result<&2, 
 def step(typ: Call, +action: Call, +level: Nat, rest: Result<&2, &2, String, IR.Cmd>,
   k: Result<&2, &2, String, Inline.Callee>, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Cmd>:
   match typ:
-    case Call{"Nat", Nil{}}:
+    case Call{NatType{}, _, Nil{}}:
       do Result<&2, &2, String, IR.Cmd>:
         +body : IR.Cmd <- rest
         first(own.word(word(action, decls), level, body), called.word(k, level, body))
-    case Call{"Unit", Nil{}}:
+    case Call{UnitType{}, _, Nil{}}:
       do Result<&2, &2, String, IR.Cmd>:
         +body : IR.Cmd <- rest
         first(own.unit(effect(action, decls), body), called.unit(k, level, body))
@@ -469,7 +546,7 @@ def step(typ: Call, +action: Call, +level: Nat, rest: Result<&2, &2, String, IR.
 def bind(c: Call, +level: Nat, rest: Result<&2, &2, String, IR.Cmd>, k: Result<&2, &2, String, Inline.Callee>,
   +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Cmd>:
   match c:
-    case Call{"Evm.Contract.bind", typ <> _ <> action <> Nil{}}:
+    case Call{Bind{}, _, typ <> _ <> action <> Nil{}}:
       step(call(typ, Nil{}), call(action, Nil{}), level, rest, k, decls)
     case _:
       Fail{"Unsupported binding"}
@@ -483,11 +560,11 @@ def unit(term: Core.Term) -> Result<&2, &2, String, IR.Cmd>:
 
 def pure(typ: Call, value: Core.Term, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Cmd>:
   match typ:
-    case Call{"Nat", Nil{}}:
+    case Call{NatType{}, _, Nil{}}:
       do Result<&2, &2, String, IR.Cmd>:
         v : IR.Expr <- expr(value, decls)
         return IR.Return{v}
-    case Call{"Unit", Nil{}}:
+    case Call{UnitType{}, _, Nil{}}:
       unit(value)
     case _:
       Fail{"Only Nat and Unit results can be returned"}
@@ -513,7 +590,7 @@ def branch(c: IR.Cond, yes: IR.Cmd, no: IR.Cmd) -> IR.Cmd:
 def final(c: Call, k: Result<&2, &2, String, Inline.Callee>, +bound: Nat, +decls: List<&2, Core.Declaration>) ->
   Result<&2, &2, String, IR.Cmd>:
   match c:
-    case Call{"Evm.Contract.pure", typ <> value <> Nil{}}:
+    case Call{Pure{}, _, typ <> value <> Nil{}}:
       pure(call(typ, Nil{}), value, decls)
     case +other:
       first(last(word(other, decls), effect(other, decls)), called.tail(k, bound))
@@ -571,9 +648,9 @@ type Target is Data:
 
 def target(c: Call, +evm: String, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, Target>:
   match c:
-    case Call{"Evm.branch", _}:
+    case Call{Branch{}, _, _}:
       Fail{"A branch must be the last step of a function"}
-    case Call{name, args}:
+    case Call{_, name, args}:
       do Result<&2, &2, String, Target>:
         l : Lambdas <- lambdas.found(Core.find(decls, name), evm)
         a : List<&2, IR.Expr> <- terms(args, decls)
@@ -599,7 +676,7 @@ def target.callee(t: Target, body: IR.Cmd) -> Inline.Callee:
 
 def action(c: Call) -> Call:
   match c:
-    case Call{"Evm.Contract.bind", _ <> _ <> action <> Nil{}}:
+    case Call{Bind{}, _, _ <> _ <> action <> Nil{}}:
       call(action, Nil{})
     case _:
       Other{}
@@ -617,7 +694,7 @@ def tail(c: Call, yes: Core.Term -> Result<&2, &2, String, IR.Cmd>, no: Core.Ter
   k: Result<&2, &2, String, Inline.Callee>, +bound: Nat, +decls: List<&2, Core.Declaration>) ->
   Result<&2, &2, String, IR.Cmd>:
   match c:
-    case Call{"Evm.branch", ok <> _ <> a <> b <> Nil{}}:
+    case Call{Branch{}, _, ok <> _ <> a <> b <> Nil{}}:
       do Result<&2, &2, String, IR.Cmd>:
         x : IR.Cond <- cond.go(8n, call(ok, Nil{}), decls)
         y : IR.Cmd <- yes(a)
@@ -693,7 +770,7 @@ def module.found(found: Maybe<&2, String>) -> Result<&2, &2, String, String>:
 
 def module.call(c: Call) -> Result<&2, &2, String, String>:
   match c:
-    case Call{name, _}:
+    case Call{_, name, _}:
       module.found(before("Contract", name))
     case Other{}:
       Fail{"Expected an Evm.Contract result"}
@@ -724,20 +801,19 @@ def entry(+evm: String, +decls: List<&2, Core.Declaration>, name: String) -> Res
   entry.found(Core.find(decls, name), evm, decls)
 
 # The ABI type of a parameter: Nat is uint256, Evm.Address is address.
-def abi(name: String) -> Result<&2, &2, String, String>:
-  match name:
-    case "Nat":
-      Done{"uint256"}
-    case "Evm.Address":
-      Done{"address"}
-    case "Evm.Uint8":
-      Done{"uint8"}
-    case "Evm.Boolean":
-      Done{"bool"}
-    case "Evm.Bytes32":
-      Done{"bytes32"}
-    case other:
-      Fail{"Unsupported parameter type: " ++ other}
+type Abi is Data:
+  Abi{name: String, abi: String}
+
+def abi.go(table: List<&2, Abi>, +name: String) -> Result<&2, &2, String, String>:
+  match table:
+    case Nil{}:
+      Fail{"Unsupported parameter type: " ++ name}
+    case Abi{n, a} <> rest:
+      Bool.pick(Result<&2, &2, String, String>, String.eq(name, n), Done{a}, abi.go(rest, name))
+
+def abi(+name: String) -> Result<&2, &2, String, String>:
+  abi.go([Abi{"Nat", "uint256"}, Abi{"Evm.Address", "address"}, Abi{"Evm.Uint8", "uint8"},
+    Abi{"Evm.Boolean", "bool"}, Abi{"Evm.Bytes32", "bytes32"}], name)
 
 def abi.term(+evm: String, typ: Core.Term) -> Result<&2, &2, String, String>:
   match typ:

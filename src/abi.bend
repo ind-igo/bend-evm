@@ -65,7 +65,7 @@ def result.term(+evm: String, typ: Core.Term) -> Result<&2, &2, String, String>:
 
 def result.call(+evm: String, c: Read.Call) -> Result<&2, &2, String, String>:
   match c:
-    case Read.Call{_, arg <> Nil{}}:
+    case Read.Call{_, _, arg <> Nil{}}:
       result.term(evm, arg)
     case _:
       Fail{"Expected an Evm.Contract result"}

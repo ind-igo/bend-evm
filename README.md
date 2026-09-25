@@ -119,4 +119,4 @@ The proofs cover deployed code only when the certificate covers the same entries
 - Parameters are `uint256` (`Nat`) or `address` (`Evm.Address`, which is `Nat`); the dispatcher reverts on an address above 2^160. Results are `uint256`; a `bool` result is the word 1 or 0, which has the same encoding.
 - Calls and branches nest at most 8 deep together, so a function cannot call itself. An `else if` chain of 8 branches is too deep, and `ERC20.transferFrom` uses 7 levels.
 - A branch must be the last step, and its arms return `Nat` or `Unit`. There is no join point after a branch; see ROADMAP.md (M13).
-- In the reader, match on `Call` names, not on nested `Term` patterns: nested patterns over Term made checking take 6 GB.
+- In the reader, match on `Call` tags, not on nested `Term` patterns or string literals. A string pattern costs the checker 33 splits per character, and each fallback case is copied into every split. Nested Term patterns made checking take 6 GB, and string names made it take 2.5 GB; with tags, `read.bend` checks in about 120 MB. Add a name to `tags()` to read a new DSL call.
