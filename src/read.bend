@@ -507,22 +507,6 @@ def called.tail(k: Result<&2, &2, String, Inline.Callee>, +bound: Nat) -> Result
     callee : Inline.Callee <- k
     Inline.place(callee, bound)
 
-# An arm of Evm.branch(ok, A, a, b), or a term that fails to read when c is
-# not a branch.
-def branch.arm(c: Call, +yes: Bool) -> Core.Term:
-  match c:
-    case Call{"Evm.branch", _ <> _ <> a <> b <> Nil{}}:
-      Bool.pick(Core.Term, yes, a, b)
-    case _:
-      Core.TCtr{"Unit", Nil{}}
-
-def branch.cond(c: Call, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Cond>:
-  match c:
-    case Call{"Evm.branch", ok <> _}:
-      cond.go(8n, call(ok, Nil{}), decls)
-    case _:
-      Fail{"Not a branch"}
-
 def branch(c: IR.Cond, yes: IR.Cmd, no: IR.Cmd) -> IR.Cmd:
   IR.If{c, yes, no}
 
@@ -587,6 +571,8 @@ type Target is Data:
 
 def target(c: Call, +evm: String, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, Target>:
   match c:
+    case Call{"Evm.branch", _}:
+      Fail{"A branch must be the last step of a function"}
     case Call{name, args}:
       do Result<&2, &2, String, Target>:
         l : Lambdas <- lambdas.found(Core.find(decls, name), evm)
@@ -626,17 +612,17 @@ def level(l: Core.Level) -> Nat:
       0n
 
 # A final Evm.branch reads both arms, each to the end of the call; any other
-# final step is a word, an effect or a call.
-def tail(c: Call, cnd: Result<&2, &2, String, IR.Cond>, yes: Result<&2, &2, String, IR.Cmd>,
-  no: Result<&2, &2, String, IR.Cmd>, k: Result<&2, &2, String, Inline.Callee>, +bound: Nat,
-  +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Cmd>:
+# final step is a word, an effect or a call. yes and no read the arms.
+def tail(c: Call, yes: Core.Term -> Result<&2, &2, String, IR.Cmd>, no: Core.Term -> Result<&2, &2, String, IR.Cmd>,
+  k: Result<&2, &2, String, Inline.Callee>, +bound: Nat, +decls: List<&2, Core.Declaration>) ->
+  Result<&2, &2, String, IR.Cmd>:
   match c:
-    case Call{"Evm.branch", _}:
+    case Call{"Evm.branch", ok <> _ <> a <> b <> Nil{}}:
       do Result<&2, &2, String, IR.Cmd>:
-        x : IR.Cond <- cnd
-        a : IR.Cmd <- yes
-        b : IR.Cmd <- no
-        return branch(x, a, b)
+        x : IR.Cond <- cond.go(8n, call(ok, Nil{}), decls)
+        y : IR.Cmd <- yes(a)
+        n : IR.Cmd <- no(b)
+        return branch(x, y, n)
     case +other:
       final(other, k, bound, decls)
 
@@ -668,8 +654,7 @@ def cmd(+fuel: Nat, term: Core.Term, +bound: Nat, +evm: String, +decls: List<&2,
             +x : Target <- target(c, evm, decls)
             b : IR.Cmd <- cmd(p, target.body(x), target.arity(x), evm, decls)
             return target.callee(x, b)
-          tail(c, branch.cond(c, decls), cmd(p, branch.arm(c, True{}), bound, evm, decls),
-            cmd(p, branch.arm(c, False{}), bound, evm, decls), k, bound, decls)
+          tail(c, t => cmd(p, t, bound, evm, decls), t => cmd(p, t, bound, evm, decls), k, bound, decls)
 
 def output(c: IR.Cmd) -> IR.Output:
   match c:

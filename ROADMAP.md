@@ -181,6 +181,7 @@ Solmate's `permit`: an owner approves a spender with a signature, and anyone can
 
 ### Done when
 
-- [x] `Evm.branch(cond, A, a, b)` with arms of any result type, read to `IR.If` and lowered to a Yul `switch`. Certificates prove by `{==}`; a law about a branch uses `Evm.branch.run`.
+- [x] `Evm.branch(cond, A, a, b)` with `Nat` or `Unit` arms, read to `IR.If` and lowered to a Yul `switch`. Certificates prove by `{==}`; a law about a branch uses `Evm.branch.run`.
 - [x] The preservation proof covers `If`, nested too. The continuation is erased in the induction, so both arms use it. The lowering test swaps the arms and the proof fails.
+- [x] The reader reads the arms only for a branch, rejects a branch or a call to a branching function before the last step, and counts a branch as one level of the 8-deep limit.
 - [x] `transferFrom` skips the store for a max allowance, as solmate does; `supply_sum` still holds. `bun run gas` shows 36899 against 36964 for optimized Solidity.

@@ -4,6 +4,18 @@ import ../../../src/Evm.bend as Evm
 import ../../../src/ir.bend as IR
 import ./program.bend as Program
 
+def ir.init() -> IR.Cmd:
+  IR.If{IR.Eq{IR.Var{0n}, IR.Lit{0n}},
+    IR.Stop{},
+    IR.Finish{IR.SStore{IR.Plain{IR.Lit{1n}}, IR.Var{0n}}}}
+
+law init:
+  for +p0: Nat
+  {IR.call(ir.init(), IR.Stops{}, [IR.Binding{0n, p0}]) == Program.init(p0) : Evm.Contract(Unit)}
+
+def init(p0):
+  {==}
+
 def ir.keep() -> IR.Cmd:
   IR.If{IR.Eq{IR.Var{0n}, IR.Lit{0n}},
     IR.Return{IR.Lit{0n}},
@@ -38,5 +50,26 @@ law get:
   {IR.call(ir.get(), IR.Returns{}, []) == Program.get() : Evm.Contract(Nat)}
 
 def get():
+  {==}
+
+def ir.mark() -> IR.Cmd:
+  IR.If{IR.Eq{IR.Var{0n}, IR.Lit{0n}},
+    IR.Stop{},
+    IR.Finish{IR.SStore{IR.Plain{IR.Lit{1n}}, IR.Var{0n}}}}
+
+law mark:
+  for +p0: Nat
+  {IR.call(ir.mark(), IR.Stops{}, [IR.Binding{0n, p0}]) == Program.mark(p0) : Evm.Contract(Unit)}
+
+def mark(p0):
+  {==}
+
+def ir.marked() -> IR.Cmd:
+  IR.Tail{IR.SLoad{IR.Plain{IR.Lit{1n}}}}
+
+law marked:
+  {IR.call(ir.marked(), IR.Returns{}, []) == Program.marked() : Evm.Contract(Nat)}
+
+def marked():
   {==}
 

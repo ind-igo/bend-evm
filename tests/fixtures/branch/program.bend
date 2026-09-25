@@ -17,3 +17,14 @@ def grade(+x: Nat) -> Evm.Contract(Nat):
 
 def get() -> Evm.Contract(Nat):
   Evm.sload(0n)
+
+# Arms that return Unit: stores x at slot 1 only when it is not zero.
+def mark(+x: Nat) -> Evm.Contract(Unit):
+  Evm.branch(Nat.is_eq(x, 0n), Unit, Evm.Contract.pure(Unit, Unit{}), Evm.sstore(1n, x))
+
+# A branch in the deploy code, through a call in the tail.
+def init(+x: Nat) -> Evm.Contract(Unit):
+  mark(x)
+
+def marked() -> Evm.Contract(Nat):
+  Evm.sload(1n)
