@@ -112,6 +112,10 @@ def range(+pad: String, typ: String, +level: Nat) -> String:
   match typ:
     case "address":
       pad ++ "if shr(160, " ++ var(level) ++ ") { " ++ revert() ++ " }\n"
+    case "uint8":
+      pad ++ "if gt(" ++ var(level) ++ ", 255) { " ++ revert() ++ " }\n"
+    case "bool":
+      pad ++ "if gt(" ++ var(level) ++ ", 1) { " ++ revert() ++ " }\n"
     case _:
       ""
 
@@ -194,16 +198,74 @@ def function(+name: String, entry: Read.Entry, types: List<&2, String>) -> Resul
         Done{Function{name, levels, types, body}},
         Fail{name ++ ": parameter levels are not 0, 1, ..."})
 
+def zeros(+n: Nat) -> String:
+  match n:
+    case 0n:
+      ""
+    case 1n+(+p):
+      "00" ++ zeros(p)
+
+# The first n bytes of s in hex, zero-padded on the right.
+def word.hex(+n: Nat, s: String) -> String:
+  match n s:
+    case 0n _:
+      ""
+    case +m SNil{}:
+      zeros(m)
+    case 1n+(+p) SCon{c, rest}:
+      Keccak.hex.byte(Char.to_u32(c)) ++ word.hex(p, rest)
+
+# One mstore for each 32 bytes of s, from offset on. Fuel is s's length.
+def mstores(+fuel: Nat, +pad: String, s: String, +offset: Nat) -> String:
+  match fuel s:
+    case 0n _:
+      ""
+    case _ SNil{}:
+      ""
+    case 1n+(+f) +t:
+      pad ++ "mstore(" ++ nat(offset) ++ ", 0x" ++ word.hex(32n, t) ++ ")\n"
+        ++ mstores(f, pad, String.drop(t, 32n), Nat.add(offset, 32n))
+
+def ascii(s: String) -> Bool:
+  match s:
+    case SNil{}:
+      True{}
+    case SCon{c, rest}:
+      Bool.and(Nat.is_lt(U32.to_nat(Char.to_u32(c)), 128n), ascii(rest))
+
+# A constant string entry returns the ABI encoding of its text: the offset
+# 32, the length, and the bytes in 32-byte words, zero-padded on the right.
+def constant.text(+name: String, +value: String) -> String:
+  +pad = indent()
+  +size = String.length(value)
+  "      case " ++ Keccak.hex(Keccak.selector(name ++ "()")) ++ " {\n"
+    ++ pad ++ "mstore(0, 32)\n" ++ pad ++ "mstore(32, " ++ nat(size) ++ ")\n"
+    ++ mstores(size, pad, value, 64n)
+    ++ pad ++ "return(0, " ++ nat(Nat.add(64n, Nat.mul(32n, Nat.div(Nat.add(size, 31n), 32n)))) ++ ")\n      }\n"
+
+def constant(+name: String, +value: String) -> Result<&2, &2, String, String>:
+  Bool.pick(Result<&2, &2, String, String>, ascii(value), Done{constant.text(name, value)},
+    Fail{name ++ ": a constant string must be ASCII"})
+
+def case.text(+name: String, found: Maybe<&2, String>, +evm: String, +decls: List<&2, Core.Declaration>) ->
+  Result<&2, &2, String, String>:
+  match found:
+    case Some{value}:
+      constant(name, value)
+    case None{}:
+      do Result<&2, &2, String, String>:
+        entry : Read.Entry <- Read.entry(evm, decls, name)
+        types : List<&2, String> <- Read.types(evm, decls, name)
+        f : Function <- function(name, entry, types)
+        branch(f)
+
 def cases(names: List<&2, String>, +evm: String, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, String>:
   match names:
     case Nil{}:
       Done{""}
     case +name <> rest:
       do Result<&2, &2, String, String>:
-        entry : Read.Entry <- Read.entry(evm, decls, name)
-        types : List<&2, String> <- Read.types(evm, decls, name)
-        f : Function <- function(name, entry, types)
-        head : String <- branch(f)
+        head : String <- case.text(name, Read.string_entry(decls, name), evm, decls)
         tail : String <- cases(rest, evm, decls)
         return head ++ tail
 
@@ -307,7 +369,8 @@ def contract(program: Core.Program, +backend: String, entries: List<&2, String>)
   match program entries:
     case Core.Program{_, _, _, _, entry, _, _, _, +decls, _} +first <> +rest:
       do Result<&2, &2, String, String>:
-        prefix : String <- Read.prefix(decls, first)
+        leading : String <- Read.contract.first(first <> rest, decls)
+        prefix : String <- Read.prefix(decls, leading)
         +evm : String <- Certify.module(entry, prefix, backend)
         init : String <- constructor(has_init(first <> rest), evm, decls)
         body : String <- cases(without_init(first <> rest), evm, decls)

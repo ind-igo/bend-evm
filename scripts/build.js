@@ -1,12 +1,17 @@
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 // Certifies, checks and compiles a contract: the Yul goes to stdout only when
 // the certificate for the same entries checks, and PROOF.bend too if the
-// contract has one. Usage: bun run build <contract.bend> <function>...
-const [program, ...entries] = process.argv.slice(2);
-if (!program || entries.length === 0) {
-  console.error('Usage: bun run build <contract.bend> <function>...');
+// contract has one. With --out <prefix>, it writes <prefix>.yul, the deploy
+// bytecode <prefix>.bin (from solc) and the ABI <prefix>.abi.json instead.
+// Usage: bun run build [--out <prefix>] <contract.bend> <function>...
+const argv = process.argv.slice(2);
+const at = argv.indexOf('--out');
+const out = at < 0 ? undefined : argv.splice(at, 2)[1];
+const [program, ...entries] = argv;
+if (!program || entries.length === 0 || (at >= 0 && !out)) {
+  console.error('Usage: bun run build [--out <prefix>] <contract.bend> <function>...');
   process.exit(2);
 }
 const bend = (...args) => {
@@ -26,4 +31,16 @@ for (const file of [cert, path.join(dir, 'PROOF.bend')].filter(existsSync)) {
     process.exit(1);
   }
 }
-process.stdout.write(bend(run, 'src/compile.bend', program, ...entries));
+const yul = bend(run, 'src/compile.bend', program, ...entries);
+if (!out) {
+  process.stdout.write(yul);
+  process.exit(0);
+}
+mkdirSync(path.dirname(out), { recursive: true });
+writeFileSync(out + '.yul', yul);
+const solc = Bun.spawnSync(['solc', '--strict-assembly', '--evm-version', 'shanghai', '--bin', out + '.yul'],
+  { stdout: 'pipe', stderr: 'inherit' });
+if (solc.exitCode !== 0) process.exit(solc.exitCode ?? 1);
+writeFileSync(out + '.bin', solc.stdout.toString().split('Binary representation:')[1].trim() + '\n');
+writeFileSync(out + '.abi.json', bend(run, 'src/abi.bend', program, ...entries));
+for (const suffix of ['.yul', '.bin', '.abi.json']) console.log(out + suffix);

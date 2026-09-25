@@ -28,6 +28,16 @@ type Slot is Data:
 def Address() -> Data:
   Nat
 
+# A uint8 word, such as an ERC-20's decimals. The dispatcher reverts on a
+# larger argument.
+def Uint8() -> Data:
+  Nat
+
+# A bool word: 1 is true and 0 is false. The dispatcher reverts on a larger
+# argument.
+def Boolean() -> Data:
+  Nat
+
 # An event: its signature, such as "Transfer(address,address,uint256)", the
 # indexed words after topic 0, and the data words. Topic 0 is the signature's
 # Keccak-256, which the printer computes.

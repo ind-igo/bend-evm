@@ -621,6 +621,10 @@ def abi(name: String) -> Result<&2, &2, String, String>:
       Done{"uint256"}
     case "Evm.Address":
       Done{"address"}
+    case "Evm.Uint8":
+      Done{"uint8"}
+    case "Evm.Boolean":
+      Done{"bool"}
     case other:
       Fail{"Unsupported parameter type: " ++ other}
 
@@ -667,3 +671,41 @@ def prefix.found(found: Maybe<&2, Core.Declaration>) -> Result<&2, &2, String, S
 
 def prefix(+decls: List<&2, Core.Declaration>, name: String) -> Result<&2, &2, String, String>:
   prefix.found(Core.find(decls, name))
+
+# A constant string entry, such as an ERC-20's name(): a definition with no
+# parameters whose body is a string literal. It is not a contract, so there
+# is nothing to certify, and the printer returns it ABI-encoded.
+def string_entry.term(term: Core.Term) -> Maybe<&2, String>:
+  match term:
+    case Core.TAnn{value, _}:
+      string_entry.term(value)
+    case Core.TLit{Core.Text{value}}:
+      Some{value}
+    case _:
+      None{}
+
+def string_entry.found(found: Maybe<&2, Core.Declaration>) -> Maybe<&2, String>:
+  match found:
+    case Some{Core.Definition{Core.Header{_, _, 0, _}, 0, False{}, Nil{}, _, Some{body}}}:
+      string_entry.term(body)
+    case _:
+      None{}
+
+def string_entry(+decls: List<&2, Core.Declaration>, name: String) -> Maybe<&2, String>:
+  string_entry.found(Core.find(decls, name))
+
+def is_contract(found: Maybe<&2, String>) -> Bool:
+  match found:
+    case None{}:
+      True{}
+    case Some{_}:
+      False{}
+
+# The first entry that is a contract function. Its result type names the
+# Evm module.
+def contract.first(names: List<&2, String>, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, String>:
+  match names:
+    case Nil{}:
+      Fail{"Name at least one contract function"}
+    case +name <> rest:
+      Bool.pick(Result<&2, &2, String, String>, is_contract(string_entry(decls, name)), Done{name}, contract.first(rest, decls))

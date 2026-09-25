@@ -141,14 +141,24 @@ def claim(+name: String, entry: Read.Entry) -> Result<&2, &2, String, String>:
         Done{claim.text(name, levels, body, output(Read.output(body)))},
         Fail{name ++ ": parameter levels are not 0, 1, ..."})
 
+# A constant string entry is not a contract, so it has no claim.
+def claim.any(+name: String, contract: Bool, +evm: String, +decls: List<&2, Core.Declaration>) ->
+  Result<&2, &2, String, String>:
+  match contract:
+    case True{}:
+      do Result<&2, &2, String, String>:
+        entry : Read.Entry <- Read.entry(evm, decls, name)
+        claim(name, entry)
+    case False{}:
+      Done{""}
+
 def claims(names: List<&2, String>, +evm: String, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, String>:
   match names:
     case Nil{}:
       Done{""}
     case +name <> rest:
       do Result<&2, &2, String, String>:
-        entry : Read.Entry <- Read.entry(evm, decls, name)
-        head : String <- claim(name, entry)
+        head : String <- claim.any(name, Read.is_contract(Read.string_entry(decls, name)), evm, decls)
         tail : String <- claims(rest, evm, decls)
         return head ++ tail
 
@@ -223,9 +233,10 @@ def document(+evm: String, file: String, entries: List<&2, String>, +decls: List
 def certificate(program: Core.Program, +backend: String, file: String, entries: List<&2, String>) ->
   Result<&2, &2, String, String>:
   match program entries:
-    case Core.Program{_, _, _, _, entry, _, _, _, +decls, _} +first <> rest:
+    case Core.Program{_, _, _, _, entry, _, _, _, +decls, _} +first <> +rest:
       do Result<&2, &2, String, String>:
-        prefix : String <- Read.prefix(decls, first)
+        leading : String <- Read.contract.first(first <> rest, decls)
+        prefix : String <- Read.prefix(decls, leading)
         evm : String <- module(entry, prefix, backend)
         document(evm, file, first <> rest, decls)
     case _ Nil{}:
