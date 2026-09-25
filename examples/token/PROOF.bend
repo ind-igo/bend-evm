@@ -18,7 +18,7 @@ def Laws.approve(storage, who, limit, logs, spender, amount):
 def Laws.transferFrom(storage, who, limit, logs, from, to, amount):
   {==}
 
-def Laws.init(storage, who, limit, logs, supply):
+def Laws.init(storage, who, limit, logs, initial):
   {==}
 
 def Laws.owner(storage, who, limit, logs):
@@ -462,11 +462,46 @@ def init_sum(+deployer: Nat, +initial: Nat, +accounts: List<&2, Nat>) ->
         == Nat.add(gain(deployer, initial, a), _) : Nat}
       {==}
 
-def keeps.init(+deployer: Nat, +limit: Nat, +initial: Nat, +accounts: List<&2, Nat>,
-  +c: {1n == Laws.count(deployer, accounts) : Nat}) -> {True{} == Laws.balanced(Laws.deployed(deployer, limit, initial), accounts) : Bool}:
+def init_storage(+deployer: Nat, +initial: Nat) -> List<&2, Evm.Slot>:
+  Evm.Slot{Evm.Mapped{Evm.Plain{1n}, deployer}, initial} <> Evm.Slot{Evm.Plain{0n}, initial}
+    <> Evm.Slot{Evm.Plain{3n}, deployer} <> []
+
+def init_ok(+deployer: Nat, +limit: Nat, +initial: Nat) -> Evm.Outcome<Unit>:
+  Evm.Ok{Unit{}, Evm.State{init_storage(deployer, initial), deployer, limit,
+    [Evm.Log{"Transfer(address,address,uint256)", [0n, deployer], [initial]},
+      Evm.Log{"OwnershipTransferred(address,address)", [0n, deployer], []}]}}
+
+def ok.init(+deployer: Nat, +limit: Nat, +initial: Nat, +accounts: List<&2, Nat>,
+  +c: {1n == Laws.count(deployer, accounts) : Nat}) ->
+  {True{} == Laws.balanced(Laws.after(Unit, init_ok(deployer, limit, initial), Evm.State{[], deployer, limit, []}), accounts) : Bool}:
   %init_sum(deployer, initial, accounts) : {True{} == Nat.is_eq(initial, _) : Bool}
   %hits_once(deployer, initial, accounts, c) : {True{} == Nat.is_eq(initial, _) : Bool}
   N.eq_refl(initial)
+
+# No account holds anything in empty storage.
+def holdings_empty(+accounts: List<&2, Nat>) -> {0n == Laws.holdings([], accounts) : Nat}:
+  match accounts:
+    case Nil{}:
+      {==}
+    case +a <> +rest:
+      holdings_empty(rest)
+
+def empty(+deployer: Nat, +limit: Nat, +accounts: List<&2, Nat>) ->
+  {True{} == Laws.balanced(Evm.State{[], deployer, limit, []}, accounts) : Bool}:
+  %holdings_empty(accounts) : {True{} == Nat.is_eq(0n, _) : Bool}
+  {==}
+
+# Deployment mints the initial supply to the deployer, or reverts.
+def keeps.init(+deployer: Nat, +limit: Nat, +initial: Nat, +accounts: List<&2, Nat>,
+  +c: {1n == Laws.count(deployer, accounts) : Nat}) -> {True{} == Laws.balanced(Laws.deployed(deployer, limit, initial), accounts) : Bool}:
+  keep_pick(Unit, Nat.is_lt(initial, limit),
+    Bool.pick(Evm.Outcome<Unit>, Nat.is_lt(initial, limit), init_ok(deployer, limit, initial), Evm.Revert{}), Evm.Revert{},
+    Evm.State{[], deployer, limit, []}, accounts,
+    _ => keep_pick(Unit, Nat.is_lt(initial, limit), init_ok(deployer, limit, initial), Evm.Revert{},
+      Evm.State{[], deployer, limit, []}, accounts,
+      _ => ok.init(deployer, limit, initial, accounts, c),
+      _ => empty(deployer, limit, accounts)),
+    _ => empty(deployer, limit, accounts))
 
 def Laws.supply_sum(calls, accounts, deployer, limit, initial, e):
   keeps.trace(calls, Laws.deployed(deployer, limit, initial), accounts,

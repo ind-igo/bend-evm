@@ -108,8 +108,8 @@ const supply = 1n + BigInt(Math.floor(generator(seed)() * 100));
 let chain;
 
 beforeAll(async () => {
-  chain = await deploy('examples/token/program.bend', ['init', ...Object.keys(functions)], address(people[0]),
-    [supply]);
+  chain = await deploy('examples/token/program.bend', ['init', ...Object.keys(functions)],
+    { deployer: address(people[0]), args: [supply] });
   for (const who of people.slice(1)) chain.fund(address(who));
 }, 120_000);
 

@@ -24,14 +24,17 @@ export function reverts(result) {
   expect(result.err).toMatch(/revert/i);
 }
 
-// The deployer is anvil's first account unless one is given. The constructor
-// arguments are words that follow the code.
-export async function deploy(program, functions, deployer, args = []) {
+// Options: the deployer (anvil's first account by default), the constructor
+// arguments, which are words after the code, and bytecode from `bun run
+// build --out` (compiled here when absent).
+export async function deploy(program, functions, { deployer, args = [], bytecode } = {}) {
   const temp = mkdtempSync(path.join(tmpdir(), 'bend-evm-chain-'));
-  const yul = must(run(process.execPath, 'vendor/bend-frontend/host/run.js', 'src/compile.bend', program, ...functions));
-  writeFileSync(path.join(temp, 'Contract.yul'), yul);
-  const solc = must(run('solc', '--strict-assembly', '--evm-version', 'shanghai', '--bin', path.join(temp, 'Contract.yul')));
-  const bytecode = solc.split('Binary representation:')[1].trim();
+  if (!bytecode) {
+    const yul = must(run(process.execPath, 'vendor/bend-frontend/host/run.js', 'src/compile.bend', program, ...functions));
+    writeFileSync(path.join(temp, 'Contract.yul'), yul);
+    const solc = must(run('solc', '--strict-assembly', '--evm-version', 'shanghai', '--bin', path.join(temp, 'Contract.yul')));
+    bytecode = solc.split('Binary representation:')[1].trim();
+  }
 
   const node = Bun.spawn(['anvil', '--host', '127.0.0.1', '--port', '0'], { stdout: 'pipe', stderr: 'pipe' });
   const reader = node.stdout.getReader();

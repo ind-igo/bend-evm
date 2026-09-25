@@ -148,3 +148,16 @@ The first law over many calls. From deployment, after any list of calls by anyon
 - [x] With `transfer` changed to credit one more than it debits, the supply proof alone fails (checked by hand, apart from the other laws, which fail too).
 
 Not in M10: view calls in the sequence (they write no storage, as their laws show), and a law that names the sum over all 2^160 addresses directly.
+
+## M11: a usable ERC-20
+
+A token that someone can write, deploy and use from a wallet, after solmate's ERC20.
+
+### Done when
+
+- [x] A constant string entry, such as `name()`, returns its ABI encoding; `Evm.Uint8` and `Evm.Boolean` are range-checked words with their ABI types.
+- [x] `src/abi.bend` prints the ABI JSON, and `bun run build --out` writes the Yul, the bytecode and the ABI.
+- [x] [lib/ERC20.bend](lib/ERC20.bend) is the base, and the example token uses it. Its laws, including `supply_sum`, still hold; `init` now mints, so its law states the overflow checks.
+- [x] The token test deploys the output of `bun run build --out`, reads the name, symbol and decimals with `cast`, and checks the ABI with `cast interface`.
+
+Not in M11 yet: `permit` (EIP-2612), and a test of `burn`.

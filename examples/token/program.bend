@@ -1,16 +1,37 @@
 import Base
 import ../../src/Evm.bend as Evm
+import ../../lib/ERC20.bend as ERC20
 
-# A minimal ERC-20 token. Slot 0 holds the total supply, the mapping at slot 1
-# holds balances, the mapping at slot 2 holds, for each holder, the allowance
-# of each spender, and slot 3 holds the owner, who can mint. Results are
-# words, so `true` is the word 1.
+# A mintable ERC-20 on the ERC20 base. The deployer owns it and receives the
+# initial supply, and the owner can mint more, as with OpenZeppelin's
+# Ownable. Slot 3 holds the owner.
 
-def transfer_event() -> String:
-  "Transfer(address,address,uint256)"
+def name() -> String:
+  "Bend Token"
 
-def approval_event() -> String:
-  "Approval(address,address,uint256)"
+def symbol() -> String:
+  "BEND"
+
+def decimals() -> Evm.Contract(Evm.Uint8):
+  Evm.Contract.pure(Nat, 18n)
+
+def totalSupply() -> Evm.Contract(Nat):
+  ERC20.totalSupply()
+
+def balanceOf(who: Evm.Address) -> Evm.Contract(Nat):
+  ERC20.balanceOf(who)
+
+def allowance(holder: Evm.Address, spender: Evm.Address) -> Evm.Contract(Nat):
+  ERC20.allowance(holder, spender)
+
+def approve(+spender: Evm.Address, +amount: Nat) -> Evm.Contract(Evm.Boolean):
+  ERC20.approve(spender, amount)
+
+def transfer(+to: Evm.Address, +amount: Nat) -> Evm.Contract(Evm.Boolean):
+  ERC20.transfer(to, amount)
+
+def transferFrom(+from: Evm.Address, +to: Evm.Address, +amount: Nat) -> Evm.Contract(Evm.Boolean):
+  ERC20.transferFrom(from, to, amount)
 
 def ownership_event() -> String:
   "OwnershipTransferred(address,address)"
@@ -21,11 +42,9 @@ def init(+supply: Nat) -> Evm.Contract(Unit):
     +who : Nat <- Evm.caller()
     Evm.sstore(3n, who)
     Evm.log(ownership_event(), [0n, who], [])
-    Evm.sstore(0n, supply)
-    Evm.store(1n, who, supply)
-    Evm.log(transfer_event(), [0n, who], [supply])
+    ERC20.mint(who, supply)
 
-def owner() -> Evm.Contract(Nat):
+def owner() -> Evm.Contract(Evm.Address):
   Evm.sload(3n)
 
 def transferOwnership(+next: Evm.Address) -> Evm.Contract(Unit):
@@ -36,69 +55,9 @@ def transferOwnership(+next: Evm.Address) -> Evm.Contract(Unit):
     Evm.sstore(3n, next)
     Evm.log(ownership_event(), [boss, next], [])
 
-def totalSupply() -> Evm.Contract(Nat):
-  Evm.sload(0n)
-
-def balanceOf(who: Evm.Address) -> Evm.Contract(Nat):
-  Evm.load(1n, who)
-
-# Adds amount to the balance of to.
-def credit(+to: Nat, +amount: Nat) -> Evm.Contract(Unit):
-  do Evm.Contract<Unit>:
-    b : Nat <- Evm.load(1n, to)
-    sum : Nat <- Evm.add(b, amount)
-    Evm.store(1n, to, sum)
-
-# Moves amount from one balance to another and logs it.
-def move(+from: Nat, +to: Nat, +amount: Nat) -> Evm.Contract(Unit):
-  do Evm.Contract<Unit>:
-    a : Nat <- Evm.load(1n, from)
-    rest : Nat <- Evm.sub(a, amount)
-    Evm.store(1n, from, rest)
-    credit(to, amount)
-    Evm.log(transfer_event(), [from, to], [amount])
-
-def transfer(+to: Evm.Address, +amount: Nat) -> Evm.Contract(Nat):
-  do Evm.Contract<Nat>:
-    sender : Nat <- Evm.caller()
-    move(sender, to, amount)
-    Evm.Contract.pure(Nat, 1n)
-
 def mint(+to: Evm.Address, +amount: Nat) -> Evm.Contract(Unit):
   do Evm.Contract<Unit>:
     who : Nat <- Evm.caller()
     boss : Nat <- Evm.sload(3n)
     Evm.require(Nat.is_eq(who, boss))
-    supply : Nat <- Evm.sload(0n)
-    total : Nat <- Evm.add(supply, amount)
-    Evm.sstore(0n, total)
-    credit(to, amount)
-    Evm.log(transfer_event(), [0n, to], [amount])
-
-def allowance(holder: Evm.Address, spender: Evm.Address) -> Evm.Contract(Nat):
-  Evm.load2(2n, holder, spender)
-
-def approve(+spender: Evm.Address, +amount: Nat) -> Evm.Contract(Nat):
-  do Evm.Contract<Nat>:
-    +holder : Nat <- Evm.caller()
-    Evm.store2(2n, holder, spender, amount)
-    Evm.log(approval_event(), [holder, spender], [amount])
-    Evm.Contract.pure(Nat, 1n)
-
-# What transferFrom takes from an allowance: nothing when it is max(),
-# which is unlimited.
-def spent(+allowed: Nat, +amount: Nat) -> Evm.Contract(Nat):
-  do Evm.Contract<Nat>:
-    top : Nat <- Evm.max()
-    Evm.select(Nat.is_eq(allowed, top), 0n, amount)
-
-# The caller spends from the allowance that `from` gave it.
-def transferFrom(+from: Evm.Address, +to: Evm.Address, +amount: Nat) -> Evm.Contract(Nat):
-  do Evm.Contract<Nat>:
-    +spender : Nat <- Evm.caller()
-    +allowed : Nat <- Evm.load2(2n, from, spender)
-    spend : Nat <- spent(allowed, amount)
-    left : Nat <- Evm.sub(allowed, spend)
-    Evm.store2(2n, from, spender, left)
-    move(from, to, amount)
-    Evm.Contract.pure(Nat, 1n)
+    ERC20.mint(to, amount)

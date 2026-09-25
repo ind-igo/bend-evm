@@ -113,18 +113,24 @@ law transferFrom:
             Evm.Log{"Transfer(address,address,uint256)", [from, to], [amount]} <> logs}},
           Evm.Revert{}))) : Evm.Outcome<Nat>}
 
-# The deployer becomes the owner and holds the initial supply.
+# The deployer becomes the owner and receives the initial supply by a mint,
+# which reverts only on overflow. At deployment the storage is empty, so
+# that needs an initial supply of at least the limit.
 law init:
-  for storage: List<&2, Evm.Slot>
+  for +storage: List<&2, Evm.Slot>
   for +who: Nat
-  for limit: Nat
+  for +limit: Nat
   for logs: List<&2, Evm.Log>
-  for +supply: Nat
-  {Evm.run(Unit, Token.init(supply), Evm.State{storage, who, limit, logs})
-    == Evm.Ok{Unit{}, Evm.State{Evm.Slot{Evm.Mapped{Evm.Plain{1n}, who}, supply} <> Evm.Slot{Evm.Plain{0n}, supply}
-      <> Evm.Slot{Evm.Plain{3n}, who} <> storage, who, limit,
-      Evm.Log{"Transfer(address,address,uint256)", [0n, who], [supply]}
-        <> Evm.Log{"OwnershipTransferred(address,address)", [0n, who], []} <> logs}} : Evm.Outcome<Unit>}
+  for +initial: Nat
+  {Evm.run(Unit, Token.init(initial), Evm.State{storage, who, limit, logs})
+    == Bool.pick(Evm.Outcome<Unit>, Nat.is_lt(Nat.add(supply(storage), initial), limit),
+      Bool.pick(Evm.Outcome<Unit>, Nat.is_lt(Nat.add(balance(storage, who), initial), limit),
+        Evm.Ok{Unit{}, Evm.State{Evm.Slot{Evm.Mapped{Evm.Plain{1n}, who}, Nat.add(balance(storage, who), initial)}
+          <> Evm.Slot{Evm.Plain{0n}, Nat.add(supply(storage), initial)} <> Evm.Slot{Evm.Plain{3n}, who} <> storage, who, limit,
+          Evm.Log{"Transfer(address,address,uint256)", [0n, who], [initial]}
+            <> Evm.Log{"OwnershipTransferred(address,address)", [0n, who], []} <> logs}},
+        Evm.Revert{}),
+      Evm.Revert{}) : Evm.Outcome<Unit>}
 
 law owner:
   for +storage: List<&2, Evm.Slot>

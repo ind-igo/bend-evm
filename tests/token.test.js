@@ -1,4 +1,7 @@
 import { afterAll, beforeAll, expect, test } from 'bun:test';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { deploy, must, reverts, run } from './chain.js';
 
 const bob = '0x0000000000000000000000000000000000000b0b';
@@ -7,12 +10,17 @@ const topic = must(run('cast', 'keccak', 'Transfer(address,address,uint256)'));
 const approval = must(run('cast', 'keccak', 'Approval(address,address,uint256)'));
 const ownership = must(run('cast', 'keccak', 'OwnershipTransferred(address,address)'));
 const word = x => '0x' + BigInt(x).toString(16).padStart(64, '0');
+const functions = ['name', 'symbol', 'decimals', 'init', 'owner', 'transferOwnership', 'totalSupply', 'balanceOf',
+  'transfer', 'mint', 'allowance', 'approve', 'transferFrom'];
+const out = path.join(mkdtempSync(path.join(tmpdir(), 'bend-evm-token-')), 'Token');
 let chain, sender, send, owner;
 
-// The deployer, sender, is the owner.
+// As a user would: bun run build --out, then deploy the bytecode with no
+// initial supply. The deployer, sender, is the owner.
 beforeAll(async () => {
-  chain = await deploy('examples/token/program.bend', ['init', 'owner', 'transferOwnership', 'totalSupply', 'balanceOf',
-    'transfer', 'mint', 'allowance', 'approve', 'transferFrom'], undefined, [0n]);
+  must(run(process.execPath, 'scripts/build.js', '--out', out, 'examples/token/program.bend', ...functions));
+  const bytecode = readFileSync(out + '.bin', 'utf8').trim();
+  chain = await deploy('examples/token/program.bend', functions, { args: [0n], bytecode });
   ({ sender, send } = chain);
   owner = sender;
   for (const who of [bob, carol]) {
@@ -21,7 +29,22 @@ beforeAll(async () => {
   }
 }, 120_000);
 
-afterAll(() => chain?.stop());
+afterAll(() => {
+  rmSync(path.dirname(out), { recursive: true, force: true });
+  return chain?.stop();
+});
+
+test('wallets read the name, symbol and decimals, and the ABI is valid', () => {
+  expect(must(chain.cast('call', chain.address, 'name()(string)'))).toBe('"Bend Token"');
+  expect(must(chain.cast('call', chain.address, 'symbol()(string)'))).toBe('"BEND"');
+  expect(must(chain.cast('call', chain.address, 'decimals()(uint8)'))).toBe('18');
+  const solidity = must(run('cast', 'interface', out + '.abi.json'));
+  for (const line of ['function transfer(address to, uint256 amount) external returns (bool);',
+    'function owner() external view returns (address);', 'function name() external pure returns (string memory);',
+    'event Transfer(address indexed, address indexed, uint256);']) {
+    expect(solidity).toContain(line);
+  }
+});
 
 const supply = () => chain.word('totalSupply()(uint256)');
 const balance = who => chain.word('balanceOf(address)(uint256)', who);
