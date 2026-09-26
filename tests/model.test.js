@@ -32,9 +32,9 @@ const signatures = {
 };
 const views = new Set(['owner', 'totalSupply', 'balanceOf', 'allowance']);
 const events = Object.fromEntries(['Transfer(address,address,uint256)', 'Approval(address,address,uint256)',
-  'OwnershipTransferred(address,address)'].map(e => [must(run('cast', 'keccak', e)), e]));
+  'OwnershipTransferred(address,address)'].map(e => [must(run('cast', 'keccak', e)), e.split('(')[0]]));
 const errors = Object.fromEntries(['OwnableUnauthorizedAccount(address)']
-  .map(e => [must(run('cast', 'sig', e)), e]));
+  .map(e => [must(run('cast', 'sig', e)), e.split('(')[0]]));
 
 // A revert as the model prints it: "revert", or "revert <error> <words>"
 // from the revert data of a custom error.
@@ -125,7 +125,7 @@ test(`anvil agrees with the Bend model on random calls (SEED=${seed})`, () => {
   // The sequence must reach the paths that matter.
   const text = expected.join('\n');
   expect(text).toMatch(/revert\n/);
-  expect(text).toMatch(/revert OwnableUnauthorizedAccount\(address\) [1-9]/);
+  expect(text).toMatch(/revert OwnableUnauthorizedAccount [1-9]/);
   expect(text).toMatch(new RegExp(`Approval\\S* \\d+ \\d+ \\| ${limit - 1n}`));
   expect(text).toMatch(/log Transfer\S* [1-9]\d* \d+ \| [1-9]/);
   expect(text).toMatch(/log Transfer\S* [1-9]\d* 0 \| [1-9]/);

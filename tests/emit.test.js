@@ -27,12 +27,12 @@ test('the ABI gives no names when two defs with one signature disagree on them',
   expect(abi.find(item => item.type === 'error').inputs).toEqual([{ name: '', type: 'uint256' }, { name: '', type: 'uint256' }]);
 }, 120_000);
 
-test('an event or error whose body disagrees with its parameters fails the certificate', () => {
+test('an event or error whose body disagrees with its def fails the certificate', () => {
   sandbox(['src/Evm.bend', 'src/ir.bend', 'tests/fixtures/emit'], dir => {
     const program = path.join(dir, 'tests/fixtures/emit/program.bend');
     const good = readFileSync(program, 'utf8');
-    for (const [from, to] of [['[from], [amount]', '[amount], [from]'], ['Moved(address,uint256)', 'Moved(uint256,uint256)'],
-      ['[amount, least]', '[least, amount]'], ['"TooSmall(uint256,uint256)"', '"TooSmall(uint256,uint8)"']]) {
+    for (const [from, to] of [['[from], [amount]', '[amount], [from]'], ['"Moved"', '"Move"'],
+      ['[amount, least]', '[least, amount]'], ['"TooSmall"', '"TooLow"']]) {
       expect(good).toContain(from);
       writeFileSync(program, good.replace(from, to));
       const checked = check(path.join(dir, 'tests/fixtures/emit/CERT.bend'));

@@ -46,27 +46,34 @@ def Boolean() -> Data:
 def Indexed(A: Data) -> Data:
   A
 
-# A log entry: an event's signature, such as "Transfer(address,address,uint256)",
-# the indexed words after topic 0, and the data words. Topic 0 is the
-# signature's Keccak-256, which the printer computes.
+# A log entry: an event's name, such as "Transfer", the indexed words after
+# topic 0, and the data words. Topic 0 is the Keccak-256 of the signature,
+# such as "Transfer(address,address,uint256)", which the reader builds from
+# the event def's name and parameter types.
+#
+# Logs, errors and calls hold a name, not a signature: Bend cannot see a
+# def's name or tell its parameter types apart (Evm.Address is Nat), so the
+# body gives the name and the reader gives the types. The certificate checks
+# that the name is the def's own. Two defs of one kind with one name must
+# have one signature, as the model cannot tell them apart.
 type Log is Data:
-  Log{signature: String, topics: List<&2, Nat>, data: List<&2, Nat>}
+  Log{name: String, topics: List<&2, Nat>, data: List<&2, Nat>}
 
 # The result type of an event def, which is its log. The reader compiles
 # Evm.emit only for a def written with this result type:
 #   def Transfer(from: Evm.Indexed(Evm.Address), to: Evm.Indexed(Evm.Address), amount: Nat) -> Evm.Event:
-#     Evm.Log{"Transfer(address,address,uint256)", [from, to], [amount]}
+#     Evm.Log{"Transfer", [from, to], [amount]}
 def Event() -> Data:
   Log
 
-# A custom error: its signature, such as "Unauthorized(address)", and its
-# argument words. The revert data is the signature's 4-byte selector, then
+# A custom error: its name and its argument words. The revert data is the
+# 4-byte selector of its signature, such as "Unauthorized(address)", then
 # the words, which the printer encodes. An error def gives it, and
 # Evm.ensure reverts with it:
 #   def Unauthorized(account: Evm.Address) -> Evm.Error:
-#     Evm.Error{"Unauthorized(address)", [account]}
+#     Evm.Error{"Unauthorized", [account]}
 type Error is Data:
-  Error{signature: String, args: List<&2, Nat>}
+  Error{name: String, args: List<&2, Nat>}
 
 # What keccak256 hashes: words of 32 bytes; an EIP-712 digest, which hashes
 # 0x1901 . domain . message; or an ASCII text, such as a type string.
@@ -81,14 +88,14 @@ type Hashed is Data:
 type Signed is Data:
   Signed{digest: Nat, v: Nat, r: Nat, s: Nat, signer: Nat}
 
-# A read-only call to another contract: its address, the function's
-# signature, such as "balanceOf(address)", and the argument words. The
-# calldata is the signature's 4-byte selector, then the words. An interface
-# def gives it, and Evm.view makes it:
+# A read-only call to another contract: its address, the function's name
+# and the argument words. The calldata is the 4-byte selector of its
+# signature, such as "balanceOf(address)", then the words. An interface def
+# gives it, and Evm.view makes it:
 #   def balanceOf(token: Evm.Address, who: Evm.Address) -> Evm.Call:
-#     Evm.Call{token, "balanceOf(address)", [who]}
+#     Evm.Call{token, "balanceOf", [who]}
 type Call is Data:
-  Call{target: Nat, signature: String, args: List<&2, Nat>}
+  Call{target: Nat, name: String, args: List<&2, Nat>}
 
 type Answer is Data:
   Answer{call: Call, value: Nat}

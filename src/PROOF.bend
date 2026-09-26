@@ -251,21 +251,21 @@ def sim(+cmd: IR.Cmd, +out: IR.Output, +env: List<&2, IR.Binding>, -R: Data,
     case IR.Bind{IR.Recover{d, v, r, g}, level, body} o:
       sim(body, o, IR.Binding{level, Evm.signer.of(Evm.signers.of(Evm.world.of(s)), IR.eval(d, env), IR.eval(v, env), IR.eval(r, env), IR.eval(g, env))} <> env, R, k, s)
     case IR.Bind{IR.View{t, g, args}, level, body} o:
-      view_step(Evm.Call{IR.eval(t, env), g, IR.evals(args, env)}, R,
+      view_step(Evm.Call{IR.eval(t, env), IR.name(g), IR.evals(args, env)}, R,
         x => Yul.exec(Yul.lower(body, o), o, IR.Binding{level, x} <> env, R, k),
         x => IR.run(body, o, IR.Binding{level, x} <> env, R, k),
         s, x => u => sim(body, o, IR.Binding{level, x} <> env, R, k, u))
     case IR.Then{IR.SStore{loc, value}, body} o:
       sim(body, o, env, R, k, Evm.write.go(IR.loc(loc, env), IR.eval(value, env), s))
     case IR.Then{IR.Log{event, topics, data}, body} o:
-      sim(body, o, env, R, k, Evm.log.go(event, IR.evals(topics, env), IR.evals(data, env), s))
+      sim(body, o, env, R, k, Evm.log.go(IR.name(event), IR.evals(topics, env), IR.evals(data, env), s))
     case IR.Then{IR.Require{+c}, body} o:
       %test_bit(c, env, s) : {Bool.pick(Evm.Outcome<R>, Nat.is_eq(Yul.bit(Nat.is_eq(_, 0n)), 0n), Yul.exec(Yul.lower(body, o), o, env, R, k, s),
         Evm.Revert{}) == Bool.pick(Evm.Outcome<R>, IR.cond(c, env), IR.run(body, o, env, R, k, s), Evm.Revert{}) : Evm.Outcome<R>}
       require_step(IR.cond(c, env), R, Evm.Revert{}, Yul.exec(Yul.lower(body, o), o, env, R, k, s),
         IR.run(body, o, env, R, k, s), sim(body, o, env, R, k, s))
     case IR.Then{IR.Ensure{+c, +error, +args}, body} o:
-      +x : Evm.Outcome<R> = Evm.Raise{Evm.Error{error, IR.evals(args, env)}}
+      +x : Evm.Outcome<R> = Evm.Raise{Evm.Error{IR.name(error), IR.evals(args, env)}}
       %test_bit(c, env, s) : {Bool.pick(Evm.Outcome<R>, Nat.is_eq(Yul.bit(Nat.is_eq(_, 0n)), 0n), Yul.exec(Yul.lower(body, o), o, env, R, k, s),
         x) == Bool.pick(Evm.Outcome<R>, IR.cond(c, env), IR.run(body, o, env, R, k, s), x) : Evm.Outcome<R>}
       require_step(IR.cond(c, env), R, x, Yul.exec(Yul.lower(body, o), o, env, R, k, s), IR.run(body, o, env, R, k, s),
@@ -353,7 +353,7 @@ def sim(+cmd: IR.Cmd, +out: IR.Output, +env: List<&2, IR.Binding>, -R: Data,
         == Bool.pick(Evm.Outcome<R>, IR.cond(c, env), k(Unit{}, s), Evm.Revert{}) : Evm.Outcome<R>}
       require_step(IR.cond(c, env), R, Evm.Revert{}, k(Unit{}, s), k(Unit{}, s), {==})
     case IR.Finish{IR.Ensure{+c, +error, +args}} IR.Stops{}:
-      +x : Evm.Outcome<R> = Evm.Raise{Evm.Error{error, IR.evals(args, env)}}
+      +x : Evm.Outcome<R> = Evm.Raise{Evm.Error{IR.name(error), IR.evals(args, env)}}
       %test_bit(c, env, s) : {Bool.pick(Evm.Outcome<R>, Nat.is_eq(Yul.bit(Nat.is_eq(_, 0n)), 0n), k(Unit{}, s), x)
         == Bool.pick(Evm.Outcome<R>, IR.cond(c, env), k(Unit{}, s), x) : Evm.Outcome<R>}
       require_step(IR.cond(c, env), R, x, k(Unit{}, s), k(Unit{}, s), {==})

@@ -6,7 +6,7 @@ import ../../../src/Evm.bend as Evm
 # name and the other parameter types, and the certificate checks each body.
 
 def totalSupply(token: Evm.Address) -> Evm.Call:
-  Evm.Call{token, "totalSupply()", []}
+  Evm.Call{token, "totalSupply", []}
 
 def balanceOf(token: Evm.Address, who: Evm.Address) -> Evm.Call:
-  Evm.Call{token, "balanceOf(address)", [who]}
+  Evm.Call{token, "balanceOf", [who]}

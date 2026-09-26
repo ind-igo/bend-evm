@@ -116,17 +116,17 @@ def exec(stmt: Stmt, +out: IR.Output, +env: List<&2, IR.Binding>) -> Evm.Contrac
     case SStore{loc, value, body} o:
       R => k => +s => exec(body, o, env, R, k, Evm.write.go(IR.loc(loc, env), eval(value, env, s), s))
     case Log{event, topics, data, body} o:
-      R => k => +s => exec(body, o, env, R, k, Evm.log.go(event, IR.evals(topics, env), IR.evals(data, env), s))
+      R => k => +s => exec(body, o, env, R, k, Evm.log.go(IR.name(event), IR.evals(topics, env), IR.evals(data, env), s))
     case Check{cond, body} o:
       R => k => +s => Bool.pick(Evm.Outcome<R>, Nat.is_eq(eval(cond, env, s), 0n), exec(body, o, env, R, k, s), Evm.Revert{})
     case Guard{cond, error, args, body} o:
       R => k => +s => Bool.pick(Evm.Outcome<R>, Nat.is_eq(eval(cond, env, s), 0n), exec(body, o, env, R, k, s),
-        Evm.Raise{Evm.Error{error, IR.evals(args, env)}})
+        Evm.Raise{Evm.Error{IR.name(error), IR.evals(args, env)}})
     case View{level, target, signature, args, body} o:
-      R => k => Evm.view(Evm.Call{IR.eval(target, env), signature, IR.evals(args, env)}, R,
+      R => k => Evm.view(Evm.Call{IR.eval(target, env), IR.name(signature), IR.evals(args, env)}, R,
         x => exec(body, o, IR.Binding{level, x} <> env, R, k))
     case Answer{target, signature, args} IR.Returns{}:
-      Evm.view(Evm.Call{IR.eval(target, env), signature, IR.evals(args, env)})
+      Evm.view(Evm.Call{IR.eval(target, env), IR.name(signature), IR.evals(args, env)})
     case Result{value} IR.Returns{}:
       R => k => +s => k(eval(value, env, s), s)
     case Stop{} IR.Stops{}:

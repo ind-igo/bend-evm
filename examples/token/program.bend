@@ -14,19 +14,19 @@ def OWNER() -> Nat:
   4n
 
 def OwnershipTransferred(previous: Evm.Indexed(Evm.Address), next: Evm.Indexed(Evm.Address)) -> Evm.Event:
-  Evm.Log{"OwnershipTransferred(address,address)", [previous, next], []}
+  Evm.Log{"OwnershipTransferred", [previous, next], []}
 
 # Errors, with OpenZeppelin's names, so that wallets and explorers know them.
 # A zero signer is ERC2612InvalidSigner(0, owner) here; OpenZeppelin's
 # ECDSA.recover reverts first with ECDSAInvalidSignature().
 def OwnableUnauthorizedAccount(account: Evm.Address) -> Evm.Error:
-  Evm.Error{"OwnableUnauthorizedAccount(address)", [account]}
+  Evm.Error{"OwnableUnauthorizedAccount", [account]}
 
 def ERC2612ExpiredSignature(deadline: Nat) -> Evm.Error:
-  Evm.Error{"ERC2612ExpiredSignature(uint256)", [deadline]}
+  Evm.Error{"ERC2612ExpiredSignature", [deadline]}
 
 def ERC2612InvalidSigner(signer: Evm.Address, owner: Evm.Address) -> Evm.Error:
-  Evm.Error{"ERC2612InvalidSigner(address,address)", [signer, owner]}
+  Evm.Error{"ERC2612InvalidSigner", [signer, owner]}
 
 def name() -> String:
   "Bend Token"

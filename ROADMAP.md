@@ -222,3 +222,16 @@ A contract can read another contract, as with Solidity's `IERC20(token).balanceO
 - [x] On `anvil`, the fixture reads itself as a token, and reverts when the target reverts or has no code (tests/view.test.js). A function that only makes view calls is `view` in the ABI.
 
 Not in M16: calls that write, such as `IERC20(token).transfer(to, amount)`, results other than one word, sending ETH, and passing the called function's revert data on.
+
+## M17: names, not signatures
+
+An event, error or interface def gives only its name, as in `Evm.Log{"Transfer", [from, to], [amount]}`. The types come from the def's parameters, so they are not written twice.
+
+### Done when
+
+- [x] The model's `Log`, `Error` and `Call` hold a name. The IR keeps the full signature for the printer, and `IR.name` gives the model its name, so the certificate checks that the body's name is the def's own (tests/emit.test.js and tests/certify.test.js change a name, and the certificate fails).
+- [x] The reader rejects two defs of one kind with one name and other parameter types, which the model could not tell apart (tests/reject.test.js).
+- [x] The token, the ERC20 core, their laws and the fixtures use names. The certificates do not change, and the laws and proofs hold.
+
+Not in M17: a form with no string. Bend cannot see a def's name, and the IR that the certificate compares is plain data, so the name must be a string once.
+

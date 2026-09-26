@@ -6,10 +6,10 @@ import ../../../src/Evm.bend as Evm
 # body against them.
 
 def Moved(from: Evm.Indexed(Evm.Address), amount: Nat) -> Evm.Event:
-  Evm.Log{"Moved(address,uint256)", [from], [amount]}
+  Evm.Log{"Moved", [from], [amount]}
 
 def TooSmall(amount: Nat, least: Nat) -> Evm.Error:
-  Evm.Error{"TooSmall(uint256,uint256)", [amount, least]}
+  Evm.Error{"TooSmall", [amount, least]}
 
 def moved(+amount: Nat) -> Evm.Contract(Unit):
   do Evm.Contract<Unit>:

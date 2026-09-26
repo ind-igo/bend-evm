@@ -580,6 +580,68 @@ def signed.of(+name: String, p: Parts) -> Result<&2, &2, String, Signed>:
         Done{Signed{signature, topics, data}},
         Fail{signature ++ ": an event, error or call needs an identifier name and a signature under 136 bytes"})
 
+def field.types(fs: List<&2, Field>) -> List<&2, String>:
+  match fs:
+    case Nil{}:
+      Nil{}
+    case Field{_, t} <> rest:
+      t <> field.types(rest)
+
+def signature.fields(+marked: Bool, +short: String, fs: Result<&2, &2, String, List<&2, Field>>) -> Maybe<&2, String>:
+  match marked fs:
+    case True{} Done{list}:
+      Some{short ++ "(" ++ joined(field.types(list)) ++ ")"}
+    case _ _:
+      None{}
+
+# The signature of a def of kind k named short, if it is one.
+def signature.of(+k: Declared, +evm: String, +short: String, t: Telescope) -> Maybe<&2, String>:
+  match t:
+    case Telescope{params, result}:
+      signature.fields(marks(k, call(strip(evm, result), Nil{})), short, fields(evm, signed.params(k, params)))
+
+def signature.found(+k: Declared, +evm: String, +short: String, t: Result<&2, &2, String, Telescope>) -> Maybe<&2, String>:
+  match t:
+    case Done{tel}:
+      signature.of(k, evm, short, tel)
+    case Fail{_}:
+      None{}
+
+def signature.def(+k: Declared, +evm: String, +short: String, found: Maybe<&2, Def>) -> Maybe<&2, String>:
+  match found:
+    case Some{Def{arity, typ, _}}:
+      signature.found(k, evm, short, telescope(arity, typ))
+    case None{}:
+      None{}
+
+def same.signature(found: Maybe<&2, String>, +signature: String) -> Bool:
+  match found:
+    case Some{s}:
+      String.eq(s, signature)
+    case None{}:
+      False{}
+
+# Whether a def of kind k named short in decls has another signature.
+def overloaded(+k: Declared, +evm: String, decls: List<&2, Core.Declaration>, +short: String, +signature: String) -> Bool:
+  match decls:
+    case Nil{}:
+      False{}
+    case +d <> rest:
+      +found = signature.def(k, evm, short, definition(Some{d}))
+      Bool.or(Bool.and(String.eq(after_last('.', Core.name(Core.header(d))), short),
+          Bool.and(Maybe.is_some(&2, String, found), Bool.not(same.signature(found, signature)))),
+        overloaded(k, evm, rest, short, signature))
+
+# The model knows a log, an error or a call by its name only, so two defs of
+# one kind and name must have one signature, unlike Solidity's overloads.
+def single(+k: Declared, +evm: String, +decls: List<&2, Core.Declaration>, +short: String, s: Signed) ->
+  Result<&2, &2, String, Signed>:
+  match s:
+    case Signed{+signature, topics, data}:
+      Bool.pick(Result<&2, &2, String, Signed>, overloaded(k, evm, decls, short, signature),
+        Fail{signature ++ ": another def of this kind has the name " ++ short ++ " but other parameter types"},
+        Done{Signed{signature, topics, data}})
+
 def signed.def(+marked: Bool, +k: Declared, +evm: String, t: Telescope, +name: String, args: List<&2, Core.Term>,
   +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, Signed>:
   match marked t:
@@ -587,7 +649,8 @@ def signed.def(+marked: Bool, +k: Declared, +evm: String, t: Telescope, +name: S
       do Result<&2, &2, String, Signed>:
         fs : List<&2, Field> <- fields(evm, signed.params(k, params))
         p : Parts <- parts(fs, args, False{}, decls)
-        signed.of(after_last('.', name), p)
+        s : Signed <- signed.of(after_last('.', name), p)
+        single(k, evm, decls, after_last('.', name), s)
     case False{} _:
       Fail{wanted(k)}
 
@@ -728,27 +791,12 @@ def param.names(ps: List<&2, Param>) -> List<&2, String>:
     case Param{name, _} <> rest:
       name <> param.names(rest)
 
-def field.types(fs: List<&2, Field>) -> List<&2, String>:
-  match fs:
-    case Nil{}:
-      Nil{}
-    case Field{_, t} <> rest:
-      t <> field.types(rest)
-
-def named.fields(+marked: Bool, +short: String, fs: Result<&2, &2, String, List<&2, Field>>, ns: List<&2, String>,
-  +signature: String) -> Maybe<&2, List<&2, String>>:
-  match marked fs:
-    case True{} Done{list}:
-      Bool.pick(Maybe<&2, List<&2, String>>, String.eq(short ++ "(" ++ joined(field.types(list)) ++ ")", signature),
-        Some{ns}, None{})
-    case _ _:
-      None{}
-
 def named.telescope(+k: Declared, +evm: String, +short: String, t: Result<&2, &2, String, Telescope>, +signature: String) ->
   Maybe<&2, List<&2, String>>:
   match t:
-    case Done{Telescope{+params, result}}:
-      named.fields(marks(k, call(strip(evm, result), Nil{})), short, fields(evm, params), param.names(params), signature)
+    case Done{+tel}:
+      Bool.pick(Maybe<&2, List<&2, String>>, same.signature(signature.of(k, evm, short, tel), signature),
+        Some{param.names(telescope.params(tel))}, None{})
     case Fail{_}:
       None{}
 

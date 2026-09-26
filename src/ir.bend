@@ -101,6 +101,16 @@ def cond(c: Cond, +env: List<&2, Binding>) -> Bool:
     case Not{c}:
       Bool.not(cond(c, env))
 
+# The name in a signature, the text before its "(". The IR keeps a log's,
+# an error's or a call's signature for the printer, and the model keeps its
+# name.
+def name(s: String) -> String:
+  match s:
+    case SNil{}:
+      SNil{}
+    case SCon{+c, rest}:
+      Bool.pick(String, Char.is_eq(c, '('), SNil{}, SCon{c, name(rest)})
+
 def word(w: Word, +env: List<&2, Binding>) -> Evm.Contract(Nat):
   match w:
     case SLoad{l}:
@@ -130,18 +140,18 @@ def word(w: Word, +env: List<&2, Binding>) -> Evm.Contract(Nat):
     case Recover{digest, v, r, s}:
       Evm.recover(eval(digest, env), eval(v, env), eval(r, env), eval(s, env))
     case View{target, signature, args}:
-      Evm.view(Evm.Call{eval(target, env), signature, evals(args, env)})
+      Evm.view(Evm.Call{eval(target, env), name(signature), evals(args, env)})
 
 def effect(e: Effect, +env: List<&2, Binding>) -> Evm.Contract(Unit):
   match e:
     case SStore{l, value}:
       Evm.write(loc(l, env), eval(value, env))
     case Log{event, topics, data}:
-      Evm.log(event, evals(topics, env), evals(data, env))
+      Evm.log(name(event), evals(topics, env), evals(data, env))
     case Require{c}:
       Evm.require(cond(c, env))
     case Ensure{c, error, args}:
-      Evm.ensure(cond(c, env), Evm.Error{error, evals(args, env)})
+      Evm.ensure(cond(c, env), Evm.Error{name(error), evals(args, env)})
 
 def abort(-A: Data) -> Evm.Contract(A):
   R => k => s => Evm.Revert{}

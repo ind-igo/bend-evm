@@ -55,7 +55,7 @@ test('a certificate for the wrong branch does not check', () => {
 
 test('a certificate for the wrong view call does not check', () => {
   mutated('tests/fixtures/view', [
-    ['IR.Tail{IR.View{IR.Var{0n}, "balanceOf(address)"', 'IR.Tail{IR.View{IR.Var{0n}, "balanceOf(uint256)"', 'holding'],
+    ['IR.Tail{IR.View{IR.Var{0n}, "balanceOf(address)"', 'IR.Tail{IR.View{IR.Var{0n}, "balance(address)"', 'holding'],
     ['IR.View{IR.Var{0n}, "totalSupply()", []}', 'IR.View{IR.Var{1n}, "totalSupply()", []}', 'others'],
     ['IR.View{IR.Var{0n}, "totalSupply()", []}', 'IR.View{IR.Var{0n}, "totalSupply()", [IR.Var{1n}]}', 'others'],
   ]);

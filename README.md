@@ -39,30 +39,30 @@ An event is a def whose result type is `Evm.Event`, like Solidity's `event` line
 ```bend
 # event Transfer(address indexed from, address indexed to, uint256 amount);
 def Transfer(from: Evm.Indexed(Evm.Address), to: Evm.Indexed(Evm.Address), amount: Nat) -> Evm.Event:
-  Evm.Log{"Transfer(address,address,uint256)", [from, to], [amount]}
+  Evm.Log{"Transfer", [from, to], [amount]}
 
 Evm.emit(Transfer(from, to, amount))
 ```
 
-The reader takes the signature and the topics from the parameter types, and the certificate checks that the body gives the same log, so an event whose body disagrees with its parameters does not build. The def's name is the ABI event name, so `Transfer` and the function `transfer` differ only in case, as in Solidity.
+The body gives the name, and the reader builds the signature, `Transfer(address,address,uint256)`, from the name and the parameter types, and the topics from `Evm.Indexed`. The certificate checks that the body gives the same log, so an event whose body has another name or other words does not build. The name must be a string because Bend cannot see a def's name, and `Evm.Address` is `Nat` inside Bend, so only the reader can tell the types apart. The model knows an event, error or call by its name, so the reader rejects two defs of one kind with one name and other parameter types: there are no overloads. The def's name is the ABI event name, so `Transfer` and the function `transfer` differ only in case, as in Solidity.
 
-A custom error is a def whose result type is `Evm.Error`, like Solidity's `error` line. Its body is its signature and its argument words, and `Evm.ensure(ok, error)` reverts with it unless `ok` holds, like Solidity's `require(ok, error)`:
+A custom error is a def whose result type is `Evm.Error`, like Solidity's `error` line. Its body is its name and its argument words, and `Evm.ensure(ok, error)` reverts with it unless `ok` holds, like Solidity's `require(ok, error)`:
 
 ```bend
 # error OwnableUnauthorizedAccount(address account);
 def OwnableUnauthorizedAccount(account: Evm.Address) -> Evm.Error:
-  Evm.Error{"OwnableUnauthorizedAccount(address)", [account]}
+  Evm.Error{"OwnableUnauthorizedAccount", [account]}
 
 Evm.ensure(Nat.is_eq(who, boss), OwnableUnauthorizedAccount(who))
 ```
 
 The revert data is the error's selector and its ABI-encoded words, as in Solidity, and the certificate checks the body as it checks an event's. `Evm.require(ok)` reverts with no data. A law states which error a call reverts with: the model's outcome is `Evm.Raise{error}` for a custom error, and `Evm.Revert{}` for a revert with no data.
 
-A contract reads another contract with `Evm.view`, as Solidity's `IERC20(token).balanceOf(who)` does. An interface def gives the call: its first parameter is the target's address, its body is the target, the signature and the argument words, and the reader takes the signature from the def's name and its other parameter types:
+A contract reads another contract with `Evm.view`, as Solidity's `IERC20(token).balanceOf(who)` does. An interface def gives the call: its first parameter is the target's address, its body is the target, the name and the argument words, and the reader builds the signature from the name and the other parameter types:
 
 ```bend
 def balanceOf(token: Evm.Address, who: Evm.Address) -> Evm.Call:
-  Evm.Call{token, "balanceOf(address)", [who]}
+  Evm.Call{token, "balanceOf", [who]}
 
 +held : Nat <- Evm.view(balanceOf(token, who))
 ```
@@ -157,7 +157,7 @@ The proofs cover deployed code only when the certificate covers the same entries
 - Words are `Nat`. Checked `add` reverts at the state's `limit`, which is 2^256 on the EVM, and checked `sub` reverts below zero. Proofs keep the limit symbolic: the checker writes any closed Nat near 2^256 out in unary.
 - Storage is an association list: the newest slot wins and missing slots read as zero. A key is a plain slot or an entry of a mapping, `Mapped{base, key}`, where `base` is a key too. The printer puts an entry at `keccak256(key . base)`, as Solidity does, so the model assumes that Keccak has no collisions. That is not enough for a slot that a variable gives, which could equal an entry's `keccak256(key . base)`, so `compile.bend` refuses an entry whose plain slots and mapping bases are not literals. Keys can be variables. A revert discards all state.
 - `branch(A, cond, a, b)` runs the contract `a` when `cond` holds and `b` otherwise, and must be the last step: each arm runs to the end of the call. Code that both arms run after the choice goes in each arm, as a call to a def, as `ERC20.transferFrom` does with `move`. A run stops at a branch whose condition is not known, so a law about it names both arms with `Evm.branch.run` ([tests/fixtures/branch](tests/fixtures/branch) has examples).
-- Events are `emit(Event(...))` with an event def, as above: at most three indexed parameters, before the others, as the ABI marks the first parameters as indexed, one for each topic word. The state keeps logs newest first, so a revert drops them too. Topic 0 is the signature's Keccak-256, which the printer computes. Two events with the same signature must agree on their indexed parameters.
+- Events are `emit(Event(...))` with an event def, as above: at most three indexed parameters, before the others, as the ABI marks the first parameters as indexed, one for each topic word. The state keeps logs newest first, so a revert drops them too. Topic 0 is the Keccak-256 of the signature, which the printer computes. Two events with the same signature must agree on their indexed parameters.
 - Supported now: `sload`, `sstore`, mappings (`load(slot, key)`, `store(slot, key, value)`) and nested mappings (`load2(slot, outer, inner)`, `store2(slot, outer, inner, value)`); `caller`, `timestamp`, `chainid` and `self`; checked `add` and `sub`; `max()`; `select(cond, a, b)` and `branch(A, cond, a, b)`, where a condition is `Nat.is_eq` or `Nat.is_lt` under `Bool.not`; `require`; `ensure(cond, error)`; `emit`; `view(call)`; `keccak(words)`, `id(text)`, `typed(domain, message)` (the EIP-712 digest) and `recover(digest, v, r, s)`; `pure`; the parameter types above; literal constants; and calls to the contract's own functions, which the reader inlines. The reader rejects everything else.
 
 ## Limits

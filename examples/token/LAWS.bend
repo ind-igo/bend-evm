@@ -31,7 +31,7 @@ def paid(+storage: List<&2, Evm.Slot>, who: Nat, +from: Nat, +to: Nat, +amount: 
     Evm.Revert{},
     Bool.pick(Evm.Outcome<Nat>, Nat.is_lt(Nat.add(balance(debit(storage, from, amount), to), amount), limit),
       Evm.Ok{1n, Evm.State{Evm.Slot{Evm.Mapped{Evm.Plain{1n}, to}, Nat.add(balance(debit(storage, from, amount), to), amount)}
-          <> debit(storage, from, amount), who, limit, Evm.Log{"Transfer(address,address,uint256)", [from, to], [amount]} <> logs, world}},
+          <> debit(storage, from, amount), who, limit, Evm.Log{"Transfer", [from, to], [amount]} <> logs, world}},
       Evm.Revert{}))
 
 # The receiver's balance is read after the debit, so a transfer to oneself
@@ -62,7 +62,7 @@ law mint:
       Bool.pick(Evm.Outcome<Unit>, Nat.is_lt(Nat.add(supply(storage), amount), limit),
         Bool.pick(Evm.Outcome<Unit>, Nat.is_lt(Nat.add(balance(storage, to), amount), limit),
           Evm.Ok{Unit{}, Evm.State{Evm.Slot{Evm.Mapped{Evm.Plain{1n}, to}, Nat.add(balance(storage, to), amount)}
-              <> Evm.Slot{Evm.Plain{0n}, Nat.add(supply(storage), amount)} <> storage, who, limit, Evm.Log{"Transfer(address,address,uint256)", [0n, to], [amount]} <> logs, world}},
+              <> Evm.Slot{Evm.Plain{0n}, Nat.add(supply(storage), amount)} <> storage, who, limit, Evm.Log{"Transfer", [0n, to], [amount]} <> logs, world}},
           Evm.Revert{}),
         Evm.Revert{}),
       Evm.Raise{Token.OwnableUnauthorizedAccount(who)}) : Evm.Outcome<Unit>}
@@ -81,7 +81,7 @@ law burn:
       Evm.Revert{},
       Bool.pick(Evm.Outcome<Unit>, Nat.is_lt(supply(storage), amount),
         Evm.Revert{},
-        Evm.Ok{Unit{}, Evm.State{Evm.Slot{Evm.Plain{0n}, Nat.sub(supply(storage), amount)} <> debit(storage, who, amount), who, limit, Evm.Log{"Transfer(address,address,uint256)", [who, 0n], [amount]} <> logs, world}})) : Evm.Outcome<Unit>}
+        Evm.Ok{Unit{}, Evm.State{Evm.Slot{Evm.Plain{0n}, Nat.sub(supply(storage), amount)} <> debit(storage, who, amount), who, limit, Evm.Log{"Transfer", [who, 0n], [amount]} <> logs, world}})) : Evm.Outcome<Unit>}
 
 law allowance:
   for +storage: List<&2, Evm.Slot>
@@ -104,7 +104,7 @@ law approve:
   for +spender: Nat
   for +amount: Nat
   {Evm.run(Nat, Token.approve(spender, amount), Evm.State{storage, who, limit, logs, world})
-    == Evm.Ok{1n, Evm.State{Evm.Slot{Evm.Mapped{Evm.Mapped{Evm.Plain{2n}, who}, spender}, amount} <> storage, who, limit, Evm.Log{"Approval(address,address,uint256)", [who, spender], [amount]} <> logs, world}} : Evm.Outcome<Nat>}
+    == Evm.Ok{1n, Evm.State{Evm.Slot{Evm.Mapped{Evm.Mapped{Evm.Plain{2n}, who}, spender}, amount} <> storage, who, limit, Evm.Log{"Approval", [who, spender], [amount]} <> logs, world}} : Evm.Outcome<Nat>}
 
 # The caller spends from the allowance of `from`. An allowance of the
 # largest word, limit - 1, is unlimited and stays as it is. Any other must
@@ -140,8 +140,8 @@ law init:
     == Bool.pick(Evm.Outcome<Unit>, Nat.is_lt(Nat.add(supply(storage), initial), limit),
       Bool.pick(Evm.Outcome<Unit>, Nat.is_lt(Nat.add(balance(storage, who), initial), limit),
         Evm.Ok{Unit{}, Evm.State{Evm.Slot{Evm.Mapped{Evm.Plain{1n}, who}, Nat.add(balance(storage, who), initial)}
-          <> Evm.Slot{Evm.Plain{0n}, Nat.add(supply(storage), initial)} <> Evm.Slot{Evm.Plain{4n}, who} <> storage, who, limit, Evm.Log{"Transfer(address,address,uint256)", [0n, who], [initial]}
-            <> Evm.Log{"OwnershipTransferred(address,address)", [0n, who], []} <> logs, world}},
+          <> Evm.Slot{Evm.Plain{0n}, Nat.add(supply(storage), initial)} <> Evm.Slot{Evm.Plain{4n}, who} <> storage, who, limit, Evm.Log{"Transfer", [0n, who], [initial]}
+            <> Evm.Log{"OwnershipTransferred", [0n, who], []} <> logs, world}},
         Evm.Revert{}),
       Evm.Revert{}) : Evm.Outcome<Unit>}
 
@@ -164,7 +164,7 @@ law transferOwnership:
   for +next: Nat
   {Evm.run(Unit, Token.transferOwnership(next), Evm.State{storage, who, limit, logs, world})
     == Bool.pick(Evm.Outcome<Unit>, Nat.is_eq(who, owner_of(storage)),
-      Evm.Ok{Unit{}, Evm.State{Evm.Slot{Evm.Plain{4n}, next} <> storage, who, limit, Evm.Log{"OwnershipTransferred(address,address)", [owner_of(storage), next], []} <> logs, world}},
+      Evm.Ok{Unit{}, Evm.State{Evm.Slot{Evm.Plain{4n}, next} <> storage, who, limit, Evm.Log{"OwnershipTransferred", [owner_of(storage), next], []} <> logs, world}},
       Evm.Raise{Token.OwnableUnauthorizedAccount(who)}) : Evm.Outcome<Unit>}
 
 # EIP-2612. hashed and the signers table stand for keccak256 and ecrecover
@@ -230,7 +230,7 @@ law permit:
           Bool.pick(Evm.Outcome<Unit>, Nat.is_eq(permitter(world, storage, owner, spender, value, deadline, v, r, s), owner),
             Evm.Ok{Unit{}, Evm.State{Evm.Slot{Evm.Mapped{Evm.Mapped{Evm.Plain{2n}, owner}, spender}, value}
               <> Evm.Slot{Evm.Mapped{Evm.Plain{3n}, owner}, Nat.add(nonce(storage, owner), 1n)} <> storage, who, limit,
-              Evm.Log{"Approval(address,address,uint256)", [owner, spender], [value]} <> logs, world}},
+              Evm.Log{"Approval", [owner, spender], [value]} <> logs, world}},
             Evm.Raise{Token.ERC2612InvalidSigner(permitter(world, storage, owner, spender, value, deadline, v, r, s), owner)}),
           Evm.Raise{Token.ERC2612InvalidSigner(permitter(world, storage, owner, spender, value, deadline, v, r, s), owner)}),
         Evm.Revert{}),

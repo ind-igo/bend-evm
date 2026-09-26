@@ -24,8 +24,8 @@ law others:
   for +owner: Nat
   {Evm.run(Nat, Program.others(token, owner), Evm.State{storage, who, limit, logs,
       Evm.World{time, chain, self, hashes, signers, Evm.Answer{q, held} <> Evm.Answer{r, supply} <> rest}})
-    == Bool.pick(Evm.Outcome<Nat>, Evm.same.call(q, Evm.Call{token, "balanceOf(address)", [owner]}),
-      Bool.pick(Evm.Outcome<Nat>, Evm.same.call(r, Evm.Call{token, "totalSupply()", []}),
+    == Bool.pick(Evm.Outcome<Nat>, Evm.same.call(q, Evm.Call{token, "balanceOf", [owner]}),
+      Bool.pick(Evm.Outcome<Nat>, Evm.same.call(r, Evm.Call{token, "totalSupply", []}),
         Bool.pick(Evm.Outcome<Nat>, Nat.is_lt(supply, held), Evm.Revert{},
           Evm.Ok{Nat.sub(supply, held), Evm.State{storage, who, limit, logs, Evm.World{time, chain, self, hashes, signers, rest}}}),
         Evm.Revert{}),
