@@ -89,8 +89,8 @@ def atoms(exprs: List<&2, IR.Expr>) -> List<&2, String>:
 def revert() -> String:
   "revert(0, 0)"
 
-# Word i goes to memory at offset + 32 * i: log data from 0, and error
-# arguments from 4, after the selector.
+# Word i goes to memory at offset + 32 * i: log data from 0, and error and
+# call arguments from 4, after the selector.
 def stores(+pad: String, data: List<&2, IR.Expr>, +offset: Nat) -> String:
   match data:
     case Nil{}:
@@ -105,6 +105,17 @@ def prelude(+pad: String, value: Yul.Exp) -> String:
       stores(pad, words, 0n)
     case _:
       ""
+
+# A view call: the selector and argument words go to memory at 0, and the
+# first returned word comes back to 0. The call reverts with no data when it
+# fails or returns less than a word; Solidity passes the callee's revert data
+# on instead.
+def staticcall(+pad: String, target: IR.Expr, +signature: String, +args: List<&2, IR.Expr>) -> String:
+  +size = Nat.add(4n, Nat.mul(32n, List.length(&2, IR.Expr, args)))
+  pad ++ call("mstore", ["0", call("shl", ["224", Keccak.hex(Keccak.selector(signature))])]) ++ "\n"
+    ++ stores(pad, args, 4n)
+    ++ pad ++ "if iszero(" ++ call("staticcall", ["gas()", atom(target), "0", nat(size), "0", "32"]) ++ ") { " ++ revert() ++ " }\n"
+    ++ pad ++ "if lt(returndatasize(), 32) { " ++ revert() ++ " }\n"
 
 # halt is the text for a final stop: stop() in the runtime code, nothing in
 # the deploy code.
@@ -128,6 +139,10 @@ def stmt(+pad: String, +halt: String, s: Yul.Stmt) -> String:
       pad ++ "if " ++ exp(cond) ++ " {\n" ++ inner ++ call("mstore", ["0", call("shl", ["224", Keccak.hex(Keccak.selector(error))])])
         ++ "\n" ++ stores(inner, args, 4n) ++ inner ++ call("revert", ["0", nat(size)]) ++ "\n" ++ pad ++ "}\n"
         ++ stmt(pad, halt, body)
+    case Yul.View{level, target, +signature, +args, body}:
+      staticcall(pad, target, signature, args) ++ pad ++ "let " ++ var(level) ++ " := mload(0)\n" ++ stmt(pad, halt, body)
+    case Yul.Answer{target, +signature, +args}:
+      staticcall(pad, target, signature, args) ++ pad ++ "return(0, 32)\n"
     case Yul.Result{+value}:
       prelude(pad, value) ++ pad ++ "mstore(0, " ++ exp(value) ++ ")\n" ++ pad ++ "return(0, 32)\n"
     case Yul.Stop{}:

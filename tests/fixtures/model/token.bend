@@ -87,7 +87,7 @@ def steps(calls: List<String>, step: Step) -> String:
 def start(args: List<String>) -> String:
   match args:
     case limit <> calls:
-      steps(calls, Step{"", Evm.State{[], 0n, num(limit), [], Evm.World{0n, 0n, 0n, [], []}}})
+      steps(calls, Step{"", Evm.State{[], 0n, num(limit), [], Evm.World{0n, 0n, 0n, [], [], []}}})
     case Nil{}:
       ""
 

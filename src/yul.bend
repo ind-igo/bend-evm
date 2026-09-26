@@ -33,6 +33,8 @@ type Stmt is Data:
   Log{event: String, topics: List<&2, IR.Expr>, data: List<&2, IR.Expr>, body: Stmt}
   Check{cond: Exp, body: Stmt}
   Guard{cond: Exp, error: String, args: List<&2, IR.Expr>, body: Stmt}
+  View{level: Nat, target: IR.Expr, signature: String, args: List<&2, IR.Expr>, body: Stmt}
+  Answer{target: IR.Expr, signature: String, args: List<&2, IR.Expr>}
   Result{value: Exp}
   Stop{}
   Revert{}
@@ -105,8 +107,8 @@ def eval(e: Exp, +env: List<&2, IR.Binding>, +s: Evm.State) -> Nat:
       Evm.signer.of(Evm.signers.of(Evm.world.of(s)), IR.eval(digest, env), IR.eval(v, env), IR.eval(r, env), IR.eval(sig, env))
 
 # `if cond { revert(0, 0) }` reverts when cond is not zero, and a Guard
-# reverts with its error's data. An If runs no when
-# its test is zero and yes otherwise.
+# reverts with its error's data. A View binds a staticcall's word, and an
+# Answer returns it. An If runs no when its test is zero and yes otherwise.
 def exec(stmt: Stmt, +out: IR.Output, +env: List<&2, IR.Binding>) -> Evm.Contract(IR.value(out)):
   match stmt out:
     case Let{level, value, body} o:
@@ -120,6 +122,11 @@ def exec(stmt: Stmt, +out: IR.Output, +env: List<&2, IR.Binding>) -> Evm.Contrac
     case Guard{cond, error, args, body} o:
       R => k => +s => Bool.pick(Evm.Outcome<R>, Nat.is_eq(eval(cond, env, s), 0n), exec(body, o, env, R, k, s),
         Evm.Raise{Evm.Error{error, IR.evals(args, env)}})
+    case View{level, target, signature, args, body} o:
+      R => k => Evm.view(Evm.Call{IR.eval(target, env), signature, IR.evals(args, env)}, R,
+        x => exec(body, o, IR.Binding{level, x} <> env, R, k))
+    case Answer{target, signature, args} IR.Returns{}:
+      Evm.view(Evm.Call{IR.eval(target, env), signature, IR.evals(args, env)})
     case Result{value} IR.Returns{}:
       R => k => +s => k(eval(value, env, s), s)
     case Stop{} IR.Stops{}:
@@ -183,6 +190,10 @@ def lower.word(w: IR.Word) -> Exp:
       Id{text}
     case IR.Recover{digest, v, r, sig}:
       Recover{digest, v, r, sig}
+    case IR.View{_, _, _}:
+      # A call can revert, so it is no expression: lower makes it a View or
+      # an Answer, and never gets here.
+      Atom{IR.Lit{0n}}
 
 # The entry's output is known, so a tail of the wrong kind lowers to a revert.
 def lower(cmd: IR.Cmd, +out: IR.Output) -> Stmt:
@@ -191,6 +202,8 @@ def lower(cmd: IR.Cmd, +out: IR.Output) -> Stmt:
       Check{overflow(left, right), Let{level, Add{Atom{left}, Atom{right}}, lower(body, o)}}
     case IR.Bind{IR.Sub{+left, +right}, level, body} o:
       Check{Lt{Atom{left}, Atom{right}}, Let{level, Sub{Atom{left}, Atom{right}}, lower(body, o)}}
+    case IR.Bind{IR.View{target, signature, args}, level, body} o:
+      View{level, target, signature, args, lower(body, o)}
     case IR.Bind{w, level, body} o:
       Let{level, lower.word(w), lower(body, o)}
     case IR.Then{IR.SStore{loc, value}, body} o:
@@ -207,6 +220,8 @@ def lower(cmd: IR.Cmd, +out: IR.Output) -> Stmt:
       Check{overflow(left, right), Result{Add{Atom{left}, Atom{right}}}}
     case IR.Tail{IR.Sub{+left, +right}} IR.Returns{}:
       Check{Lt{Atom{left}, Atom{right}}, Result{Sub{Atom{left}, Atom{right}}}}
+    case IR.Tail{IR.View{target, signature, args}} IR.Returns{}:
+      Answer{target, signature, args}
     case IR.Tail{w} IR.Returns{}:
       Result{lower.word(w)}
     case IR.Finish{IR.SStore{loc, value}} IR.Stops{}:

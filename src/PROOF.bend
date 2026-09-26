@@ -179,6 +179,22 @@ def if_step(c: Bool, -n: Nat, e: {Yul.bit(c) == n : Nat}, -A: Data, -R: Data, -y
       %e : {Evm.branch(A, Nat.is_eq(_, 0n), yb, ya, R, k, s) == ib(R, k, s) : Evm.Outcome<R>}
       hb
 
+# A View: Yul and the IR make the same call, and their continuations agree
+# on every answer and state, so the outcomes agree.
+def view_step(+c: Evm.Call, -R: Data, -y: Nat -> Evm.State -> Evm.Outcome<R>, -f: Nat -> Evm.State -> Evm.Outcome<R>,
+  +s: Evm.State, h: @x: Nat -> @t: Evm.State -> {y(x, t) == f(x, t) : Evm.Outcome<R>}) ->
+  {Evm.answer(R, c, y, s) == Evm.answer(R, c, f, s) : Evm.Outcome<R>}:
+  match s:
+    case Evm.State{storage, caller, limit, logs, Evm.World{time, chain, self, hashes, signers, answers}}:
+      match answers:
+        case Nil{}:
+          {==}
+        case Evm.Answer{q, x} <> rest:
+          +t : Evm.State = Evm.State{storage, caller, limit, logs, Evm.World{time, chain, self, hashes, signers, rest}}
+          %h(x, t) : {Bool.pick(Evm.Outcome<R>, Evm.same.call(q, c), y(x, t), Evm.Revert{})
+            == Bool.pick(Evm.Outcome<R>, Evm.same.call(q, c), _, Evm.Revert{}) : Evm.Outcome<R>}
+          {==}
+
 # Induction on the command. Both runs pass the same state and continuation on,
 # so only the checks and ifs need lemmas. The continuation is erased, so an
 # If's two arms can both use it.
@@ -234,6 +250,11 @@ def sim(+cmd: IR.Cmd, +out: IR.Output, +env: List<&2, IR.Binding>, -R: Data,
       sim(body, o, IR.Binding{level, Evm.hash.of(Evm.hashes.of(Evm.world.of(s)), Evm.Text{t})} <> env, R, k, s)
     case IR.Bind{IR.Recover{d, v, r, g}, level, body} o:
       sim(body, o, IR.Binding{level, Evm.signer.of(Evm.signers.of(Evm.world.of(s)), IR.eval(d, env), IR.eval(v, env), IR.eval(r, env), IR.eval(g, env))} <> env, R, k, s)
+    case IR.Bind{IR.View{t, g, args}, level, body} o:
+      view_step(Evm.Call{IR.eval(t, env), g, IR.evals(args, env)}, R,
+        x => Yul.exec(Yul.lower(body, o), o, IR.Binding{level, x} <> env, R, k),
+        x => IR.run(body, o, IR.Binding{level, x} <> env, R, k),
+        s, x => u => sim(body, o, IR.Binding{level, x} <> env, R, k, u))
     case IR.Then{IR.SStore{loc, value}, body} o:
       sim(body, o, env, R, k, Evm.write.go(IR.loc(loc, env), IR.eval(value, env), s))
     case IR.Then{IR.Log{event, topics, data}, body} o:
@@ -293,6 +314,8 @@ def sim(+cmd: IR.Cmd, +out: IR.Output, +env: List<&2, IR.Binding>, -R: Data,
       {==}
     case IR.Tail{IR.Recover{_, _, _, _}} IR.Returns{}:
       {==}
+    case IR.Tail{IR.View{_, _, _}} IR.Returns{}:
+      {==}
     case IR.Tail{IR.SLoad{_}} IR.Stops{}:
       {==}
     case IR.Tail{IR.Caller{}} IR.Stops{}:
@@ -318,6 +341,8 @@ def sim(+cmd: IR.Cmd, +out: IR.Output, +env: List<&2, IR.Binding>, -R: Data,
     case IR.Tail{IR.Id{_}} IR.Stops{}:
       {==}
     case IR.Tail{IR.Recover{_, _, _, _}} IR.Stops{}:
+      {==}
+    case IR.Tail{IR.View{_, _, _}} IR.Stops{}:
       {==}
     case IR.Finish{IR.SStore{_, _}} IR.Stops{}:
       {==}

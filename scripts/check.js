@@ -7,6 +7,7 @@ for (const file of ['src/PROOF.bend',
   'examples/counter/PROOF.bend', 'examples/counter/CERT.bend',
   'examples/token/PROOF.bend', 'examples/token/CERT.bend',
   'tests/fixtures/branch/PROOF.bend', 'tests/fixtures/branch/CERT.bend', 'tests/fixtures/emit/CERT.bend',
+  'tests/fixtures/view/PROOF.bend', 'tests/fixtures/view/CERT.bend',
   'tests/fixtures/model/token.bend', 'src/certify.bend', 'src/compile.bend', 'src/abi.bend', 'src/selector.bend']) {
   const child = Bun.spawnSync([process.execPath, checker, file, '--check-only'],
     { cwd: root, stdout: 'inherit', stderr: 'inherit' });

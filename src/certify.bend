@@ -71,6 +71,8 @@ def show.word(w: IR.Word) -> String:
       "IR.Id{\"" ++ text ++ "\"}"
     case IR.Recover{digest, v, r, s}:
       "IR.Recover{" ++ String.join(show.list([digest, v, r, s]), ", ") ++ "}"
+    case IR.View{target, signature, args}:
+      "IR.View{" ++ show.expr(target) ++ ", \"" ++ signature ++ "\", [" ++ String.join(show.list(args), ", ") ++ "]}"
 
 # The reader only accepts signature characters, so the quotes stay closed.
 def show.effect(e: IR.Effect) -> String:

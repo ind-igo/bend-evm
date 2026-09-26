@@ -209,3 +209,16 @@ A revert can say why, as with Solidity's `error` and `require(ok, error)`. An er
 - [x] The ABI lists each error, and events and errors have their parameter names.
 
 Not in M15: errors in the ERC-20 core. It reverts as solmate does, by checked arithmetic with no data; ERC-6093's `ERC20InsufficientBalance` would need a check before each subtraction.
+
+## M16: view calls
+
+A contract can read another contract, as with Solidity's `IERC20(token).balanceOf(who)`. The call is a `staticcall`, so the other contract cannot change any state, and the laws and proofs of contracts that make no calls stay as they are. Calls that write, and reentrancy, are part two.
+
+### Done when
+
+- [x] `Evm.Call{target, signature, args}` is the result type of an interface def, whose first parameter is the target, and `Evm.view(call)` gives the first word that the call returns. The reader reads an interface def as it reads an error def, without the target, and the certificate proves the body by `{==}` (tests/certify.test.js changes the target, an argument and the signature).
+- [x] The model takes each answer from a list in the `World`, in call order. The answer carries its call, and a view reverts when the list is empty or the call differs, so the certificate checks the target, the signature and the words. The other contract can read this contract's state, so an answer is not a function of its call, and a list in call order models that. A law about a fixture states both calls and their order.
+- [x] `IR.View` lowers to a Yul `View` or, as the last step, an `Answer`, which store the selector and words, make the `staticcall`, and revert when it fails or returns less than a word. The preservation proof covers both; the lowering test changes each and the proof fails.
+- [x] On `anvil`, the fixture reads itself as a token, and reverts when the target reverts or has no code (tests/view.test.js). A function that only makes view calls is `view` in the ABI.
+
+Not in M16: calls that write, such as `IERC20(token).transfer(to, amount)`, results other than one word, sending ETH, and passing the called function's revert data on.

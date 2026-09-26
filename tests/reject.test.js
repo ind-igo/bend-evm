@@ -18,7 +18,9 @@ const cases = [
   ['tests/fixtures/emit/bad.bend', ['marked'], 'An error has no Evm.Indexed fields'],
   ['tests/fixtures/emit/bad.bend', ['bare'], 'whose result type is Evm.Error'],
   ['tests/fixtures/emit/bad.bend', ['panics'], "Error and Panic are Solidity's own errors"],
-  ['tests/fixtures/emit/bad.bend', ['long'], 'an event or error needs an identifier name and a signature under 136 bytes'],
+  ['tests/fixtures/emit/bad.bend', ['long'], 'an event, error or call needs an identifier name and a signature under 136 bytes'],
+  ['tests/fixtures/view/bad.bend', ['bare'], 'whose result type is Evm.Call'],
+  ['tests/fixtures/view/bad.bend', ['topic'], 'A call has no Evm.Indexed fields'],
   ['tests/fixtures/branch/bad.bend', ['early'], 'A branch must be the last step'],
   ['tests/fixtures/branch/bad.bend', ['middle'], 'A call to a function that branches must be the last step'],
 ];

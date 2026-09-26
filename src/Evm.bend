@@ -81,13 +81,26 @@ type Hashed is Data:
 type Signed is Data:
   Signed{digest: Nat, v: Nat, r: Nat, s: Nat, signer: Nat}
 
+# A read-only call to another contract: its address, the function's
+# signature, such as "balanceOf(address)", and the argument words. The
+# calldata is the signature's 4-byte selector, then the words. An interface
+# def gives it, and Evm.view makes it:
+#   def balanceOf(token: Evm.Address, who: Evm.Address) -> Evm.Call:
+#     Evm.Call{token, "balanceOf(address)", [who]}
+type Call is Data:
+  Call{target: Nat, signature: String, args: List<&2, Nat>}
+
+type Answer is Data:
+  Answer{call: Call, value: Nat}
+
 # The chain around a call: the block time, the chain id, the contract's own
-# address, and tables that stand for keccak256 and ecrecover. A law holds for
-# every table, so no law depends on how either function works; the printer
-# uses the real ones. A missing entry reads as zero, as ecrecover gives zero
-# for a bad signature.
+# address, tables that stand for keccak256 and ecrecover, and the answers of
+# the view calls in the order the contract makes them. A law holds for every
+# table and every list of answers, so no law depends on how these functions
+# or other contracts work; the printer uses the real ones. A missing entry
+# reads as zero, as ecrecover gives zero for a bad signature.
 type World is Data:
-  World{time: Nat, chain: Nat, self: Nat, hashes: List<&2, Hashed>, signers: List<&2, Signed>}
+  World{time: Nat, chain: Nat, self: Nat, hashes: List<&2, Hashed>, signers: List<&2, Signed>, answers: List<&2, Answer>}
 
 # A call's state. Logs are newest first. The word limit is state, not a
 # constant: a symbolic limit keeps proofs from expanding 2^256 as a unary
@@ -117,17 +130,17 @@ def world.of(s: State) -> World:
 
 def time.of(w: World) -> Nat:
   match w:
-    case World{time, _, _, _, _}:
+    case World{time, _, _, _, _, _}:
       time
 
 def chain.of(w: World) -> Nat:
   match w:
-    case World{_, chain, _, _, _}:
+    case World{_, chain, _, _, _, _}:
       chain
 
 def self.of(w: World) -> Nat:
   match w:
-    case World{_, _, self, _, _}:
+    case World{_, _, self, _, _, _}:
       self
 
 def same.words(a: List<&2, Nat>, b: List<&2, Nat>) -> Bool:
@@ -150,6 +163,11 @@ def same.preimage(a: Preimage, b: Preimage) -> Bool:
     case _ _:
       False{}
 
+def same.call(a: Call, b: Call) -> Bool:
+  match a b:
+    case Call{t, f, x} Call{u, g, y}:
+      Bool.and(Nat.is_eq(t, u), Bool.and(String.eq(f, g), same.words(x, y)))
+
 def hash.of(hashes: List<&2, Hashed>, +p: Preimage) -> Nat:
   match hashes:
     case Nil{}:
@@ -167,12 +185,12 @@ def signer.of(signers: List<&2, Signed>, +digest: Nat, +v: Nat, +r: Nat, +s: Nat
 
 def hashes.of(w: World) -> List<&2, Hashed>:
   match w:
-    case World{_, _, _, hashes, _}:
+    case World{_, _, _, hashes, _, _}:
       hashes
 
 def signers.of(w: World) -> List<&2, Signed>:
   match w:
-    case World{_, _, _, _, signers}:
+    case World{_, _, _, _, signers, _}:
       signers
 
 # A revert discards every state change, so it carries no state. Revert has
@@ -316,6 +334,28 @@ def id(text: String) -> Contract(Nat):
 # The address that signed digest, or zero, like ecrecover.
 def recover(digest: Nat, v: Nat, r: Nat, sig: Nat) -> Contract(Nat):
   R => k => +s => k(signer.of(signers.of(world.of(s)), digest, v, r, sig), s)
+
+# The next answer, if it answers call c, goes to k with the rest of the
+# answers. Otherwise the call failed or gave less than a word, and the
+# contract reverts; a list of answers exists for each run on the EVM.
+def answer(-R: Data, c: Call, k: Nat -> State -> Outcome<R>, s: State) -> Outcome<R>:
+  match s:
+    case State{storage, caller, limit, logs, World{time, chain, self, hashes, signers, answers}}:
+      match answers:
+        case Nil{}:
+          Revert{}
+        case Answer{q, x} <> rest:
+          Bool.pick(Outcome<R>, same.call(q, c),
+            k(x, State{storage, caller, limit, logs, World{time, chain, self, hashes, signers, rest}}), Revert{})
+
+# Calls a function of another contract with staticcall and gives the first
+# word it returns, as in IERC20(token).balanceOf(who). The reader takes the
+# signature from the interface def's name and the parameter types after the
+# first, which is the target, and the certificate checks that its body gives
+# the same call. The called contract cannot change any state, but it can
+# read this contract's state, so its answer is not a function of the call.
+def view(c: Call) -> Contract(Nat):
+  R => k => s => answer(R, c, k, s)
 
 # Checked addition: reverts on overflow, like Solidity 0.8.
 def add(+a: Nat, +b: Nat) -> Contract(Nat):

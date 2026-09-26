@@ -8,6 +8,7 @@ for (const [program, functions] of [
   ['examples/counter', entries.counter],
   ['tests/fixtures/branch', entries.branch],
   ['tests/fixtures/emit', entries.emit],
+  ['tests/fixtures/view', entries.view],
 ]) {
   test(`the committed ${program} certificate is current`, () => {
     const generated = bend('src/certify.bend', `${program}/program.bend`, ...functions);
@@ -18,7 +19,7 @@ for (const [program, functions] of [
 
 // Each mutation of a copied certificate must fail at its law.
 function mutated(program, mutations) {
-  sandbox(['src/Evm.bend', 'src/ir.bend', `${program}/program.bend`, `${program}/CERT.bend`], dir => {
+  sandbox(['src/Evm.bend', 'src/ir.bend', program], dir => {
     const cert = path.join(dir, `${program}/CERT.bend`);
     const good = readFileSync(cert, 'utf8');
     for (const [from, to, law] of mutations) {
@@ -49,6 +50,14 @@ test('a certificate for the wrong branch does not check', () => {
     ['IR.If{IR.Eq{IR.Var{0n}, IR.Lit{0n}},\n    IR.Return{IR.Lit{0n}},',
       'IR.If{IR.Eq{IR.Var{0n}, IR.Lit{0n}},\n    IR.Return{IR.Lit{1n}},', 'keep'],
     ['IR.If{IR.Lt{IR.Var{0n}, IR.Lit{100n}},', 'IR.If{IR.Lt{IR.Var{0n}, IR.Lit{99n}},', 'grade'],
+  ]);
+}, 120_000);
+
+test('a certificate for the wrong view call does not check', () => {
+  mutated('tests/fixtures/view', [
+    ['IR.Tail{IR.View{IR.Var{0n}, "balanceOf(address)"', 'IR.Tail{IR.View{IR.Var{0n}, "balanceOf(uint256)"', 'holding'],
+    ['IR.View{IR.Var{0n}, "totalSupply()", []}', 'IR.View{IR.Var{1n}, "totalSupply()", []}', 'others'],
+    ['IR.View{IR.Var{0n}, "totalSupply()", []}', 'IR.View{IR.Var{0n}, "totalSupply()", [IR.Var{1n}]}', 'others'],
   ]);
 }, 120_000);
 

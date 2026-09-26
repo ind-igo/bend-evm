@@ -66,6 +66,8 @@ def top.word(w: IR.Word) -> Nat:
       top.two(domain, message)
     case IR.Recover{digest, v, r, s}:
       max(top.two(digest, v), top.two(r, s))
+    case IR.View{target, _, args}:
+      max(top.expr(target), top.list(args))
     case IR.Max{}:
       0n
     case IR.Timestamp{}:
@@ -175,6 +177,8 @@ def rename.word(w: IR.Word, +parameters: List<&2, Nat>, +args: List<&2, IR.Expr>
     case IR.Recover{digest, v, r, s}:
       IR.Recover{rename.expr(digest, parameters, args, offset), rename.expr(v, parameters, args, offset),
         rename.expr(r, parameters, args, offset), rename.expr(s, parameters, args, offset)}
+    case IR.View{target, signature, words}:
+      IR.View{rename.expr(target, parameters, args, offset), signature, rename.list(words, parameters, args, offset)}
 
 def rename.effect(e: IR.Effect, +parameters: List<&2, Nat>, +args: List<&2, IR.Expr>, +offset: Nat) -> IR.Effect:
   match e:
