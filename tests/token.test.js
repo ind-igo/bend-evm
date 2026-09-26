@@ -68,12 +68,12 @@ function logged(result) {
 
 test('the deployer owns the token and can hand ownership on', () => {
   expect(chain.word('owner()(address)')).toBe(BigInt(sender));
-  reverts(send(bob, 'transferOwnership(address)', bob), 'OwnableUnauthorizedAccount(address)');
+  reverts(send(bob, 'transferOwnership(address)', bob), 'OwnableUnauthorizedAccount(address)', bob);
   const [topics, data] = logged(send(sender, '--json', 'transferOwnership(address)', bob));
   expect(topics).toEqual([ownership, word(sender), word(bob)]);
   expect(data).toBe('0x');
   expect(chain.word('owner()(address)')).toBe(BigInt(bob));
-  reverts(send(sender, 'transferOwnership(address)', sender), 'OwnableUnauthorizedAccount(address)');
+  reverts(send(sender, 'transferOwnership(address)', sender), 'OwnableUnauthorizedAccount(address)', sender);
   must(send(bob, 'transferOwnership(address)', sender));
 });
 
@@ -83,7 +83,7 @@ test('the owner mints, and mint logs a Transfer from zero', () => {
   expect(data).toBe(word(100));
   expect(supply()).toBe(100n);
   expect(balance(sender)).toBe(100n);
-  reverts(send(bob, 'mint(address,uint256)', sender, '1'), 'OwnableUnauthorizedAccount(address)');
+  reverts(send(bob, 'mint(address,uint256)', sender, '1'), 'OwnableUnauthorizedAccount(address)', bob);
 });
 
 test('transfer moves the amount, returns true and logs it', () => {
@@ -184,11 +184,11 @@ test('a permit signed by the owner sets the allowance once, before its deadline'
   const nonce = who => chain.word('nonces(address)(uint256)', who);
   const invalid = 'ERC2612InvalidSigner(address,address)';
 
-  reverts(call(permit(other, holder, 5, now + 1000)), invalid);
-  reverts(call(permit(holder, holder, 5, now - 1)), 'ERC2612ExpiredSignature(uint256)');
+  reverts(call(permit(other, holder, 5, now + 1000)), invalid, other, holder);
+  reverts(call(permit(holder, holder, 5, now - 1)), 'ERC2612ExpiredSignature(uint256)', String(now - 1));
   // ecrecover gives zero for a bad signature, so the zero owner must not pass.
   reverts(call(['0x0000000000000000000000000000000000000000', bob, '5', String(now + 1000), '27',
-    '0x' + '11'.repeat(32), '0x' + '22'.repeat(32)]), invalid);
+    '0x' + '11'.repeat(32), '0x' + '22'.repeat(32)]), invalid, '0x' + '00'.repeat(20), '0x' + '00'.repeat(20));
   const good = permit(holder, holder, 5, now + 1000);
   const [topics, data] = logged(call(good));
   expect(topics).toEqual([approval, word(holder), word(bob)]);

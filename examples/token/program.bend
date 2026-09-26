@@ -17,6 +17,8 @@ def OwnershipTransferred(previous: Evm.Indexed(Evm.Address), next: Evm.Indexed(E
   Evm.Log{"OwnershipTransferred(address,address)", [previous, next], []}
 
 # Errors, with OpenZeppelin's names, so that wallets and explorers know them.
+# A zero signer is ERC2612InvalidSigner(0, owner) here; OpenZeppelin's
+# ECDSA.recover reverts first with ECDSAInvalidSignature().
 def OwnableUnauthorizedAccount(account: Evm.Address) -> Evm.Error:
   Evm.Error{"OwnableUnauthorizedAccount(address)", [account]}
 

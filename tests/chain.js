@@ -7,11 +7,14 @@ export { must, run } from '../scripts/tools.js';
 // it through the standard ABI with cast.
 
 // A failed command must be a revert, not a cast usage error. With an error
-// signature, the revert data must start with that error's selector.
-export function reverts(result, error) {
+// signature, the revert data must start with that error's selector; with
+// its arguments too, it must be that whole encoding.
+export function reverts(result, error, ...args) {
   expect(result.ok).toBe(false);
   expect(result.err).toMatch(/revert/i);
-  if (error) expect(result.err).toContain(`data: "${must(run('cast', 'sig', error))}`);
+  if (!error) return;
+  const data = args.length ? must(run('cast', 'calldata', error, ...args)) : must(run('cast', 'sig', error));
+  expect(result.err).toContain(`data: "${data}${args.length ? '"' : ''}`);
 }
 
 // Compiled bytecode, once per program and entry list in this process.

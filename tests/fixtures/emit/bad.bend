@@ -63,3 +63,10 @@ def marked() -> Evm.Contract(Unit):
 # An error without an error def.
 def bare() -> Evm.Contract(Unit):
   Evm.ensure(Nat.is_eq(1n, 1n), Evm.Error{"E()", []})
+
+# Solidity's own panic error.
+def Panic(code: Nat) -> Evm.Error:
+  Evm.Error{"Panic(uint256)", [code]}
+
+def panics() -> Evm.Contract(Unit):
+  Evm.ensure(Nat.is_eq(1n, 1n), Panic(1n))

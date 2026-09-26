@@ -22,6 +22,11 @@ test('the ABI lists the events and errors with their parameter names', () => {
   ]);
 }, 120_000);
 
+test('the ABI gives no names when two defs with one signature disagree on them', () => {
+  const abi = JSON.parse(must(bend('src/abi.bend', 'tests/fixtures/emit/names.bend', 'check')));
+  expect(abi.find(item => item.type === 'error').inputs).toEqual([{ name: '', type: 'uint256' }, { name: '', type: 'uint256' }]);
+}, 120_000);
+
 test('an event or error whose body disagrees with its parameters fails the certificate', () => {
   sandbox(['src/Evm.bend', 'src/ir.bend', 'tests/fixtures/emit'], dir => {
     const program = path.join(dir, 'tests/fixtures/emit/program.bend');

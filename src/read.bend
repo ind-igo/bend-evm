@@ -666,11 +666,17 @@ def emit(s: Signed) -> Result<&2, &2, String, IR.Effect>:
         Done{IR.Log{signature, topics, data}},
         Fail{"An event has at most three indexed words"})
 
-# Revert data has no topics, so an error has no indexed fields.
+# Revert data has no topics, so an error has no indexed fields. Error and
+# Panic are Solidity's own errors, which decoders show as such.
+def ensure.error(x: IR.Cond, +signature: String, data: List<&2, IR.Expr>) -> Result<&2, &2, String, IR.Effect>:
+  Bool.pick(Result<&2, &2, String, IR.Effect>,
+    Bool.or(String.starts_with(signature, "Error("), String.starts_with(signature, "Panic(")),
+    Fail{signature ++ ": Error and Panic are Solidity's own errors"}, Done{IR.Ensure{x, signature, data}})
+
 def ensure(x: IR.Cond, s: Signed) -> Result<&2, &2, String, IR.Effect>:
   match s:
     case Signed{signature, Nil{}, data}:
-      Done{IR.Ensure{x, signature, data}}
+      ensure.error(x, signature, data)
     case _:
       Fail{"An error has no Evm.Indexed fields"}
 
@@ -715,24 +721,54 @@ def named.def(+k: Declared, +evm: String, +short: String, found: Maybe<&2, Def>,
     case None{}:
       None{}
 
-def named.first(a: Maybe<&2, List<&2, String>>, b: Maybe<&2, List<&2, String>>) -> Maybe<&2, List<&2, String>>:
-  match a:
+def names.cons(found: Maybe<&2, List<&2, String>>, later: List<&2, List<&2, String>>) -> List<&2, List<&2, String>>:
+  match found:
     case Some{ns}:
-      Some{ns}
+      ns <> later
     case None{}:
-      b
+      later
 
-# The parameter names of the first event or error def in decls that has
-# this signature, whose name is short.
-def names(+k: Declared, +evm: String, decls: List<&2, Core.Declaration>, +short: String, +signature: String) ->
-  Maybe<&2, List<&2, String>>:
+# The parameter names of each event or error def in decls that has this
+# signature, whose name is short.
+def matches(+k: Declared, +evm: String, decls: List<&2, Core.Declaration>, +short: String, +signature: String) ->
+  List<&2, List<&2, String>>:
   match decls:
     case Nil{}:
-      None{}
+      Nil{}
     case +d <> rest:
-      +later = names(k, evm, rest, short, signature)
-      Bool.pick(Maybe<&2, List<&2, String>>, String.eq(after_last('.', Core.name(Core.header(d))), short),
-        named.first(named.def(k, evm, short, definition(Some{d}), signature), later), later)
+      +later = matches(k, evm, rest, short, signature)
+      Bool.pick(List<&2, List<&2, String>>, String.eq(after_last('.', Core.name(Core.header(d))), short),
+        names.cons(named.def(k, evm, short, definition(Some{d}), signature), later), later)
+
+def same.names(a: List<&2, String>, b: List<&2, String>) -> Bool:
+  match a b:
+    case Nil{} Nil{}:
+      True{}
+    case x <> xs y <> ys:
+      Bool.and(String.eq(x, y), same.names(xs, ys))
+    case _ _:
+      False{}
+
+def agree(+first: List<&2, String>, rest: List<&2, List<&2, String>>) -> Bool:
+  match rest:
+    case Nil{}:
+      True{}
+    case r <> more:
+      Bool.and(same.names(first, r), agree(first, more))
+
+def names.agreed(found: List<&2, List<&2, String>>) -> Maybe<&2, List<&2, String>>:
+  match found:
+    case Nil{}:
+      None{}
+    case +first <> rest:
+      Bool.pick(Maybe<&2, List<&2, String>>, agree(first, rest), Some{first}, None{})
+
+# The parameter names for the def with this signature. The IR keeps only the
+# signature, not which def gave it, so when two such defs name their
+# parameters differently, there are no names rather than a guess.
+def names(+k: Declared, +evm: String, +decls: List<&2, Core.Declaration>, +short: String, +signature: String) ->
+  Maybe<&2, List<&2, String>>:
+  names.agreed(matches(k, evm, decls, short, signature))
 
 def effect(c: Call, +evm: String, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Effect>:
   match c:
