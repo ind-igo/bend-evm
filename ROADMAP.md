@@ -216,8 +216,8 @@ A contract can read another contract, as with Solidity's `IERC20(token).balanceO
 
 ### Done when
 
-- [x] `Evm.Call{target, signature, args}` is the result type of an interface def, whose first parameter is the target, and `Evm.view(call)` gives the first word that the call returns. The reader reads an interface def as it reads an error def, without the target, and the certificate proves the body by `{==}` (tests/certify.test.js changes the target, an argument and the signature).
-- [x] The model takes each answer from a list in the `World`, in call order. The answer carries its call, and a view reverts when the list is empty or the call differs, so the certificate checks the target, the signature and the words. The other contract can read this contract's state, so an answer is not a function of its call, and a list in call order models that. A law about a fixture states both calls and their order.
+- [x] `Evm.Call{target, signature, args}` is the result type of an interface def, whose first parameter is the target, and `Evm.view(call)` gives the first word that the call returns. The reader reads an interface def as it reads an error def, without the target, and the certificate proves the body by `{==}` (tests/certify.test.js changes the target, an argument and the name).
+- [x] The model takes each answer from a list in the `World`, in call order. The answer carries its call, and a view reverts when the list is empty or the call differs, so the certificate checks the target, the name and the words. Since M17 the certificate does not check the parameter types in the signature; see M17. The other contract can read this contract's state, so an answer is not a function of its call, and a list in call order models that. A law about a fixture states both calls and their order.
 - [x] `IR.View` lowers to a Yul `View` or, as the last step, an `Answer`, which store the selector and words, make the `staticcall`, and revert when it fails or returns less than a word. The preservation proof covers both; the lowering test changes each and the proof fails.
 - [x] On `anvil`, the fixture reads itself as a token, and reverts when the target reverts or has no code (tests/view.test.js). A function that only makes view calls is `view` in the ABI.
 
@@ -230,7 +230,8 @@ An event, error or interface def gives only its name, as in `Evm.Log{"Transfer",
 ### Done when
 
 - [x] The model's `Log`, `Error` and `Call` hold a name. The IR keeps the full signature for the printer, and `IR.name` gives the model its name, so the certificate checks that the body's name is the def's own (tests/emit.test.js and tests/certify.test.js change a name, and the certificate fails).
-- [x] The reader rejects two defs of one kind with one name and other parameter types, which the model could not tell apart (tests/reject.test.js).
+- [x] The reader rejects two defs of one kind with one name and other parameter types, which the model could not tell apart (tests/reject.test.js has an event, an error and a call).
+- [x] The cost: the certificate checks the name but no longer the parameter types in a signature, which the reader builds from the def. That code and the overload check are now trusted, as the dispatcher's selectors are, and tested on `anvil`. The README states this.
 - [x] The token, the ERC20 core, their laws and the fixtures use names. The certificates do not change, and the laws and proofs hold.
 
 Not in M17: a form with no string. Bend cannot see a def's name, and the IR that the certificate compares is plain data, so the name must be a string once.

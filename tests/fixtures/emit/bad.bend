@@ -81,3 +81,13 @@ def other.Short(who: Evm.Address) -> Evm.Error:
 
 def short() -> Evm.Contract(Unit):
   Evm.ensure(Nat.is_eq(1n, 1n), Short(1n))
+
+# The same for two events.
+def Twice(x: Nat) -> Evm.Event:
+  Evm.Log{"Twice", [], [x]}
+
+def other.Twice(x: Evm.Address) -> Evm.Event:
+  Evm.Log{"Twice", [], [x]}
+
+def twice() -> Evm.Contract(Unit):
+  Evm.emit(Twice(1n))

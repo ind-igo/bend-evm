@@ -19,6 +19,8 @@ const cases = [
   ['tests/fixtures/emit/bad.bend', ['bare'], 'whose result type is Evm.Error'],
   ['tests/fixtures/emit/bad.bend', ['panics'], "Error and Panic are Solidity's own errors"],
   ['tests/fixtures/emit/bad.bend', ['short'], 'Short(uint256): another def of this kind has the name Short but other parameter types'],
+  ['tests/fixtures/emit/bad.bend', ['twice'], 'Twice(uint256): another def of this kind has the name Twice but other parameter types'],
+  ['tests/fixtures/view/bad.bend', ['peeks'], 'peek(uint256): another def of this kind has the name peek but other parameter types'],
   ['tests/fixtures/emit/bad.bend', ['long'], 'an event, error or call needs an identifier name and a signature under 136 bytes'],
   ['tests/fixtures/view/bad.bend', ['bare'], 'whose result type is Evm.Call'],
   ['tests/fixtures/view/bad.bend', ['topic'], 'A call has no Evm.Indexed fields'],

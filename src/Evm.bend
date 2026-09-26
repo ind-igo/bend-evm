@@ -359,7 +359,7 @@ def answer(-R: Data, c: Call, k: Nat -> State -> Outcome<R>, s: State) -> Outcom
 # word it returns, as in IERC20(token).balanceOf(who). The reader takes the
 # signature from the interface def's name and the parameter types after the
 # first, which is the target, and the certificate checks that its body gives
-# the same call. The called contract cannot change any state, but it can
+# the same target, name and words. The called contract cannot change any state, but it can
 # read this contract's state, so its answer is not a function of the call.
 def view(c: Call) -> Contract(Nat):
   R => k => s => answer(R, c, k, s)
