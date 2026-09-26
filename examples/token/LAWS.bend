@@ -47,7 +47,8 @@ law transfer:
   {Evm.run(Nat, Token.transfer(to, amount), Evm.State{storage, who, limit, logs, world})
     == paid(storage, who, who, to, amount, limit, logs, world) : Evm.Outcome<Nat>}
 
-# Only the owner can mint, and the supply and the balance must not overflow.
+# Only the owner can mint; others get OwnableUnauthorizedAccount. The supply
+# and the balance must not overflow.
 law mint:
   for +storage: List<&2, Evm.Slot>
   for +who: Nat
@@ -64,7 +65,7 @@ law mint:
               <> Evm.Slot{Evm.Plain{0n}, Nat.add(supply(storage), amount)} <> storage, who, limit, Evm.Log{"Transfer(address,address,uint256)", [0n, to], [amount]} <> logs, world}},
           Evm.Revert{}),
         Evm.Revert{}),
-      Evm.Revert{}) : Evm.Outcome<Unit>}
+      Evm.Raise{Token.OwnableUnauthorizedAccount(who)}) : Evm.Outcome<Unit>}
 
 # A burn lowers the caller's balance and the supply; it reverts unless both
 # cover the amount.
@@ -153,7 +154,7 @@ law owner:
   {Evm.run(Nat, Token.owner(), Evm.State{storage, who, limit, logs, world})
     == Evm.Ok{owner_of(storage), Evm.State{storage, who, limit, logs, world}} : Evm.Outcome<Nat>}
 
-# Only the owner can hand ownership on.
+# Only the owner can hand ownership on; others get OwnableUnauthorizedAccount.
 law transferOwnership:
   for +storage: List<&2, Evm.Slot>
   for +who: Nat
@@ -164,7 +165,7 @@ law transferOwnership:
   {Evm.run(Unit, Token.transferOwnership(next), Evm.State{storage, who, limit, logs, world})
     == Bool.pick(Evm.Outcome<Unit>, Nat.is_eq(who, owner_of(storage)),
       Evm.Ok{Unit{}, Evm.State{Evm.Slot{Evm.Plain{4n}, next} <> storage, who, limit, Evm.Log{"OwnershipTransferred(address,address)", [owner_of(storage), next], []} <> logs, world}},
-      Evm.Revert{}) : Evm.Outcome<Unit>}
+      Evm.Raise{Token.OwnableUnauthorizedAccount(who)}) : Evm.Outcome<Unit>}
 
 # EIP-2612. hashed and the signers table stand for keccak256 and ecrecover
 # (see Evm.World), so these laws hold for every hash and signature table.
@@ -205,8 +206,9 @@ law nonces:
   {Evm.run(Nat, Token.nonces(holder), Evm.State{storage, who, limit, logs, world})
     == Evm.Ok{nonce(storage, holder), Evm.State{storage, who, limit, logs, world}} : Evm.Outcome<Nat>}
 
-# A permit reverts after its deadline, when the nonce overflows, and unless
-# the owner signed it (a zero signer is nobody). Otherwise it uses up the
+# A permit reverts after its deadline with ERC2612ExpiredSignature, when the
+# nonce overflows, and unless the owner signed it (a zero signer is nobody)
+# with ERC2612InvalidSigner. Otherwise it uses up the
 # nonce and sets the allowance, as approve does, from any caller.
 law permit:
   for +storage: List<&2, Evm.Slot>
@@ -229,10 +231,10 @@ law permit:
             Evm.Ok{Unit{}, Evm.State{Evm.Slot{Evm.Mapped{Evm.Mapped{Evm.Plain{2n}, owner}, spender}, value}
               <> Evm.Slot{Evm.Mapped{Evm.Plain{3n}, owner}, Nat.add(nonce(storage, owner), 1n)} <> storage, who, limit,
               Evm.Log{"Approval(address,address,uint256)", [owner, spender], [value]} <> logs, world}},
-            Evm.Revert{}),
-          Evm.Revert{}),
+            Evm.Raise{Token.ERC2612InvalidSigner(permitter(world, storage, owner, spender, value, deadline, v, r, s), owner)}),
+          Evm.Raise{Token.ERC2612InvalidSigner(permitter(world, storage, owner, spender, value, deadline, v, r, s), owner)}),
         Evm.Revert{}),
-      Evm.Revert{}) : Evm.Outcome<Unit>}
+      Evm.Raise{Token.ERC2612ExpiredSignature(deadline)}) : Evm.Outcome<Unit>}
 
 # Supply across calls. A Call is one call to a function that can change
 # storage; the view functions change nothing (see their laws). A Tx runs a
@@ -252,6 +254,8 @@ def after(-A: Data, o: Evm.Outcome<A>, s: Evm.State) -> Evm.State:
     case Evm.Ok{_, t}:
       t
     case Evm.Revert{}:
+      s
+    case Evm.Raise{_}:
       s
 
 type Tx is Data:

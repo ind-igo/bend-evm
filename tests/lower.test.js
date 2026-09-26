@@ -23,6 +23,8 @@ test('the preservation proof rejects a wrong lowering', () => {
       ['Nat.sub(Nat.sub(l, 1n), x)', 'Nat.sub(l, x)'],
       ['Check{Lt{Atom{left}, Atom{right}}, Let{', 'Check{Lt{Atom{right}, Atom{left}}, Let{'],
       ['Log{event, topics, data, lower(body, o)}', 'lower(body, o)'],
+      ['Guard{lower.cond(c), error, args, lower(body, o)}', 'Check{lower.cond(c), lower(body, o)}'],
+      ['Guard{lower.cond(c), error, args, Stop{}}', 'Guard{lower.test(c), error, args, Stop{}}'],
       ['Bool.pick(Nat, Nat.is_eq(c, 0n), n, y)', 'Bool.pick(Nat, Nat.is_eq(c, 0n), y, n)'],
       ['Not{Atom{IR.Lit{0n}}}', 'Atom{IR.Lit{0n}}'],
       ['If{lower.test(c), lower(yes, o), lower(no, o)}', 'If{lower.test(c), lower(no, o), lower(yes, o)}'],

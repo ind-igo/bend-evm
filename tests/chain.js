@@ -6,10 +6,12 @@ export { must, run } from '../scripts/tools.js';
 // Deploys a contract on a local anvil chain with real transactions, and calls
 // it through the standard ABI with cast.
 
-// A failed command must be a revert, not a cast usage error.
-export function reverts(result) {
+// A failed command must be a revert, not a cast usage error. With an error
+// signature, the revert data must start with that error's selector.
+export function reverts(result, error) {
   expect(result.ok).toBe(false);
   expect(result.err).toMatch(/revert/i);
+  if (error) expect(result.err).toContain(`data: "${must(run('cast', 'sig', error))}`);
 }
 
 // Compiled bytecode, once per program and entry list in this process.

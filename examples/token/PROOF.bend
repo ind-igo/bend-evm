@@ -311,7 +311,7 @@ def keeps.mint(+storage: List<&2, Evm.Slot>, +caller: Nat, +limit: Nat, +logs: L
       Bool.pick(Evm.Outcome<Unit>, Nat.is_lt(Nat.add(Laws.balance(storage, to), amount), limit),
         Evm.Ok{Unit{}, Evm.State{minted(storage, to, amount), who, limit, Evm.Log{"Transfer(address,address,uint256)", [0n, to], [amount]} <> logs, world}}, Evm.Revert{}),
       Evm.Revert{}),
-    Evm.Revert{}, Evm.State{storage, caller, limit, logs, old}, accounts,
+    Evm.Raise{Token.OwnableUnauthorizedAccount(who)}, Evm.State{storage, caller, limit, logs, old}, accounts,
     _ => keep_pick(Unit, Nat.is_lt(Nat.add(Laws.supply(storage), amount), limit),
       Bool.pick(Evm.Outcome<Unit>, Nat.is_lt(Nat.add(Laws.balance(storage, to), amount), limit),
         Evm.Ok{Unit{}, Evm.State{minted(storage, to, amount), who, limit, Evm.Log{"Transfer(address,address,uint256)", [0n, to], [amount]} <> logs, world}}, Evm.Revert{}),
@@ -343,7 +343,7 @@ def keeps.transferOwnership(+storage: List<&2, Evm.Slot>, +caller: Nat, +limit: 
   {True{} == Laws.balanced(Laws.step(Laws.Tx{world, Laws.TransferOwnership{who, next}}, Evm.State{storage, caller, limit, logs, old}), accounts) : Bool}:
   keep_pick(Unit, Nat.is_eq(who, Evm.lookup(storage, Evm.Plain{4n})),
     Evm.Ok{Unit{}, Evm.State{Evm.Slot{Evm.Plain{4n}, next} <> storage, who, limit, Evm.Log{"OwnershipTransferred(address,address)", [Evm.lookup(storage, Evm.Plain{4n}), next], []} <> logs, world}},
-    Evm.Revert{}, Evm.State{storage, caller, limit, logs, old}, accounts,
+    Evm.Raise{Token.OwnableUnauthorizedAccount(who)}, Evm.State{storage, caller, limit, logs, old}, accounts,
     _ => ok.owner(storage, next, accounts, h),
     _ => h)
 
@@ -517,13 +517,15 @@ def keeps.permit(+storage: List<&2, Evm.Slot>, +caller: Nat, +limit: Nat, +logs:
   +signer = Laws.permitter(world, storage, owner, spender, value, deadline, v, r, sig)
   +ok = permitted(storage, who, limit, logs, world, owner, spender, value)
   +before = {Evm.State{storage, caller, limit, logs, old} : Evm.State}
-  +d = Bool.pick(Evm.Outcome<Unit>, Nat.is_eq(signer, owner), ok, Evm.Revert{})
-  +c = Bool.pick(Evm.Outcome<Unit>, Bool.not(Nat.is_eq(signer, 0n)), d, Evm.Revert{})
+  +bad = {Evm.Raise{Token.ERC2612InvalidSigner(signer, owner)} : Evm.Outcome<Unit>}
+  +late = {Evm.Raise{Token.ERC2612ExpiredSignature(deadline)} : Evm.Outcome<Unit>}
+  +d = Bool.pick(Evm.Outcome<Unit>, Nat.is_eq(signer, owner), ok, bad)
+  +c = Bool.pick(Evm.Outcome<Unit>, Bool.not(Nat.is_eq(signer, 0n)), d, bad)
   +b = Bool.pick(Evm.Outcome<Unit>, Nat.is_lt(Nat.add(Laws.nonce(storage, owner), 1n), limit), c, Evm.Revert{})
-  keep_pick(Unit, Bool.not(Nat.is_lt(deadline, Evm.time.of(world))), b, Evm.Revert{}, before, accounts,
+  keep_pick(Unit, Bool.not(Nat.is_lt(deadline, Evm.time.of(world))), b, late, before, accounts,
     _ => keep_pick(Unit, Nat.is_lt(Nat.add(Laws.nonce(storage, owner), 1n), limit), c, Evm.Revert{}, before, accounts,
-      _ => keep_pick(Unit, Bool.not(Nat.is_eq(signer, 0n)), d, Evm.Revert{}, before, accounts,
-        _ => keep_pick(Unit, Nat.is_eq(signer, owner), ok, Evm.Revert{}, before, accounts,
+      _ => keep_pick(Unit, Bool.not(Nat.is_eq(signer, 0n)), d, bad, before, accounts,
+        _ => keep_pick(Unit, Nat.is_eq(signer, owner), ok, bad, before, accounts,
           _ => ok.permit(storage, who, limit, logs, world, owner, spender, value, before, accounts, h),
           _ => h),
         _ => h),

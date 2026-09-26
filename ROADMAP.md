@@ -192,7 +192,19 @@ An event is declared once, with its field types, like Solidity's `event` line, a
 
 - [x] `Evm.Event` is the result type of an event def, `Evm.Indexed(A)` marks an indexed parameter, and `Evm.emit(Transfer(from, to, amount))` logs an event. The reader takes only a def written with `Evm.Event`, and makes the signature, the topics and the data from its parameter types and its name; indexed parameters come first, at most three. The certificate proves the body's log equal to the reader's by `{==}`, so a body that disagrees does not build (tests/emit.test.js).
 - [x] [lib/ERC20.bend](lib/ERC20.bend) is only the ERC-20 core: named storage slots, the `Transfer` and `Approval` events, the standard functions, and internal `mint` and `burn`, with one helper, `move`. `permit`, `nonces`, `DOMAIN_SEPARATOR` and the owner move to the example token, with their own slots and `OwnershipTransferred` event. The token's laws did not change and still hold.
-
 - [x] `Evm.log` is no longer part of the contract language: contracts log with `Evm.emit`, and `Evm.log` stays as the model's primitive.
 
-Not in M14: custom errors (every revert is `revert(0, 0)`), and event parameter names in the ABI JSON.
+Not in M14: custom errors (every revert is `revert(0, 0)`), and event parameter names in the ABI JSON. M15 adds both.
+
+## M15: custom errors
+
+A revert can say why, as with Solidity's `error` and `require(ok, error)`. An error is declared like an event: a def whose result type marks it and whose body is its data. The model keeps the error, so a law states which error a call reverts with, and the certificate and the lowering proof cover it.
+
+### Done when
+
+- [x] `Evm.Error{signature, args}` is the result type of an error def, and `Evm.ensure(ok, error)` reverts with it unless `ok` holds. The model's outcome is `Raise{error}`; `Revert{}` stays for a revert with no data, so the existing laws hold as they were. The reader reads an error def as it reads an event def, with no indexed fields, and the certificate proves the body by `{==}` (tests/emit.test.js).
+- [x] `IR.Ensure` lowers to a Yul `if` that stores the selector and the words and reverts with them. The preservation proof covers it; the lowering test replaces it with a plain revert and the proof fails.
+- [x] The example token reverts with OpenZeppelin's errors: `OwnableUnauthorizedAccount` in `mint` and `transferOwnership`, and `ERC2612ExpiredSignature` and `ERC2612InvalidSigner` in `permit`. Its laws state each error, and `supply_sum` still holds. The differential test compares the model's errors with the revert data on `anvil`.
+- [x] The ABI lists each error, and events and errors have their parameter names.
+
+Not in M15: errors in the ERC-20 core. It reverts as solmate does, by checked arithmetic with no data; ERC-6093's `ERC20InsufficientBalance` would need a check before each subtraction.

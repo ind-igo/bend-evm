@@ -89,7 +89,8 @@ def atoms(exprs: List<&2, IR.Expr>) -> List<&2, String>:
 def revert() -> String:
   "revert(0, 0)"
 
-# Log data word i goes to memory at 32 * i.
+# Word i goes to memory at offset + 32 * i: log data from 0, and error
+# arguments from 4, after the selector.
 def stores(+pad: String, data: List<&2, IR.Expr>, +offset: Nat) -> String:
   match data:
     case Nil{}:
@@ -121,6 +122,12 @@ def stmt(+pad: String, +halt: String, s: Yul.Stmt) -> String:
         ++ stmt(pad, halt, body)
     case Yul.Check{cond, body}:
       pad ++ "if " ++ exp(cond) ++ " { " ++ revert() ++ " }\n" ++ stmt(pad, halt, body)
+    case Yul.Guard{cond, +error, +args, body}:
+      +inner = pad ++ "  "
+      +size = Nat.add(4n, Nat.mul(32n, List.length(&2, IR.Expr, args)))
+      pad ++ "if " ++ exp(cond) ++ " {\n" ++ inner ++ call("mstore", ["0", call("shl", ["224", Keccak.hex(Keccak.selector(error))])])
+        ++ "\n" ++ stores(inner, args, 4n) ++ inner ++ call("revert", ["0", nat(size)]) ++ "\n" ++ pad ++ "}\n"
+        ++ stmt(pad, halt, body)
     case Yul.Result{+value}:
       prelude(pad, value) ++ pad ++ "mstore(0, " ++ exp(value) ++ ")\n" ++ pad ++ "return(0, 32)\n"
     case Yul.Stop{}:
@@ -380,7 +387,7 @@ def constructor(fs: List<&2, Read.Function>) -> Result<&2, &2, String, String>:
 
 def contract(file: String, s: Tool.Setup) -> Result<&2, &2, String, String>:
   match s:
-    case Tool.Setup{_, +fs}:
+    case Tool.Setup{_, +fs, _}:
       do Result<&2, &2, String, String>:
         init : String <- constructor(fs)
         body : String <- cases(fs)

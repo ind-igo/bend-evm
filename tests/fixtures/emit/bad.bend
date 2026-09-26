@@ -1,7 +1,7 @@
 import Base
 import ../../../src/Evm.bend as Evm
 
-# Events that the reader must reject.
+# Events and errors that the reader must reject.
 
 def Late(amount: Nat, from: Evm.Indexed(Evm.Address)) -> Evm.Event:
   Evm.Log{"Late(uint256,address)", [from], [amount]}
@@ -52,3 +52,14 @@ def AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 
 def long() -> Evm.Contract(Unit):
   Evm.emit(AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA(1n))
+
+# An error field cannot be a topic.
+def Marked(x: Evm.Indexed(Nat)) -> Evm.Error:
+  Evm.Error{"Marked(uint256)", [x]}
+
+def marked() -> Evm.Contract(Unit):
+  Evm.ensure(Nat.is_eq(1n, 1n), Marked(1n))
+
+# An error without an error def.
+def bare() -> Evm.Contract(Unit):
+  Evm.ensure(Nat.is_eq(1n, 1n), Evm.Error{"E()", []})

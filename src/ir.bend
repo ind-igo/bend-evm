@@ -37,6 +37,7 @@ type Effect is Data:
   SStore{loc: Loc, value: Expr}
   Log{event: String, topics: List<&2, Expr>, data: List<&2, Expr>}
   Require{cond: Cond}
+  Ensure{cond: Cond, error: String, args: List<&2, Expr>}
 
 type Cmd is Data:
   Bind{word: Word, level: Nat, body: Cmd}
@@ -136,6 +137,8 @@ def effect(e: Effect, +env: List<&2, Binding>) -> Evm.Contract(Unit):
       Evm.log(event, evals(topics, env), evals(data, env))
     case Require{c}:
       Evm.require(cond(c, env))
+    case Ensure{c, error, args}:
+      Evm.ensure(cond(c, env), Evm.Error{error, evals(args, env)})
 
 def abort(-A: Data) -> Evm.Contract(A):
   R => k => s => Evm.Revert{}
@@ -239,6 +242,8 @@ def closed.effect(e: Effect, +scope: List<&2, Nat>) -> Bool:
       Bool.and(closed.list(topics, scope), closed.list(data, scope))
     case Require{c}:
       closed.cond(c, scope)
+    case Ensure{c, _, args}:
+      Bool.and(closed.cond(c, scope), closed.list(args, scope))
 
 def closed(cmd: Cmd, +scope: List<&2, Nat>) -> Bool:
   match cmd:

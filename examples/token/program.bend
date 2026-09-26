@@ -16,6 +16,16 @@ def OWNER() -> Nat:
 def OwnershipTransferred(previous: Evm.Indexed(Evm.Address), next: Evm.Indexed(Evm.Address)) -> Evm.Event:
   Evm.Log{"OwnershipTransferred(address,address)", [previous, next], []}
 
+# Errors, with OpenZeppelin's names, so that wallets and explorers know them.
+def OwnableUnauthorizedAccount(account: Evm.Address) -> Evm.Error:
+  Evm.Error{"OwnableUnauthorizedAccount(address)", [account]}
+
+def ERC2612ExpiredSignature(deadline: Nat) -> Evm.Error:
+  Evm.Error{"ERC2612ExpiredSignature(uint256)", [deadline]}
+
+def ERC2612InvalidSigner(signer: Evm.Address, owner: Evm.Address) -> Evm.Error:
+  Evm.Error{"ERC2612InvalidSigner(address,address)", [signer, owner]}
+
 def name() -> String:
   "Bend Token"
 
@@ -56,17 +66,17 @@ def owner() -> Evm.Contract(Evm.Address):
 
 def transferOwnership(+next: Evm.Address) -> Evm.Contract(Unit):
   do Evm.Contract<Unit>:
-    who : Nat <- Evm.caller()
+    +who : Nat <- Evm.caller()
     +boss : Nat <- Evm.sload(OWNER())
-    Evm.require(Nat.is_eq(who, boss))
+    Evm.ensure(Nat.is_eq(who, boss), OwnableUnauthorizedAccount(who))
     Evm.sstore(OWNER(), next)
     Evm.emit(OwnershipTransferred(boss, next))
 
 def mint(+to: Evm.Address, +amount: Nat) -> Evm.Contract(Unit):
   do Evm.Contract<Unit>:
-    who : Nat <- Evm.caller()
+    +who : Nat <- Evm.caller()
     boss : Nat <- Evm.sload(OWNER())
-    Evm.require(Nat.is_eq(who, boss))
+    Evm.ensure(Nat.is_eq(who, boss), OwnableUnauthorizedAccount(who))
     ERC20.mint(to, amount)
 
 # A holder destroys some of its own tokens.
@@ -97,7 +107,7 @@ def permit(+owner: Evm.Address, +spender: Evm.Address, +value: Nat, +deadline: N
   do Evm.Contract<Unit>:
     +separator : Nat <- DOMAIN_SEPARATOR()
     now : Nat <- Evm.timestamp()
-    Evm.require(Bool.not(Nat.is_lt(deadline, now)))
+    Evm.ensure(Bool.not(Nat.is_lt(deadline, now)), ERC2612ExpiredSignature(deadline))
     +nonce : Nat <- Evm.load(NONCES(), owner)
     next : Nat <- Evm.add(nonce, 1n)
     Evm.store(NONCES(), owner, next)
@@ -105,7 +115,7 @@ def permit(+owner: Evm.Address, +spender: Evm.Address, +value: Nat, +deadline: N
     +message : Nat <- Evm.keccak([kind, owner, spender, value, nonce, deadline])
     +digest : Nat <- Evm.typed(separator, message)
     +signer : Nat <- Evm.recover(digest, v, r, s)
-    Evm.require(Bool.not(Nat.is_eq(signer, 0n)))
-    Evm.require(Nat.is_eq(signer, owner))
+    Evm.ensure(Bool.not(Nat.is_eq(signer, 0n)), ERC2612InvalidSigner(signer, owner))
+    Evm.ensure(Nat.is_eq(signer, owner), ERC2612InvalidSigner(signer, owner))
     Evm.store2(ERC20.ALLOWANCES(), owner, spender, value)
     Evm.emit(ERC20.Approval(owner, spender, value))

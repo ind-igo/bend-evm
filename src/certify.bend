@@ -81,6 +81,8 @@ def show.effect(e: IR.Effect) -> String:
       "IR.SStore{" ++ show.loc(l) ++ ", " ++ show.expr(value) ++ "}"
     case IR.Require{c}:
       "IR.Require{" ++ show.cond(c) ++ "}"
+    case IR.Ensure{c, error, args}:
+      "IR.Ensure{" ++ show.cond(c) ++ ", \"" ++ error ++ "\", [" ++ String.join(show.list(args), ", ") ++ "]}"
 
 def show.cmd(c: IR.Cmd) -> String:
   match c:
@@ -168,7 +170,7 @@ def header(+evm: String, file: String) -> String:
 
 def certificate(file: String, s: Tool.Setup) -> Result<&2, &2, String, String>:
   match s:
-    case Tool.Setup{+evm, fs}:
+    case Tool.Setup{+evm, fs, _}:
       Done{header(evm, file) ++ claims(fs)}
 
 def main() -> IO(Unit):

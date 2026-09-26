@@ -46,6 +46,18 @@ Evm.emit(Transfer(from, to, amount))
 
 The reader takes the signature and the topics from the parameter types, and the certificate checks that the body gives the same log, so an event whose body disagrees with its parameters does not build. The def's name is the ABI event name, so `Transfer` and the function `transfer` differ only in case, as in Solidity.
 
+A custom error is a def whose result type is `Evm.Error`, like Solidity's `error` line. Its body is its signature and its argument words, and `Evm.ensure(ok, error)` reverts with it unless `ok` holds, like Solidity's `require(ok, error)`:
+
+```bend
+# error OwnableUnauthorizedAccount(address account);
+def OwnableUnauthorizedAccount(account: Evm.Address) -> Evm.Error:
+  Evm.Error{"OwnableUnauthorizedAccount(address)", [account]}
+
+Evm.ensure(Nat.is_eq(who, boss), OwnableUnauthorizedAccount(who))
+```
+
+The revert data is the error's selector and its ABI-encoded words, as in Solidity, and the certificate checks the body as it checks an event's. `Evm.require(ok)` reverts with no data. A law states which error a call reverts with: the model's outcome is `Evm.Raise{error}` for a custom error, and `Evm.Revert{}` for a revert with no data.
+
 Build it, then deploy the bytecode with the constructor arguments after it. An entry named `init` is the constructor: it returns `Unit` and runs in the deploy code, so the deployer is `caller()`, and its parameters are the ABI words after the deploy code, as in Solidity.
 
 ```sh
@@ -70,7 +82,7 @@ Every word is a `Nat`. These aliases give it an ABI type:
 | `Evm.Boolean` | `bool` | it is above 1 |
 | `Evm.Bytes32` | `bytes32` | never |
 
-The dispatcher checks parameters only. A result or an event field goes out as it is, so the function must keep it in range, or the output is not a valid ABI encoding. A result of `Unit` has no outputs. A string entry, such as `name()`, is a def with no parameters whose body is a text literal; it returns the ABI encoding of a `string`.
+The dispatcher checks parameters only. A result, an event field or an error argument goes out as it is, so the function must keep it in range, or the output is not a valid ABI encoding. A result of `Unit` has no outputs. A string entry, such as `name()`, is a def with no parameters whose body is a text literal; it returns the ABI encoding of a `string`.
 
 ## Gas
 
@@ -78,9 +90,9 @@ The dispatcher checks parameters only. A result or an event field goes out as it
 
 | | Bend | Bend, optimized | Solidity | Solidity, optimized |
 |---|---:|---:|---:|---:|
-| deploy | 534212 | 470750 | 1293946 | 873554 |
-| mint to a new holder | 70248 | 70243 | 71137 | 70424 |
-| mint to a holder | 36048 | 36043 | 36937 | 36224 |
+| deploy | 553029 | 484374 | 1293946 | 873554 |
+| mint to a new holder | 70253 | 70243 | 71137 | 70424 |
+| mint to a holder | 36053 | 36043 | 36937 | 36224 |
 | transfer to a new holder | 51175 | 51140 | 52045 | 51252 |
 | transfer to a holder | 34075 | 34040 | 34945 | 34152 |
 | approve | 46032 | 46036 | 46685 | 46102 |
@@ -88,10 +100,10 @@ The dispatcher checks parameters only. A result or an event field goes out as it
 | approve max | 29292 | 29296 | 29945 | 29362 |
 | transferFrom, max allowance | 36899 | 36832 | 37908 | 36964 |
 | burn | 33538 | 33536 | 34156 | 33604 |
-| permit | 73785 | 73836 | 77573 | 74384 |
-| runtime code (bytes) | 2071 | 1779 | 5554 | 3639 |
+| permit | 73802 | 73841 | 77585 | 74384 |
+| runtime code (bytes) | 2158 | 1842 | 5554 | 3639 |
 
-Every transaction of the Bend token uses a little less gas than optimized Solidity. The runtime code is smaller too, although a branch copies the code after it into both arms. `bun run build` does not use the optimizer: it changes little gas, and the tests run the code that is not optimized.
+Every transaction of the Bend token uses a little less gas than optimized Solidity. The runtime code is smaller too, although a branch copies the code after it into both arms. The Bend token reverts with custom errors, and the Solidity reference with no data. `bun run build` does not use the optimizer: it changes little gas, and the tests run the code that is not optimized.
 
 ## Use
 
@@ -120,9 +132,9 @@ The reader ([read.bend](src/read.bend)) is not trusted: a wrong IR makes the cer
 
 [yul.bend](src/yul.bend) defines the Yul fragment that the IR needs, its meaning over the same `State`, and `lower`. [LAWS.bend](src/LAWS.bend) states that running `lower(cmd)` gives the same outcome as `IR.run(cmd)` for every command, output kind, environment, continuation and state, and [PROOF.bend](src/PROOF.bend) proves it by induction. [compile.bend](src/compile.bend) prints the Yul with an ABI dispatcher, and [keccak.bend](src/keccak.bend) computes the selectors and event topics.
 
-Checked add lowers to `if gt(b, sub(not(0), a)) { revert(0, 0) }` and a wrapping `add`. Checked sub lowers to `if lt(a, b) { revert(0, 0) }` and `sub(a, b)`. `select` lowers to a runtime Yul function `select(c, a, b)`, and `max()` to `not(0)`. The model's `add`, `sub`, `not` and `gt` are the EVM's operations on words below `limit`. Above `limit` the EVM has no words, so the model picks results that keep the proof exact: the add check reverts, and `sub(a, b)` is `a - b` whenever `a ≥ b`. The proof therefore needs no invariant that words stay below `limit`, only the lemma that the check is zero exactly when `a + b < limit`.
+Checked add lowers to `if gt(b, sub(not(0), a)) { revert(0, 0) }` and a wrapping `add`. Checked sub lowers to `if lt(a, b) { revert(0, 0) }` and `sub(a, b)`. An `ensure` lowers to an `if` that stores the error's selector and words and reverts with them. `select` lowers to a runtime Yul function `select(c, a, b)`, and `max()` to `not(0)`. The model's `add`, `sub`, `not` and `gt` are the EVM's operations on words below `limit`. Above `limit` the EVM has no words, so the model picks results that keep the proof exact: the add check reverts, and `sub(a, b)` is `a - b` whenever `a ≥ b`. The proof therefore needs no invariant that words stay below `limit`, only the lemma that the check is zero exactly when `a + b < limit`.
 
-Proved: contract ≡ IR (certificate) and IR ≡ Yul model (the law). Tested, not proved: the printer, the dispatcher and ABI decoding, the mapping layout, event topics, `solc`, and the match between the Yul model and the EVM on words below 2^256. [tests/model.test.js](tests/model.test.js) runs random call sequences on the token's Bend source and on `anvil`, and requires the same returns, reverts and logs. The Bend runtime holds words below 2^48 only, so that test uses a limit of 2^40 and small amounts: it does not reach the overflow boundary, which token.test.js tests at 2^256. [tests/reference.test.js](tests/reference.test.js) gives the same random calls, with 256-bit amounts, to the token and to the same token in Solidity with solmate's logic ([tests/fixtures/reference/Token.sol](tests/fixtures/reference/Token.sol)), and requires the same successes, return bytes and logs; only the revert data differs.
+Proved: contract ≡ IR (certificate) and IR ≡ Yul model (the law). Tested, not proved: the printer, the dispatcher and ABI decoding, the mapping layout, event topics, the encoding of error data, `solc`, and the match between the Yul model and the EVM on words below 2^256. [tests/model.test.js](tests/model.test.js) runs random call sequences on the token's Bend source and on `anvil`, and requires the same returns, reverts, custom errors and logs. The Bend runtime holds words below 2^48 only, so that test uses a limit of 2^40 and small amounts: it does not reach the overflow boundary, which token.test.js tests at 2^256. [tests/reference.test.js](tests/reference.test.js) gives the same random calls, with 256-bit amounts, to the token and to the same token in Solidity with solmate's logic ([tests/fixtures/reference/Token.sol](tests/fixtures/reference/Token.sol)), and requires the same successes, return bytes and logs; only the revert data differs.
 
 The proofs cover deployed code only when the certificate covers the same entries. `compile.bend` reads the IR again and does not check that a `CERT.bend` exists or is current, so build with `bun run build`, which does. The model also has no gas: a law that gives `Ok` holds on chain only when the call has enough gas, and otherwise the call reverts.
 
@@ -135,14 +147,14 @@ The proofs cover deployed code only when the certificate covers the same entries
 - Storage is an association list: the newest slot wins and missing slots read as zero. A key is a plain slot or an entry of a mapping, `Mapped{base, key}`, where `base` is a key too. The printer puts an entry at `keccak256(key . base)`, as Solidity does, so the model assumes that Keccak has no collisions. That is not enough for a slot that a variable gives, which could equal an entry's `keccak256(key . base)`, so `compile.bend` refuses an entry whose plain slots and mapping bases are not literals. Keys can be variables. A revert discards all state.
 - `branch(A, cond, a, b)` runs the contract `a` when `cond` holds and `b` otherwise, and must be the last step: each arm runs to the end of the call. Code that both arms run after the choice goes in each arm, as a call to a def, as `ERC20.transferFrom` does with `move`. A run stops at a branch whose condition is not known, so a law about it names both arms with `Evm.branch.run` ([tests/fixtures/branch](tests/fixtures/branch) has examples).
 - Events are `emit(Event(...))` with an event def, as above: at most three indexed parameters, before the others, as the ABI marks the first parameters as indexed, one for each topic word. The state keeps logs newest first, so a revert drops them too. Topic 0 is the signature's Keccak-256, which the printer computes. Two events with the same signature must agree on their indexed parameters.
-- Supported now: `sload`, `sstore`, mappings (`load(slot, key)`, `store(slot, key, value)`) and nested mappings (`load2(slot, outer, inner)`, `store2(slot, outer, inner, value)`); `caller`, `timestamp`, `chainid` and `self`; checked `add` and `sub`; `max()`; `select(cond, a, b)` and `branch(A, cond, a, b)`, where a condition is `Nat.is_eq` or `Nat.is_lt` under `Bool.not`; `require`; `emit`; `keccak(words)`, `id(text)`, `typed(domain, message)` (the EIP-712 digest) and `recover(digest, v, r, s)`; `pure`; the parameter types above; literal constants; and calls to the contract's own functions, which the reader inlines. The reader rejects everything else.
+- Supported now: `sload`, `sstore`, mappings (`load(slot, key)`, `store(slot, key, value)`) and nested mappings (`load2(slot, outer, inner)`, `store2(slot, outer, inner, value)`); `caller`, `timestamp`, `chainid` and `self`; checked `add` and `sub`; `max()`; `select(cond, a, b)` and `branch(A, cond, a, b)`, where a condition is `Nat.is_eq` or `Nat.is_lt` under `Bool.not`; `require`; `ensure(cond, error)`; `emit`; `keccak(words)`, `id(text)`, `typed(domain, message)` (the EIP-712 digest) and `recover(digest, v, r, s)`; `pure`; the parameter types above; literal constants; and calls to the contract's own functions, which the reader inlines. The reader rejects everything else.
 
 ## Limits
 
 - The certificate's imports are relative. Save it as `CERT.bend` beside the contract, or it names other files.
 - certify.bend must run through the frontend's `host/run.js`, which gives it its own path in `BEND_ENTRY`.
 - Literals are limited by `Nat.read` (about 2^48). Source Nat literals already stop at 2^32 - 1.
-- Parameters, results and event fields are words with the ABI types above; results and event fields are not range-checked.
+- Parameters, results, event fields and error arguments are words with the ABI types above; only parameters are range-checked.
 - Calls and branches nest at most 8 deep together, so a function cannot call itself. An `else if` chain of 8 branches is too deep.
 - A branch must be the last step, and its arms return `Nat` or `Unit`. There is no join point after a branch; see ROADMAP.md (M13).
 - In the reader, match on `Call` tags, not on nested `Term` patterns or string literals. A string pattern costs the checker 33 splits per character, and each fallback case is copied into every split. Nested Term patterns made checking take 6 GB, and string names made it take 2.5 GB; with tags, `read.bend` checks in about 120 MB. Add a name to `tags()` to read a new DSL call.

@@ -58,7 +58,7 @@ export const entries = {
     'mint', 'burn', 'allowance', 'approve', 'transferFrom', 'nonces', 'DOMAIN_SEPARATOR', 'permit'],
   branch: ['init', 'keep', 'grade', 'get', 'mark', 'marked'],
   calls: ['run', 'outer'],
-  emit: ['moved'],
+  emit: ['moved', 'take'],
 };
 
 // The largest word, 2^256 - 1.

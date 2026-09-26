@@ -51,9 +51,10 @@ def module(entry: String, +evm: String, +backend: String) -> Result<&2, &2, Stri
     Done{evm},
     Fail{"The contract must import this backend's Evm.bend"})
 
-# The Evm module's name prefix, and each named entry, read once.
+# The Evm module's name prefix, each named entry, read once, and the
+# declarations.
 type Setup is Data:
-  Setup{evm: String, functions: List<&2, Read.Function>}
+  Setup{evm: String, functions: List<&2, Read.Function>, decls: List<&2, Core.Declaration>}
 
 def setup(program: Core.Program, +backend: String, +entries: List<&2, String>) -> Result<&2, &2, String, Setup>:
   match program:
@@ -62,7 +63,7 @@ def setup(program: Core.Program, +backend: String, +entries: List<&2, String>) -
         prefix : String <- Read.module(decls, entries)
         +evm : String <- module(entry, prefix, backend)
         fs : List<&2, Read.Function> <- Read.functions(evm, decls, entries)
-        return Setup{evm, fs}
+        return Setup{evm, fs, decls}
 
 def strings(values: List<String>) -> List<&2, String>:
   match values:

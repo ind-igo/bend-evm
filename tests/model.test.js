@@ -33,6 +33,17 @@ const signatures = {
 const views = new Set(['owner', 'totalSupply', 'balanceOf', 'allowance']);
 const events = Object.fromEntries(['Transfer(address,address,uint256)', 'Approval(address,address,uint256)',
   'OwnershipTransferred(address,address)'].map(e => [must(run('cast', 'keccak', e)), e]));
+const errors = Object.fromEntries(['OwnableUnauthorizedAccount(address)']
+  .map(e => [must(run('cast', 'sig', e)), e]));
+
+// A revert as the model prints it: "revert", or "revert <error> <words>"
+// from the revert data of a custom error.
+function reverted(err) {
+  const data = err.match(/data: "0x([0-9a-f]*)"/)?.[1] ?? '';
+  if (data === '') return 'revert';
+  const words = (data.slice(8).match(/.{64}/g) ?? []).map(w => ' ' + fromChain(BigInt('0x' + w)));
+  return `revert ${errors['0x' + data.slice(0, 8)]}${words.join('')}`;
+}
 
 function sequence(random, length) {
   const pick = xs => xs[Math.floor(random() * xs.length)];
@@ -61,7 +72,7 @@ function sequence(random, length) {
 }
 
 // The model's transcript: one "ok", "ok <word>" or "revert" line per call,
-// each followed by its logs.
+// each followed by its logs. A revert with a custom error names it.
 function model(calls) {
   const words = calls.flatMap(({ who, name, args }) =>
     [who, name, ...[...args, 0n, 0n, 0n].slice(0, 3)].map(String));
@@ -85,7 +96,7 @@ function onChain({ who, name, args }) {
   const call = chain.cast('call', '--from', from, chain.address, signature, ...words);
   if (!call.ok) {
     expect(call.err).toMatch(/revert/i);
-    return ['revert'];
+    return [reverted(call.err)];
   }
   const value = call.out === '' || call.out === '0x' ? '' : ' ' + fromChain(BigInt(call.out.split(' ')[0]));
   if (views.has(name)) return ['ok' + value];
@@ -113,7 +124,8 @@ test(`anvil agrees with the Bend model on random calls (SEED=${seed})`, () => {
   expect(actual).toEqual(expected);
   // The sequence must reach the paths that matter.
   const text = expected.join('\n');
-  expect(text).toMatch(/revert/);
+  expect(text).toMatch(/revert\n/);
+  expect(text).toMatch(/revert OwnableUnauthorizedAccount\(address\) [1-9]/);
   expect(text).toMatch(new RegExp(`Approval\\S* \\d+ \\d+ \\| ${limit - 1n}`));
   expect(text).toMatch(/log Transfer\S* [1-9]\d* \d+ \| [1-9]/);
   expect(text).toMatch(/log Transfer\S* [1-9]\d* 0 \| [1-9]/);

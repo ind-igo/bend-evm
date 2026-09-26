@@ -99,6 +99,7 @@ type Tag is Data:
   Store{}
   Store2{}
   Require{}
+  Ensure{}
   Emit{}
   IsEq{}
   IsLt{}
@@ -110,6 +111,7 @@ type Tag is Data:
   Branch{}
   Indexed{}
   EventType{}
+  ErrorType{}
   Unknown{}
 
 type Named is Data:
@@ -135,6 +137,7 @@ def tags() -> List<&2, Named>:
   Named{"Evm.store", Store{}},
   Named{"Evm.store2", Store2{}},
   Named{"Evm.require", Require{}},
+  Named{"Evm.ensure", Ensure{}},
   Named{"Evm.emit", Emit{}},
   Named{"Nat.is_eq", IsEq{}},
   Named{"Nat.is_lt", IsLt{}},
@@ -145,7 +148,8 @@ def tags() -> List<&2, Named>:
   Named{"Evm.Contract.pure", Pure{}},
   Named{"Evm.branch", Branch{}},
   Named{"Evm.Indexed", Indexed{}},
-  Named{"Evm.Event", EventType{}}]
+  Named{"Evm.Event", EventType{}},
+  Named{"Evm.Error", ErrorType{}}]
 
 def tag.go(table: List<&2, Named>, +name: String) -> Tag:
   match table:
@@ -587,55 +591,148 @@ def parts(fs: List<&2, Field>, args: List<&2, Core.Term>, +late: Bool, +decls: L
     case _ _:
       Fail{"An event needs one argument for each field"}
 
-# logN takes topic 0 and at most three indexed words.
-def emit.log(+name: String, p: Parts) -> Result<&2, &2, String, IR.Effect>:
-  match p:
-    case Parts{types, +topics, data}:
-      +signature = name ++ "(" ++ joined(types) ++ ")"
-      Bool.pick(Result<&2, &2, String, IR.Effect>, Bool.and(identifier(name), Keccak.fits(signature)),
-        Bool.pick(Result<&2, &2, String, IR.Effect>, Nat.is_lt(List.length(&2, IR.Expr, topics), 4n),
-          Done{IR.Log{signature, topics, data}},
-          Fail{"An event has at most three indexed words"}),
-        Fail{signature ++ ": an event needs an identifier name and a signature under 136 bytes"})
+# An event or an error: a def whose result type is Evm.Event or Evm.Error.
+type Declared is Data:
+  EventDef{}
+  ErrorDef{}
 
-def is_event(c: Call) -> Bool:
-  match c:
-    case Call{EventType{}, _, Nil{}}:
+def marks(k: Declared, c: Call) -> Bool:
+  match k c:
+    case EventDef{} Call{EventType{}, _, Nil{}}:
       True{}
-    case _:
+    case ErrorDef{} Call{ErrorType{}, _, Nil{}}:
+      True{}
+    case _ _:
       False{}
 
-def emit.event(+event: Bool, +evm: String, t: Telescope, +name: String, args: List<&2, Core.Term>,
-  +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Effect>:
-  match event t:
+def wanted(k: Declared) -> String:
+  match k:
+    case EventDef{}:
+      "Evm.emit takes an event: a safe, concrete def whose result type is Evm.Event"
+    case ErrorDef{}:
+      "Evm.ensure takes an error: a safe, concrete def whose result type is Evm.Error"
+
+# A call to an event or error def: its signature, its indexed words and its
+# data words.
+type Signed is Data:
+  Signed{signature: String, topics: List<&2, IR.Expr>, data: List<&2, IR.Expr>}
+
+def signed.of(+name: String, p: Parts) -> Result<&2, &2, String, Signed>:
+  match p:
+    case Parts{types, topics, data}:
+      +signature = name ++ "(" ++ joined(types) ++ ")"
+      Bool.pick(Result<&2, &2, String, Signed>, Bool.and(identifier(name), Keccak.fits(signature)),
+        Done{Signed{signature, topics, data}},
+        Fail{signature ++ ": an event or error needs an identifier name and a signature under 136 bytes"})
+
+def signed.def(+marked: Bool, +k: Declared, +evm: String, t: Telescope, +name: String, args: List<&2, Core.Term>,
+  +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, Signed>:
+  match marked t:
     case True{} Telescope{params, _}:
-      do Result<&2, &2, String, IR.Effect>:
+      do Result<&2, &2, String, Signed>:
         fs : List<&2, Field> <- fields(evm, params)
         p : Parts <- parts(fs, args, False{}, decls)
-        emit.log(after_last('.', name), p)
+        signed.of(after_last('.', name), p)
     case False{} _:
-      Fail{"Evm.emit takes an event: a safe, concrete def whose result type is Evm.Event"}
+      Fail{wanted(k)}
 
-def emit.found(+evm: String, found: Maybe<&2, Def>, +name: String, args: List<&2, Core.Term>,
-  +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Effect>:
+def signed.found(+k: Declared, +evm: String, found: Maybe<&2, Def>, +name: String, args: List<&2, Core.Term>,
+  +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, Signed>:
   match found:
     case Some{Def{arity, typ, _}}:
-      do Result<&2, &2, String, IR.Effect>:
+      do Result<&2, &2, String, Signed>:
         +t : Telescope <- telescope(arity, typ)
-        emit.event(is_event(call(strip(evm, telescope.result(t)), Nil{})), evm, t, name, args, decls)
+        signed.def(marks(k, call(strip(evm, telescope.result(t)), Nil{})), k, evm, t, name, args, decls)
     case None{}:
-      Fail{"Evm.emit takes an event: a safe, concrete def whose result type is Evm.Event"}
+      Fail{wanted(k)}
 
-# Evm.emit(Transfer(from, to, amount)): the signature and the topics come
-# from the event def's name and parameter types. The reader does not read
-# the def's body; the certificate proves it gives the same log. The ABI types
-# are labels: a function must keep an address, uint8 or bool word in range.
-def emit(+evm: String, c: Call, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Effect>:
+# Transfer(from, to, amount) in Evm.emit, or Unauthorized(who) in
+# Evm.ensure: the signature and the topics come from the def's name and
+# parameter types. The reader does not read the def's body; the certificate
+# proves it gives the same log or error. The ABI types are labels: a function
+# must keep an address, uint8 or bool word in range.
+def signed(+k: Declared, +evm: String, c: Call, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, Signed>:
   match c:
     case Call{_, +name, args}:
-      emit.found(evm, lookup(decls, name), name, args, decls)
+      signed.found(k, evm, lookup(decls, name), name, args, decls)
     case Other{}:
-      Fail{"Evm.emit takes an event: a safe, concrete def whose result type is Evm.Event"}
+      Fail{wanted(k)}
+
+# logN takes topic 0 and at most three indexed words.
+def emit(s: Signed) -> Result<&2, &2, String, IR.Effect>:
+  match s:
+    case Signed{signature, +topics, data}:
+      Bool.pick(Result<&2, &2, String, IR.Effect>, Nat.is_lt(List.length(&2, IR.Expr, topics), 4n),
+        Done{IR.Log{signature, topics, data}},
+        Fail{"An event has at most three indexed words"})
+
+# Revert data has no topics, so an error has no indexed fields.
+def ensure(x: IR.Cond, s: Signed) -> Result<&2, &2, String, IR.Effect>:
+  match s:
+    case Signed{signature, Nil{}, data}:
+      Done{IR.Ensure{x, signature, data}}
+    case _:
+      Fail{"An error has no Evm.Indexed fields"}
+
+# Parameter names, for the ABI. Like the ABI types, they are labels that no
+# proof covers.
+def param.names(ps: List<&2, Param>) -> List<&2, String>:
+  match ps:
+    case Nil{}:
+      Nil{}
+    case Param{name, _} <> rest:
+      name <> param.names(rest)
+
+def field.types(fs: List<&2, Field>) -> List<&2, String>:
+  match fs:
+    case Nil{}:
+      Nil{}
+    case Field{_, t} <> rest:
+      t <> field.types(rest)
+
+def named.fields(+marked: Bool, +short: String, fs: Result<&2, &2, String, List<&2, Field>>, ns: List<&2, String>,
+  +signature: String) -> Maybe<&2, List<&2, String>>:
+  match marked fs:
+    case True{} Done{list}:
+      Bool.pick(Maybe<&2, List<&2, String>>, String.eq(short ++ "(" ++ joined(field.types(list)) ++ ")", signature),
+        Some{ns}, None{})
+    case _ _:
+      None{}
+
+def named.telescope(+k: Declared, +evm: String, +short: String, t: Result<&2, &2, String, Telescope>, +signature: String) ->
+  Maybe<&2, List<&2, String>>:
+  match t:
+    case Done{Telescope{+params, result}}:
+      named.fields(marks(k, call(strip(evm, result), Nil{})), short, fields(evm, params), param.names(params), signature)
+    case Fail{_}:
+      None{}
+
+def named.def(+k: Declared, +evm: String, +short: String, found: Maybe<&2, Def>, +signature: String) ->
+  Maybe<&2, List<&2, String>>:
+  match found:
+    case Some{Def{arity, typ, _}}:
+      named.telescope(k, evm, short, telescope(arity, typ), signature)
+    case None{}:
+      None{}
+
+def named.first(a: Maybe<&2, List<&2, String>>, b: Maybe<&2, List<&2, String>>) -> Maybe<&2, List<&2, String>>:
+  match a:
+    case Some{ns}:
+      Some{ns}
+    case None{}:
+      b
+
+# The parameter names of the first event or error def in decls that has
+# this signature, whose name is short.
+def names(+k: Declared, +evm: String, decls: List<&2, Core.Declaration>, +short: String, +signature: String) ->
+  Maybe<&2, List<&2, String>>:
+  match decls:
+    case Nil{}:
+      None{}
+    case +d <> rest:
+      +later = names(k, evm, rest, short, signature)
+      Bool.pick(Maybe<&2, List<&2, String>>, String.eq(after_last('.', Core.name(Core.header(d))), short),
+        named.first(named.def(k, evm, short, definition(Some{d}), signature), later), later)
 
 def effect(c: Call, +evm: String, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Effect>:
   match c:
@@ -659,7 +756,14 @@ def effect(c: Call, +evm: String, +decls: List<&2, Core.Declaration>) -> Result<
         x : IR.Cond <- cond(condition, decls)
         return IR.Require{x}
     case Call{Emit{}, _, event <> Nil{}}:
-      emit(evm, call(event, Nil{}), decls)
+      do Result<&2, &2, String, IR.Effect>:
+        e : Signed <- signed(EventDef{}, evm, call(event, Nil{}), decls)
+        emit(e)
+    case Call{Ensure{}, _, condition <> error <> Nil{}}:
+      do Result<&2, &2, String, IR.Effect>:
+        x : IR.Cond <- cond(condition, decls)
+        e : Signed <- signed(ErrorDef{}, evm, call(error, Nil{}), decls)
+        ensure(x, e)
     case _:
       Fail{"Unsupported effect"}
 

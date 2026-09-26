@@ -15,3 +15,15 @@ law moved:
 def moved(p0):
   {==}
 
+def ir.take() -> IR.Cmd:
+  IR.Then{IR.Ensure{IR.Not{IR.Lt{IR.Var{0n}, IR.Lit{10n}}}, "TooSmall(uint256,uint256)", [IR.Var{0n}, IR.Lit{10n}]},
+    IR.Bind{IR.Caller{}, 3n,
+    IR.Finish{IR.Log{"Moved(address,uint256)", [IR.Var{3n}], [IR.Var{0n}]}}}}
+
+law take:
+  for +p0: Nat
+  {IR.call(ir.take(), IR.Stops{}, [IR.Binding{0n, p0}]) == Program.take(p0) : Evm.Contract(Unit)}
+
+def take(p0):
+  {==}
+

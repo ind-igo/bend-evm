@@ -85,6 +85,8 @@ def top.effect(e: IR.Effect) -> Nat:
       max(top.list(topics), top.list(data))
     case IR.Require{c}:
       top.cond(c)
+    case IR.Ensure{c, _, args}:
+      max(top.cond(c), top.list(args))
 
 # The largest level that cmd binds or reads.
 def top(cmd: IR.Cmd) -> Nat:
@@ -182,6 +184,8 @@ def rename.effect(e: IR.Effect, +parameters: List<&2, Nat>, +args: List<&2, IR.E
       IR.Log{event, rename.list(topics, parameters, args, offset), rename.list(data, parameters, args, offset)}
     case IR.Require{c}:
       IR.Require{rename.cond(c, parameters, args, offset)}
+    case IR.Ensure{c, error, words}:
+      IR.Ensure{rename.cond(c, parameters, args, offset), error, rename.list(words, parameters, args, offset)}
 
 def rename(cmd: IR.Cmd, +parameters: List<&2, Nat>, +args: List<&2, IR.Expr>, +offset: Nat) -> IR.Cmd:
   match cmd:

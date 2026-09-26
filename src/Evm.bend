@@ -59,6 +59,15 @@ type Log is Data:
 def Event() -> Data:
   Log
 
+# A custom error: its signature, such as "Unauthorized(address)", and its
+# argument words. The revert data is the signature's 4-byte selector, then
+# the words, which the printer encodes. An error def gives it, and
+# Evm.ensure reverts with it:
+#   def Unauthorized(account: Evm.Address) -> Evm.Error:
+#     Evm.Error{"Unauthorized(address)", [account]}
+type Error is Data:
+  Error{signature: String, args: List<&2, Nat>}
+
 # What keccak256 hashes: words of 32 bytes; an EIP-712 digest, which hashes
 # 0x1901 . domain . message; or an ASCII text, such as a type string.
 type Preimage is Data:
@@ -166,10 +175,12 @@ def signers.of(w: World) -> List<&2, Signed>:
     case World{_, _, _, _, signers}:
       signers
 
-# A revert discards every state change, so it carries no state.
+# A revert discards every state change, so it carries no state. Revert has
+# no revert data; Raise has a custom error's.
 type Outcome<-A: Data> is Data:
   Ok{value: A, state: State}
   Revert{}
+  Raise{error: Error}
 
 # A contract passes its result and state to a continuation. A check is then
 # a Bool.pick at the top of the contract's normal form, not a match stuck
@@ -249,6 +260,13 @@ def emit(l: Event) -> Contract(Unit):
 
 def require(ok: Bool) -> Contract(Unit):
   R => k => s => Bool.pick(Outcome<R>, ok, k(Unit{}, s), Revert{})
+
+# Reverts with a custom error unless ok holds, as Solidity's
+# require(ok, Unauthorized(who)) does. The reader takes the signature from
+# the error def's name and parameter types, and the certificate checks that
+# its body gives the same error.
+def ensure(ok: Bool, e: Error) -> Contract(Unit):
+  R => k => s => Bool.pick(Outcome<R>, ok, k(Unit{}, s), Raise{e})
 
 # a when ok holds, b otherwise. It chooses a word, not a contract, so the
 # continuation is used once and laws stay closed.

@@ -6,8 +6,8 @@ import ../../../examples/token/program.bend as Token
 # test against anvil. The arguments are groups of five: the caller, the
 # function, and three words (unused words are 0). The first argument is the
 # limit, below 2^48 as the runtime needs. For each call it prints "ok",
-# "ok <word>" or "revert", then each new log, oldest first, as
-# "log <event> <topics> | <data>".
+# "ok <word>", "revert" or "revert <error> <words>", then each new log,
+# oldest first, as "log <event> <topics> | <data>".
 
 type Step is Data:
   Step{text: String, state: Evm.State}
@@ -42,6 +42,8 @@ def after(-A: Data, show: A -> String, o: Evm.Outcome<A>, +before: Evm.State) ->
       Step{"ok" ++ show(value) ++ "\n" ++ show.logs(logs), Evm.State{storage, caller, limit, [], world}}
     case Evm.Revert{}:
       Step{"revert\n", before}
+    case Evm.Raise{Evm.Error{error, args}}:
+      Step{"revert " ++ error ++ words(args) ++ "\n", before}
 
 def call(-A: Data, show: A -> String, m: Evm.Contract(A), +who: Nat, s: Evm.State) -> Step:
   match s:

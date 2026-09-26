@@ -32,6 +32,7 @@ type Stmt is Data:
   SStore{loc: IR.Loc, value: Exp, body: Stmt}
   Log{event: String, topics: List<&2, IR.Expr>, data: List<&2, IR.Expr>, body: Stmt}
   Check{cond: Exp, body: Stmt}
+  Guard{cond: Exp, error: String, args: List<&2, IR.Expr>, body: Stmt}
   Result{value: Exp}
   Stop{}
   Revert{}
@@ -103,7 +104,8 @@ def eval(e: Exp, +env: List<&2, IR.Binding>, +s: Evm.State) -> Nat:
     case Recover{digest, v, r, sig}:
       Evm.signer.of(Evm.signers.of(Evm.world.of(s)), IR.eval(digest, env), IR.eval(v, env), IR.eval(r, env), IR.eval(sig, env))
 
-# `if cond { revert(0, 0) }` reverts when cond is not zero. An If runs no when
+# `if cond { revert(0, 0) }` reverts when cond is not zero, and a Guard
+# reverts with its error's data. An If runs no when
 # its test is zero and yes otherwise.
 def exec(stmt: Stmt, +out: IR.Output, +env: List<&2, IR.Binding>) -> Evm.Contract(IR.value(out)):
   match stmt out:
@@ -115,6 +117,9 @@ def exec(stmt: Stmt, +out: IR.Output, +env: List<&2, IR.Binding>) -> Evm.Contrac
       R => k => +s => exec(body, o, env, R, k, Evm.log.go(event, IR.evals(topics, env), IR.evals(data, env), s))
     case Check{cond, body} o:
       R => k => +s => Bool.pick(Evm.Outcome<R>, Nat.is_eq(eval(cond, env, s), 0n), exec(body, o, env, R, k, s), Evm.Revert{})
+    case Guard{cond, error, args, body} o:
+      R => k => +s => Bool.pick(Evm.Outcome<R>, Nat.is_eq(eval(cond, env, s), 0n), exec(body, o, env, R, k, s),
+        Evm.Raise{Evm.Error{error, IR.evals(args, env)}})
     case Result{value} IR.Returns{}:
       R => k => +s => k(eval(value, env, s), s)
     case Stop{} IR.Stops{}:
@@ -194,6 +199,8 @@ def lower(cmd: IR.Cmd, +out: IR.Output) -> Stmt:
       Log{event, topics, data, lower(body, o)}
     case IR.Then{IR.Require{c}, body} o:
       Check{lower.cond(c), lower(body, o)}
+    case IR.Then{IR.Ensure{c, error, args}, body} o:
+      Guard{lower.cond(c), error, args, lower(body, o)}
     case IR.Return{value} IR.Returns{}:
       Result{Atom{value}}
     case IR.Tail{IR.Add{+left, +right}} IR.Returns{}:
@@ -208,6 +215,8 @@ def lower(cmd: IR.Cmd, +out: IR.Output) -> Stmt:
       Log{event, topics, data, Stop{}}
     case IR.Finish{IR.Require{c}} IR.Stops{}:
       Check{lower.cond(c), Stop{}}
+    case IR.Finish{IR.Ensure{c, error, args}} IR.Stops{}:
+      Guard{lower.cond(c), error, args, Stop{}}
     case IR.Stop{} IR.Stops{}:
       Stop{}
     case IR.If{c, yes, no} o:

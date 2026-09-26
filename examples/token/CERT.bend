@@ -44,7 +44,7 @@ def owner():
 def ir.transferOwnership() -> IR.Cmd:
   IR.Bind{IR.Caller{}, 1n,
     IR.Bind{IR.SLoad{IR.Plain{IR.Lit{4n}}}, 2n,
-    IR.Then{IR.Require{IR.Eq{IR.Var{1n}, IR.Var{2n}}},
+    IR.Then{IR.Ensure{IR.Eq{IR.Var{1n}, IR.Var{2n}}, "OwnableUnauthorizedAccount(address)", [IR.Var{1n}]},
     IR.Then{IR.SStore{IR.Plain{IR.Lit{4n}}, IR.Var{0n}},
     IR.Finish{IR.Log{"OwnershipTransferred(address,address)", [IR.Var{2n}, IR.Var{0n}], []}}}}}}
 
@@ -96,7 +96,7 @@ def transfer(p0, p1):
 def ir.mint() -> IR.Cmd:
   IR.Bind{IR.Caller{}, 2n,
     IR.Bind{IR.SLoad{IR.Plain{IR.Lit{4n}}}, 3n,
-    IR.Then{IR.Require{IR.Eq{IR.Var{2n}, IR.Var{3n}}},
+    IR.Then{IR.Ensure{IR.Eq{IR.Var{2n}, IR.Var{3n}}, "OwnableUnauthorizedAccount(address)", [IR.Var{2n}]},
     IR.Bind{IR.SLoad{IR.Plain{IR.Lit{0n}}}, 9n,
     IR.Bind{IR.Add{IR.Var{9n}, IR.Var{1n}}, 10n,
     IR.Then{IR.SStore{IR.Plain{IR.Lit{0n}}, IR.Var{10n}},
@@ -220,7 +220,7 @@ def ir.permit() -> IR.Cmd:
     IR.Bind{IR.Self{}, 21n,
     IR.Bind{IR.Keccak{[IR.Var{18n}, IR.Var{17n}, IR.Var{19n}, IR.Var{20n}, IR.Var{21n}]}, 7n,
     IR.Bind{IR.Timestamp{}, 8n,
-    IR.Then{IR.Require{IR.Not{IR.Lt{IR.Var{3n}, IR.Var{8n}}}},
+    IR.Then{IR.Ensure{IR.Not{IR.Lt{IR.Var{3n}, IR.Var{8n}}}, "ERC2612ExpiredSignature(uint256)", [IR.Var{3n}]},
     IR.Bind{IR.SLoad{IR.Mapped{IR.Plain{IR.Lit{3n}}, IR.Var{0n}}}, 10n,
     IR.Bind{IR.Add{IR.Var{10n}, IR.Lit{1n}}, 11n,
     IR.Then{IR.SStore{IR.Mapped{IR.Plain{IR.Lit{3n}}, IR.Var{0n}}, IR.Var{11n}},
@@ -228,8 +228,8 @@ def ir.permit() -> IR.Cmd:
     IR.Bind{IR.Keccak{[IR.Var{13n}, IR.Var{0n}, IR.Var{1n}, IR.Var{2n}, IR.Var{10n}, IR.Var{3n}]}, 14n,
     IR.Bind{IR.Typed{IR.Var{7n}, IR.Var{14n}}, 15n,
     IR.Bind{IR.Recover{IR.Var{15n}, IR.Var{4n}, IR.Var{5n}, IR.Var{6n}}, 16n,
-    IR.Then{IR.Require{IR.Not{IR.Eq{IR.Var{16n}, IR.Lit{0n}}}},
-    IR.Then{IR.Require{IR.Eq{IR.Var{16n}, IR.Var{0n}}},
+    IR.Then{IR.Ensure{IR.Not{IR.Eq{IR.Var{16n}, IR.Lit{0n}}}, "ERC2612InvalidSigner(address,address)", [IR.Var{16n}, IR.Var{0n}]},
+    IR.Then{IR.Ensure{IR.Eq{IR.Var{16n}, IR.Var{0n}}, "ERC2612InvalidSigner(address,address)", [IR.Var{16n}, IR.Var{0n}]},
     IR.Then{IR.SStore{IR.Mapped{IR.Mapped{IR.Plain{IR.Lit{2n}}, IR.Var{0n}}, IR.Var{1n}}, IR.Var{2n}},
     IR.Finish{IR.Log{"Approval(address,address,uint256)", [IR.Var{0n}, IR.Var{1n}], [IR.Var{2n}]}}}}}}}}}}}}}}}}}}}}
 

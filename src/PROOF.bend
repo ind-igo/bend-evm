@@ -115,10 +115,11 @@ def sub_step(c: Bool, -x: Nat, +d: Nat, -R: Data, -y: Nat -> Evm.Outcome<R>, -f:
     case False{}:
       h
 
-# A Require: iszero(cond) reverts exactly when the condition is false.
-def require_step(c: Bool, -R: Data, -y: Evm.Outcome<R>, -f: Evm.Outcome<R>, h: {y == f : Evm.Outcome<R>}) ->
-  {Bool.pick(Evm.Outcome<R>, Nat.is_eq(Yul.bit(Nat.is_eq(Yul.bit(c), 0n)), 0n), y, Evm.Revert{})
-    == Bool.pick(Evm.Outcome<R>, c, f, Evm.Revert{}) : Evm.Outcome<R>}:
+# A Require or an Ensure: iszero(cond) fails with x exactly when the
+# condition is false.
+def require_step(c: Bool, -R: Data, -x: Evm.Outcome<R>, -y: Evm.Outcome<R>, -f: Evm.Outcome<R>, h: {y == f : Evm.Outcome<R>}) ->
+  {Bool.pick(Evm.Outcome<R>, Nat.is_eq(Yul.bit(Nat.is_eq(Yul.bit(c), 0n)), 0n), y, x)
+    == Bool.pick(Evm.Outcome<R>, c, f, x) : Evm.Outcome<R>}:
   match c:
     case True{}:
       h
@@ -240,7 +241,13 @@ def sim(+cmd: IR.Cmd, +out: IR.Output, +env: List<&2, IR.Binding>, -R: Data,
     case IR.Then{IR.Require{+c}, body} o:
       %test_bit(c, env, s) : {Bool.pick(Evm.Outcome<R>, Nat.is_eq(Yul.bit(Nat.is_eq(_, 0n)), 0n), Yul.exec(Yul.lower(body, o), o, env, R, k, s),
         Evm.Revert{}) == Bool.pick(Evm.Outcome<R>, IR.cond(c, env), IR.run(body, o, env, R, k, s), Evm.Revert{}) : Evm.Outcome<R>}
-      require_step(IR.cond(c, env), R, Yul.exec(Yul.lower(body, o), o, env, R, k, s), IR.run(body, o, env, R, k, s),
+      require_step(IR.cond(c, env), R, Evm.Revert{}, Yul.exec(Yul.lower(body, o), o, env, R, k, s),
+        IR.run(body, o, env, R, k, s), sim(body, o, env, R, k, s))
+    case IR.Then{IR.Ensure{+c, +error, +args}, body} o:
+      +x : Evm.Outcome<R> = Evm.Raise{Evm.Error{error, IR.evals(args, env)}}
+      %test_bit(c, env, s) : {Bool.pick(Evm.Outcome<R>, Nat.is_eq(Yul.bit(Nat.is_eq(_, 0n)), 0n), Yul.exec(Yul.lower(body, o), o, env, R, k, s),
+        x) == Bool.pick(Evm.Outcome<R>, IR.cond(c, env), IR.run(body, o, env, R, k, s), x) : Evm.Outcome<R>}
+      require_step(IR.cond(c, env), R, x, Yul.exec(Yul.lower(body, o), o, env, R, k, s), IR.run(body, o, env, R, k, s),
         sim(body, o, env, R, k, s))
     case IR.Return{_} IR.Returns{}:
       {==}
@@ -319,12 +326,19 @@ def sim(+cmd: IR.Cmd, +out: IR.Output, +env: List<&2, IR.Binding>, -R: Data,
     case IR.Finish{IR.Require{+c}} IR.Stops{}:
       %test_bit(c, env, s) : {Bool.pick(Evm.Outcome<R>, Nat.is_eq(Yul.bit(Nat.is_eq(_, 0n)), 0n), k(Unit{}, s), Evm.Revert{})
         == Bool.pick(Evm.Outcome<R>, IR.cond(c, env), k(Unit{}, s), Evm.Revert{}) : Evm.Outcome<R>}
-      require_step(IR.cond(c, env), R, k(Unit{}, s), k(Unit{}, s), {==})
+      require_step(IR.cond(c, env), R, Evm.Revert{}, k(Unit{}, s), k(Unit{}, s), {==})
+    case IR.Finish{IR.Ensure{+c, +error, +args}} IR.Stops{}:
+      +x : Evm.Outcome<R> = Evm.Raise{Evm.Error{error, IR.evals(args, env)}}
+      %test_bit(c, env, s) : {Bool.pick(Evm.Outcome<R>, Nat.is_eq(Yul.bit(Nat.is_eq(_, 0n)), 0n), k(Unit{}, s), x)
+        == Bool.pick(Evm.Outcome<R>, IR.cond(c, env), k(Unit{}, s), x) : Evm.Outcome<R>}
+      require_step(IR.cond(c, env), R, x, k(Unit{}, s), k(Unit{}, s), {==})
     case IR.Finish{IR.SStore{_, _}} IR.Returns{}:
       {==}
     case IR.Finish{IR.Log{_, _, _}} IR.Returns{}:
       {==}
     case IR.Finish{IR.Require{_}} IR.Returns{}:
+      {==}
+    case IR.Finish{IR.Ensure{_, _, _}} IR.Returns{}:
       {==}
     case IR.Stop{} IR.Stops{}:
       {==}
