@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, expect, test } from 'bun:test';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { entries, spawn, top } from '../scripts/tools.js';
+import { entries, sandbox, spawn, top } from '../scripts/tools.js';
 import { deploy, must, reverts, run } from './chain.js';
 import { keys, separator, sign } from './permit.js';
 
@@ -16,21 +16,17 @@ const out = path.join(mkdtempSync(path.join(tmpdir(), 'bend-evm-token-')), 'Toke
 let chain, sender, send, owner;
 
 // As a user would: bun run build --out, then deploy the bytecode with no
-// initial supply. The deployer, sender, is the owner. The build writes
-// CERT.bend, which must equal the committed one; the committed copy goes
-// back either way.
+// initial supply. The deployer, sender, is the owner. The build runs in a
+// copy, and the CERT.bend that it writes must equal the committed one.
 const cert = 'examples/token/CERT.bend';
-const committed = readFileSync(cert, 'utf8');
 let built;
 
 beforeAll(async () => {
-  try {
+  sandbox(['src', 'lib', 'scripts', 'examples/token'], dir => {
     must(spawn([process.execPath, 'scripts/build.js', '--out', out, 'examples/token/program.bend', ...entries.token],
-      { timeout: 600_000 }));
-  } finally {
-    built = readFileSync(cert, 'utf8');
-    writeFileSync(cert, committed);
-  }
+      { cwd: dir, timeout: 600_000 }));
+    built = readFileSync(path.join(dir, cert), 'utf8');
+  });
   chain = await deploy({ bytecode: readFileSync(out + '.bin', 'utf8').trim(), args: [0n] });
   ({ sender, send } = chain);
   owner = sender;
@@ -43,7 +39,7 @@ afterAll(() => {
 });
 
 test('the committed certificate is current', () => {
-  expect(built).toBe(committed);
+  expect(built).toBe(readFileSync(cert, 'utf8'));
 });
 
 test('wallets read the name, symbol and decimals, and the ABI is valid', () => {

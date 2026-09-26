@@ -190,6 +190,11 @@ def definition(found: Maybe<&2, Core.Declaration>) -> Maybe<&2, Def>:
 def lookup(+decls: List<&2, Core.Declaration>, +name: String) -> Maybe<&2, Def>:
   definition(Core.find(decls, name))
 
+# The error when lookup finds no def.
+def missing(+decls: List<&2, Core.Declaration>, +name: String) -> String:
+  Bool.pick(String, Maybe.is_some(&2, Core.Declaration, Core.find(decls, name)),
+    "Expected a safe, concrete contract function: ", "Unknown contract function: ") ++ name
+
 type Param is Data:
   Param{name: String, domain: Core.Term}
 
@@ -969,15 +974,17 @@ def contract(+name: String, d: Def, +evm: String, +decls: List<&2, Core.Declarat
         e : Entry <- entry(name, l, evm, decls)
         return Contract{name, ins, out, e}
 
+# An entry named init is the constructor, so it cannot be a constant.
 def function.found(+name: String, text: Maybe<&2, String>, found: Maybe<&2, Def>, +evm: String,
   +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, Function>:
   match text found:
     case Some{value} _:
-      Done{Constant{name, value}}
+      Bool.pick(Result<&2, &2, String, Function>, String.eq(name, "init"), Fail{"init must return Unit"},
+        Done{Constant{name, value}})
     case None{} Some{d}:
       contract(name, d, evm, decls)
     case None{} None{}:
-      Fail{"Unknown contract function: " ++ name}
+      Fail{missing(decls, name)}
 
 def function(+evm: String, +decls: List<&2, Core.Declaration>, +name: String) -> Result<&2, &2, String, Function>:
   +found = lookup(decls, name)
@@ -1011,14 +1018,14 @@ def module.name(c: Call) -> Result<&2, &2, String, String>:
     case Other{}:
       Fail{"Expected an Evm.Contract result"}
 
-def module.of(+name: String, found: Maybe<&2, Def>) -> Result<&2, &2, String, String>:
+def module.of(+decls: List<&2, Core.Declaration>, +name: String, found: Maybe<&2, Def>) -> Result<&2, &2, String, String>:
   match found:
     case Some{Def{arity, typ, _}}:
       do Result<&2, &2, String, String>:
         t : Telescope <- telescope(arity, typ)
         module.name(call(telescope.result(t), Nil{}))
     case None{}:
-      Fail{"Unknown contract function: " ++ name}
+      Fail{missing(decls, name)}
 
 # The Evm module's name prefix, such as "../Evm.", from the result type of
 # the first entry that is not a constant string.
@@ -1029,4 +1036,4 @@ def module(+decls: List<&2, Core.Declaration>, names: List<&2, String>) -> Resul
     case +name <> rest:
       +found = lookup(decls, name)
       Bool.pick(Result<&2, &2, String, String>, Maybe.is_some(&2, String, constant.text(found)), module(decls, rest),
-        module.of(name, found))
+        module.of(decls, name, found))

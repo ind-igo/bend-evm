@@ -5,13 +5,17 @@ import { bend } from '../scripts/tools.js';
 const cases = [
   ['tests/fixtures/init.bend', ['plain'], 'Expected an Evm.Contract result'],
   ['examples/counter/program.bend', ['missing'], 'Unknown contract function'],
+  ['tests/fixtures/init.bend', ['wild'], 'Expected a safe, concrete contract function: wild'],
   ['tests/fixtures/init.bend', ['init'], 'init must return Unit'],
+  ['tests/fixtures/meta.bend', ['init', 'decimals'], 'init must return Unit'],
   ['tests/fixtures/init.bend', ['poke'], 'a storage slot that is not a literal'],
   ['tests/fixtures/meta.bend', ['decimals', 'a'.repeat(134)], 'signatures over 135 bytes are not supported'],
   ['tests/fixtures/emit/bad.bend', ['late'], 'Indexed event fields must come before the others'],
   ['tests/fixtures/emit/bad.bend', ['wide'], 'at most three indexed words'],
   ['tests/fixtures/emit/bad.bend', ['plain'], 'whose result type is Evm.Event'],
   ['tests/fixtures/emit/bad.bend', ['raw'], 'whose result type is Evm.Event'],
+  ['tests/fixtures/emit/bad.bend', ['logged'], 'Unsupported contract step'],
+  ['tests/fixtures/emit/bad.bend', ['long'], 'an event needs an identifier name and a signature under 136 bytes'],
   ['tests/fixtures/branch/bad.bend', ['early'], 'A branch must be the last step'],
   ['tests/fixtures/branch/bad.bend', ['middle'], 'A call to a function that branches must be the last step'],
 ];

@@ -18,3 +18,7 @@ def echo(x: Evm.Uint8, flag: Evm.Boolean) -> Evm.Contract(Nat):
 # With "()", its signature has 136 bytes, which one Keccak block cannot hold.
 def aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa() -> String:
   "long"
+
+# A constant string cannot be the constructor.
+def init() -> String:
+  "init"

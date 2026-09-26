@@ -16,3 +16,7 @@ def poke(x: Nat, v: Nat) -> Evm.Contract(Unit):
 # Not a contract function.
 def plain(x: Nat) -> Nat:
   x
+
+# Outside Bend's proof guarantees.
+@unsafe def wild() -> Evm.Contract(Nat):
+  Evm.sload(0n)

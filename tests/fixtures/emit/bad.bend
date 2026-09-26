@@ -40,3 +40,15 @@ def two() -> Evm.Contract(Unit):
 # A log without an event def.
 def raw() -> Evm.Contract(Unit):
   Evm.emit(Evm.Log{"E(uint256)", [], [0n]})
+
+# Contracts emit events. They do not call Evm.log.
+def logged() -> Evm.Contract(Unit):
+  Evm.log("E(uint256)", [], [0n])
+
+# With "(uint256)", its signature has 137 bytes, which one Keccak block
+# cannot hold.
+def AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA(x: Nat) -> Evm.Event:
+  Evm.Log{"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA(uint256)", [], [x]}
+
+def long() -> Evm.Contract(Unit):
+  Evm.emit(AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA(1n))
