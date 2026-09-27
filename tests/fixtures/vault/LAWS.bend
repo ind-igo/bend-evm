@@ -1,6 +1,7 @@
 import Base
 import ../../../src/Evm.bend as Evm
 import ../../../src/calls.bend as Calls
+import ../../../src/sum.bend as Sum
 import ./program.bend as Program
 import ./CERT.bend as Cert
 
@@ -75,3 +76,35 @@ law touch:
     == Bool.pick(Evm.Outcome<Unit>, Evm.same.call(q, Evm.Call{token(storage), "ping", [x]}),
       Evm.Ok{Unit{}, Evm.State{Evm.Slot{Evm.Plain{3n}, who} <> storage, who, limit, logs, world}},
       Evm.Revert{}) : Evm.Outcome<Unit>}
+
+# The total is the sum of the shares of the listed accounts.
+def balanced(s: Evm.State, +accounts: List<&2, Nat>) -> Bool:
+  match s:
+    case Evm.State{+storage, _, _, _, _}:
+      Nat.is_eq(total(storage), Sum.holdings(storage, 0n, accounts))
+
+# Each sender in the steps, at any depth, is in the list once.
+def listed(steps: List<&2, Calls.Step>, +accounts: List<&2, Nat>) -> Bool:
+  match steps:
+    case Nil{}:
+      True{}
+    case step <> rest:
+      match step:
+        case Calls.Enter{+sender, _, _, inner}:
+          Bool.and(Nat.is_eq(1n, Sum.count(sender, accounts)), Bool.and(listed(inner, accounts), listed(rest, accounts)))
+        case Calls.Answer{_, cbs, _}:
+          Bool.and(listed(cbs, accounts), listed(rest, accounts))
+
+# Any callbacks keep the total equal to the sum of the shares: any entries,
+# from any listed senders, with any answers, and with callbacks inside those
+# answers at any depth. Transactions are callbacks from outside, so this
+# holds for any list of them too. The callbacks law in src/LAWS.bend gives
+# the same for the compiled entries.
+law shares_sum:
+  for +steps: List<&2, Calls.Step>
+  for +s: Evm.State
+  for +accounts: List<&2, Nat>
+  for +h: {True{} == balanced(s, accounts) : Bool}
+  for +l: {True{} == listed(steps, accounts) : Bool}
+  {True{} == balanced(Calls.after(Unit, s, Calls.drive(Calls.Model{}, Cert.entry.table(), steps, Unit, True{}, Evm.Ok{Unit{}, s})),
+    accounts) : Bool}

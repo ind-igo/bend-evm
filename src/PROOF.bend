@@ -530,3 +530,6 @@ def Laws.preserves(entries, steps, cmd, out, env, R, k, s, open):
     Calls.drive(Calls.Model{}, entries, steps, R, open, IR.run(cmd, out, env, R, k, s)),
     table(entries, steps, R, open, Yul.exec(Yul.lower(cmd, out), out, env, R, k, s)),
     sim(cmd, out, env, R, k, s, entries, steps, open))
+
+def Laws.callbacks(entries, steps, A, open, o):
+  table(entries, steps, A, open, o)

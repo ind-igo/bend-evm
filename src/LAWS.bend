@@ -25,3 +25,14 @@ law preserves:
   for +open: Bool
   {Calls.drive(Calls.Lowered{}, entries, steps, R, open, Yul.exec(Yul.lower(cmd, out), out, env, R, k, s))
     == Calls.drive(Calls.Model{}, entries, steps, R, open, IR.run(cmd, out, env, R, k, s)) : Evm.Outcome<R>}
+
+# Callbacks run the same through the lowered entries as through their IR,
+# from any outcome. So a law about Calls.drive with the Model, such as an
+# invariant across callbacks, holds for the compiled entries too.
+law callbacks:
+  for +entries: List<&2, Calls.Entry>
+  for +steps: List<&2, Calls.Step>
+  for A: Data
+  for +open: Bool
+  for o: Evm.Outcome<A>
+  {Calls.drive(Calls.Lowered{}, entries, steps, A, open, o) == Calls.drive(Calls.Model{}, entries, steps, A, open, o) : Evm.Outcome<A>}

@@ -250,3 +250,15 @@ A contract can call another contract that may change state, as with `IERC20(toke
 - [x] An entry needs an identifier name, so it cannot clash with the certificate's `ir.` defs and `entry.table`.
 
 Not in M18: an invariant proved across every callback for a real contract (the spike has one for its own small model), a reentrancy guard with transient storage, sending ETH, and results other than one word. A law with checks before the call takes their results as hypotheses, as `drive` stops at a pick that it cannot pass.
+
+## M19: reentrancy, proved and tested
+
+M18 lets a called contract call back. M19 proves an invariant across every callback for a real contract, and tests the model of callbacks against the EVM.
+
+### Done when
+
+- [x] The vault's `shares_sum` law: any list of callbacks, from listed senders, with any answers and callbacks inside them at any depth, keeps the total equal to the sum of the listed shares. Transactions are callbacks from outside, so it covers any list of them. The proof is by induction on the answers, with one lemma for each entry of the table, and fails when a sender need not be listed, when deposit adds the wrong amount, or when a reverted callback keeps a write. [sum.bend](src/sum.bend) has the facts about a sum over a mapping.
+- [x] The `callbacks` law: callbacks run the same through the lowered entries as through their IR, so such an invariant holds for the compiled contract.
+- [ ] `withdraw` has a law with any callbacks.
+- [ ] A differential test runs the same answers and callbacks with `Calls.run` and on `anvil`, and requires the same outcome.
+- [ ] A reentrancy guard with transient storage, for a contract that must not be called back.
