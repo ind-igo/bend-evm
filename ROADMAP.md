@@ -259,6 +259,6 @@ M18 lets a called contract call back. M19 proves an invariant across every callb
 
 - [x] The vault's `shares_sum` law: any list of callbacks, from listed senders, with any answers and callbacks inside them at any depth, keeps the total equal to the sum of the listed shares. Transactions are callbacks from outside, so it covers any list of them. The proof is by induction on the answers, with one lemma for each entry of the table, and fails when a sender need not be listed, when deposit adds the wrong amount, or when a reverted callback keeps a write. [sum.bend](src/sum.bend) has the facts about a sum over a mapping.
 - [x] The `callbacks` law: callbacks run the same through the lowered entries as through their IR, so such an invariant holds for the compiled contract.
-- [ ] `withdraw` has a law with any callbacks.
+- [x] `withdraw` has a law with any callbacks, which run on the state with the shares taken. On `anvil` the token withdraws again inside the transfer, from its own shares.
 - [ ] A differential test runs the same answers and callbacks with `Calls.run` and on `anvil`, and requires the same outcome.
 - [ ] A reentrancy guard with transient storage, for a contract that must not be called back.

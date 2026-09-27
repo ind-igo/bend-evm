@@ -79,6 +79,13 @@ test('the caller after a call is the caller again', () => {
   expect(BigInt(must(chain.cast('storage', vault, '3')))).toBe(BigInt(chain.sender));
 });
 
+test('a callback during withdraw runs on the state with the shares taken', () => {
+  // transfer first withdraws the amount again, from the hook's shares.
+  must(chain.send(chain.sender, 'setMode(uint256)', '7'));
+  must(send('withdraw(uint256)', '2'));
+  expect(state()).toEqual([16n, 3n, 19n, 19n]);
+});
+
 test('a function that makes a call that may write is nonpayable', () => {
   const abi = JSON.parse(must(bend('src/abi.bend', program, ...entries.vault)));
   expect(abi.filter(f => f.type === 'function').map(f => [f.name, f.stateMutability])).toEqual([

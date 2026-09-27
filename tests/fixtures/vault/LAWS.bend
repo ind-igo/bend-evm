@@ -19,8 +19,9 @@ def moved(+storage: List<&2, Evm.Slot>, +who: Nat, limit: Nat, logs: List<&2, Ev
   held: Nat, sum: Nat) -> Evm.State:
   Evm.State{Evm.Slot{Evm.Plain{1n}, sum} <> Evm.Slot{Evm.Mapped{Evm.Plain{0n}, who}, held} <> storage, who, limit, logs, world}
 
-# With no callbacks, withdraw takes the shares, then calls transfer, and
-# ends when the token returns 1. The answer must be for that call.
+# With any callbacks, withdraw takes the shares first, so the callbacks run
+# on the state with the shares taken, and a callback cannot withdraw them
+# again. The answer must be for the transfer, and the token must return 1.
 law withdraw:
   for +storage: List<&2, Evm.Slot>
   for +who: Nat
@@ -28,12 +29,16 @@ law withdraw:
   for +logs: List<&2, Evm.Log>
   for +world: Evm.World
   for +q: Evm.Call
+  for +cbs: List<&2, Calls.Step>
   for +amount: Nat
   for e1: {False{} == Nat.is_lt(shares(storage, who), amount) : Bool}
   for e2: {False{} == Nat.is_lt(total(storage), amount) : Bool}
-  {Calls.run(Cert.entry.table(), Unit, Program.withdraw(amount), [Calls.Answer{q, [], 1n}], Evm.State{storage, who, limit, logs, world})
+  {Calls.run(Cert.entry.table(), Unit, Program.withdraw(amount), [Calls.Answer{q, cbs, 1n}], Evm.State{storage, who, limit, logs, world})
     == Bool.pick(Evm.Outcome<Unit>, Evm.same.call(q, Evm.Call{token(storage), "transfer", [who, amount]}),
-      Evm.Ok{Unit{}, moved(storage, who, limit, logs, world, Nat.sub(shares(storage, who), amount), Nat.sub(total(storage), amount))},
+      Evm.Ok{Unit{}, Calls.after(Unit,
+        moved(storage, who, limit, logs, world, Nat.sub(shares(storage, who), amount), Nat.sub(total(storage), amount)),
+        Calls.drive(Calls.Model{}, Cert.entry.table(), cbs, Unit, True{}, Evm.Ok{Unit{},
+          moved(storage, who, limit, logs, world, Nat.sub(shares(storage, who), amount), Nat.sub(total(storage), amount))}))},
       Evm.Revert{}) : Evm.Outcome<Unit>}
 
 # With any callbacks, deposit gives the shares first, so the callbacks run

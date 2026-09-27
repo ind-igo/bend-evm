@@ -8,13 +8,13 @@ interface Vault {
 }
 
 // A token for the vault test, with balances and no allowances. Before a
-// transferFrom it can call back into the vault that called it.
+// transfer or a transferFrom it can call back into the vault that called it.
 contract Hook {
     mapping(address => uint256) public balanceOf;
     // 0: plain. 1: deposit half the amount again. 2: try a deposit, which
     // writes and then reverts as its own transferFrom returns false, and
     // catch it. 3: return false. 4: revert. 5: return no data. 6: ping
-    // reads the vault back.
+    // reads the vault back. 7: withdraw the amount again, from the hook.
     uint256 public mode;
     bool private inside;
 
@@ -32,6 +32,11 @@ contract Hook {
     }
 
     function transfer(address to, uint256 amount) external returns (bool) {
+        if (!inside && mode == 7) {
+            inside = true;
+            Vault(msg.sender).withdraw(amount);
+            inside = false;
+        }
         balanceOf[msg.sender] -= amount;
         balanceOf[to] += amount;
         return mode != 3;
