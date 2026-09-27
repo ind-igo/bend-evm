@@ -257,6 +257,8 @@ def after(-A: Data, o: Evm.Outcome<A>, s: Evm.State) -> Evm.State:
       s
     case Evm.Raise{_}:
       s
+    case Evm.Calling{_, _, _}:
+      s
 
 type Tx is Data:
   Tx{world: Evm.World, call: Call}

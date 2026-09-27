@@ -9,17 +9,21 @@ for (const [program, functions] of [
   ['tests/fixtures/branch', entries.branch],
   ['tests/fixtures/emit', entries.emit],
   ['tests/fixtures/view', entries.view],
+  ['tests/fixtures/vault', entries.vault],
 ]) {
   test(`the committed ${program} certificate is current`, () => {
     const generated = bend('src/certify.bend', `${program}/program.bend`, ...functions);
     expect(generated.ok).toBe(true);
     expect(generated.text).toBe(readFileSync(path.join(root, `${program}/CERT.bend`), 'utf8'));
+    // The entry table for callbacks has every entry but init, in order.
+    const table = generated.text.split('def entries()')[1];
+    expect([...table.matchAll(/Calls\.Entry\{ir\.(\w+)\(\)/g)].map(m => m[1])).toEqual(functions.filter(f => f !== 'init'));
   }, 120_000);
 }
 
 // Each mutation of a copied certificate must fail at its law.
 function mutated(program, mutations) {
-  sandbox(['src/Evm.bend', 'src/ir.bend', program], dir => {
+  sandbox(['src/Evm.bend', 'src/ir.bend', 'src/yul.bend', 'src/calls.bend', program], dir => {
     const cert = path.join(dir, `${program}/CERT.bend`);
     const good = readFileSync(cert, 'utf8');
     for (const [from, to, law] of mutations) {
@@ -61,9 +65,16 @@ test('a certificate for the wrong view call does not check', () => {
   ]);
 }, 120_000);
 
+test('a certificate for the wrong call does not check', () => {
+  mutated('tests/fixtures/vault', [
+    ['"transfer(address,uint256)", [IR.Var{1n}, IR.Var{0n}]', '"transfer(address,uint256)", [IR.Var{0n}, IR.Var{1n}]', 'withdraw'],
+    ['IR.Call{IR.Var{6n}, "transferFrom', 'IR.View{IR.Var{6n}, "transferFrom', 'deposit'],
+  ]);
+}, 120_000);
+
 // A copied Evm.bend and ir.bend could define different semantics.
 test('certify refuses a contract that imports another Evm.bend', () => {
-  sandbox(['src/Evm.bend', 'src/ir.bend', 'examples/counter/program.bend'], dir => {
+  sandbox(['src/Evm.bend', 'src/ir.bend', 'src/yul.bend', 'src/calls.bend', 'examples/counter/program.bend'], dir => {
     const copy = bend('src/certify.bend', path.join(dir, 'examples/counter/program.bend'), 'get');
     expect(copy.ok).toBe(false);
     expect(copy.err).toContain("must import this backend's Evm.bend");

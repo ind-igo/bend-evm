@@ -515,13 +515,13 @@ def keeps.permit(+storage: List<&2, Evm.Slot>, +caller: Nat, +limit: Nat, +logs:
   {True{} == Laws.balanced(Laws.step(Laws.Tx{world, Laws.Permit{who, owner, spender, value, deadline, v, r, sig}},
     Evm.State{storage, caller, limit, logs, old}), accounts) : Bool}:
   +signer = Laws.permitter(world, storage, owner, spender, value, deadline, v, r, sig)
-  +ok = permitted(storage, who, limit, logs, world, owner, spender, value)
+  -ok = permitted(storage, who, limit, logs, world, owner, spender, value)
   +before = {Evm.State{storage, caller, limit, logs, old} : Evm.State}
-  +bad = {Evm.Raise{Token.ERC2612InvalidSigner(signer, owner)} : Evm.Outcome<Unit>}
-  +late = {Evm.Raise{Token.ERC2612ExpiredSignature(deadline)} : Evm.Outcome<Unit>}
-  +d = Bool.pick(Evm.Outcome<Unit>, Nat.is_eq(signer, owner), ok, bad)
-  +c = Bool.pick(Evm.Outcome<Unit>, Bool.not(Nat.is_eq(signer, 0n)), d, bad)
-  +b = Bool.pick(Evm.Outcome<Unit>, Nat.is_lt(Nat.add(Laws.nonce(storage, owner), 1n), limit), c, Evm.Revert{})
+  -bad = {Evm.Raise{Token.ERC2612InvalidSigner(signer, owner)} : Evm.Outcome<Unit>}
+  -late = {Evm.Raise{Token.ERC2612ExpiredSignature(deadline)} : Evm.Outcome<Unit>}
+  -d = Bool.pick(Evm.Outcome<Unit>, Nat.is_eq(signer, owner), ok, bad)
+  -c = Bool.pick(Evm.Outcome<Unit>, Bool.not(Nat.is_eq(signer, 0n)), d, bad)
+  -b = Bool.pick(Evm.Outcome<Unit>, Nat.is_lt(Nat.add(Laws.nonce(storage, owner), 1n), limit), c, Evm.Revert{})
   keep_pick(Unit, Bool.not(Nat.is_lt(deadline, Evm.time.of(world))), b, late, before, accounts,
     _ => keep_pick(Unit, Nat.is_lt(Nat.add(Laws.nonce(storage, owner), 1n), limit), c, Evm.Revert{}, before, accounts,
       _ => keep_pick(Unit, Bool.not(Nat.is_eq(signer, 0n)), d, bad, before, accounts,

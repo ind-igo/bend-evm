@@ -44,6 +44,8 @@ def after(-A: Data, show: A -> String, o: Evm.Outcome<A>, +before: Evm.State) ->
       Step{"revert\n", before}
     case Evm.Raise{Evm.Error{error, args}}:
       Step{"revert " ++ error ++ words(args) ++ "\n", before}
+    case Evm.Calling{_, _, _}:
+      Step{"revert\n", before}
 
 def call(-A: Data, show: A -> String, m: Evm.Contract(A), +who: Nat, s: Evm.State) -> Step:
   match s:

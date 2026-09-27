@@ -88,10 +88,10 @@ type Hashed is Data:
 type Signed is Data:
   Signed{digest: Nat, v: Nat, r: Nat, s: Nat, signer: Nat}
 
-# A read-only call to another contract: its address, the function's name
-# and the argument words. The calldata is the 4-byte selector of its
-# signature, such as "balanceOf(address)", then the words. An interface def
-# gives it, and Evm.view makes it:
+# A call to another contract: its address, the function's name and the
+# argument words. The calldata is the 4-byte selector of its signature, such
+# as "balanceOf(address)", then the words. An interface def gives it, and
+# Evm.view or Evm.call makes it:
 #   def balanceOf(token: Evm.Address, who: Evm.Address) -> Evm.Call:
 #     Evm.Call{token, "balanceOf", [who]}
 type Call is Data:
@@ -201,11 +201,16 @@ def signers.of(w: World) -> List<&2, Signed>:
       signers
 
 # A revert discards every state change, so it carries no state. Revert has
-# no revert data; Raise has a custom error's.
-type Outcome<-A: Data> is Data:
+# no revert data; Raise has a custom error's. Calling is a contract stopped
+# at a call that may write: the call, the state, and the rest of the
+# contract, which takes the returned word and the state after the call.
+# calls.bend runs it with the answers and the callbacks. It holds a
+# function, so an outcome is not Data.
+type Outcome<-A: Data> is Type:
   Ok{value: A, state: State}
   Revert{}
   Raise{error: Error}
+  Calling{call: Call, state: State, resume: Nat -> State -> Outcome<A>}
 
 # A contract passes its result and state to a continuation. A check is then
 # a Bool.pick at the top of the contract's normal form, not a match stuck
@@ -363,6 +368,15 @@ def answer(-R: Data, c: Call, k: Nat -> State -> Outcome<R>, s: State) -> Outcom
 # read this contract's state, so its answer is not a function of the call.
 def view(c: Call) -> Contract(Nat):
   R => k => s => answer(R, c, k, s)
+
+# Calls a function of another contract with call and gives the first word
+# it returns, as in IERC20(token).transfer(to, amount). The called contract
+# may call back into this one, so the contract stops here, and calls.bend
+# runs the callbacks and gives the word. A law about it holds for every
+# list of callbacks. The reader and the certificate treat the call as they
+# treat a view's.
+def call(c: Call) -> Contract(Nat):
+  R => k => s => Calling{c, s, k}
 
 # Checked addition: reverts on overflow, like Solidity 0.8.
 def add(+a: Nat, +b: Nat) -> Contract(Nat):

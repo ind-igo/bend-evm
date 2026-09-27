@@ -2,6 +2,7 @@
 import Base
 import ../../../src/Evm.bend as Evm
 import ../../../src/ir.bend as IR
+import ../../../src/calls.bend as Calls
 import ./program.bend as Program
 
 def ir.init() -> IR.Cmd:
@@ -73,3 +74,9 @@ law marked:
 def marked():
   {==}
 
+def entries() -> List<&2, Calls.Entry>:
+  [Calls.Entry{ir.keep(), IR.Returns{}, 1n},
+  Calls.Entry{ir.grade(), IR.Returns{}, 1n},
+  Calls.Entry{ir.get(), IR.Returns{}, 0n},
+  Calls.Entry{ir.mark(), IR.Stops{}, 1n},
+  Calls.Entry{ir.marked(), IR.Returns{}, 0n}]

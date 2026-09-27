@@ -2,6 +2,7 @@
 import Base
 import ../../../src/Evm.bend as Evm
 import ../../../src/ir.bend as IR
+import ../../../src/calls.bend as Calls
 import ./program.bend as Program
 
 def ir.moved() -> IR.Cmd:
@@ -27,3 +28,6 @@ law take:
 def take(p0):
   {==}
 
+def entries() -> List<&2, Calls.Entry>:
+  [Calls.Entry{ir.moved(), IR.Stops{}, 1n},
+  Calls.Entry{ir.take(), IR.Stops{}, 1n}]

@@ -41,11 +41,21 @@ def writes.effect(e: IR.Effect) -> Bool:
     case _:
       True{}
 
-# A function that stores or logs is nonpayable; one that only reads is view.
+def writes.word(w: IR.Word) -> Bool:
+  match w:
+    case IR.Call{_, _, _}:
+      True{}
+    case _:
+      False{}
+
+# A function that stores, logs or makes a call that may write is
+# nonpayable; one that only reads is view.
 def writes(cmd: IR.Cmd) -> Bool:
   match cmd:
-    case IR.Bind{_, _, body}:
-      writes(body)
+    case IR.Bind{w, _, body}:
+      Bool.or(writes.word(w), writes(body))
+    case IR.Tail{w}:
+      writes.word(w)
     case IR.Then{e, body}:
       Bool.or(writes.effect(e), writes(body))
     case IR.Finish{e}:

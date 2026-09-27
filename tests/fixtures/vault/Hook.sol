@@ -1,0 +1,51 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+interface Vault {
+    function deposit(uint256 amount) external;
+    function withdraw(uint256 amount) external;
+}
+
+// A token for the vault test, with balances and no allowances. Before a
+// transferFrom it can call back into the vault that called it.
+contract Hook {
+    mapping(address => uint256) public balanceOf;
+    // 0: plain. 1: deposit half the amount again. 2: try a withdraw that
+    // reverts, and catch it. 3: return false.
+    uint256 public mode;
+    bool private inside;
+
+    function mint(address to, uint256 amount) external {
+        balanceOf[to] += amount;
+    }
+
+    function setMode(uint256 m) external {
+        mode = m;
+    }
+
+    function ping(uint256 x) external returns (uint256) {
+        return x + mode;
+    }
+
+    function transfer(address to, uint256 amount) external returns (bool) {
+        balanceOf[msg.sender] -= amount;
+        balanceOf[to] += amount;
+        return mode != 3;
+    }
+
+    function transferFrom(address from, address to, uint256 amount) external returns (bool) {
+        if (!inside && mode == 1) {
+            inside = true;
+            Vault(msg.sender).deposit(amount / 2);
+            inside = false;
+        }
+        if (!inside && mode == 2) {
+            inside = true;
+            try Vault(msg.sender).withdraw(amount * 100) {} catch {}
+            inside = false;
+        }
+        balanceOf[from] -= amount;
+        balanceOf[to] += amount;
+        return mode != 3;
+    }
+}

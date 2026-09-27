@@ -2,6 +2,7 @@
 import Base
 import ../../src/Evm.bend as Evm
 import ../../src/ir.bend as IR
+import ../../src/calls.bend as Calls
 import ./program.bend as Program
 
 def ir.decimals() -> IR.Cmd:
@@ -246,3 +247,18 @@ law permit:
 def permit(p0, p1, p2, p3, p4, p5, p6):
   {==}
 
+def entries() -> List<&2, Calls.Entry>:
+  [Calls.Entry{ir.decimals(), IR.Returns{}, 0n},
+  Calls.Entry{ir.owner(), IR.Returns{}, 0n},
+  Calls.Entry{ir.transferOwnership(), IR.Stops{}, 1n},
+  Calls.Entry{ir.totalSupply(), IR.Returns{}, 0n},
+  Calls.Entry{ir.balanceOf(), IR.Returns{}, 1n},
+  Calls.Entry{ir.transfer(), IR.Returns{}, 2n},
+  Calls.Entry{ir.mint(), IR.Stops{}, 2n},
+  Calls.Entry{ir.burn(), IR.Stops{}, 1n},
+  Calls.Entry{ir.allowance(), IR.Returns{}, 2n},
+  Calls.Entry{ir.approve(), IR.Returns{}, 2n},
+  Calls.Entry{ir.transferFrom(), IR.Returns{}, 3n},
+  Calls.Entry{ir.nonces(), IR.Returns{}, 1n},
+  Calls.Entry{ir.DOMAIN_SEPARATOR(), IR.Returns{}, 0n},
+  Calls.Entry{ir.permit(), IR.Stops{}, 7n}]

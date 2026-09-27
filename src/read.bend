@@ -102,6 +102,7 @@ type Tag is Data:
   Ensure{}
   Emit{}
   View{}
+  CallOut{}
   IsEq{}
   IsLt{}
   Not{}
@@ -142,6 +143,7 @@ def tags() -> List<&2, Named>:
   Named{"Evm.ensure", Ensure{}},
   Named{"Evm.emit", Emit{}},
   Named{"Evm.view", View{}},
+  Named{"Evm.call", CallOut{}},
   Named{"Nat.is_eq", IsEq{}},
   Named{"Nat.is_lt", IsLt{}},
   Named{"Bool.not", Not{}},
@@ -557,7 +559,7 @@ def wanted(k: Declared) -> String:
     case ErrorDef{}:
       "Evm.ensure takes an error: a safe, concrete def whose result type is Evm.Error"
     case CallDef{}:
-      "Evm.view takes a call: a safe, concrete def whose first parameter is the target and whose result type is Evm.Call"
+      "Evm.view and Evm.call take a call: a safe, concrete def whose first parameter is the target and whose result type is Evm.Call"
 
 # The parameters in the signature: a call's first parameter is its target.
 def signed.params(k: Declared, params: List<&2, Param>) -> List<&2, Param>:
@@ -698,22 +700,24 @@ def ensure(x: IR.Cond, s: Signed) -> Result<&2, &2, String, IR.Effect>:
     case _:
       Fail{"An error has no Evm.Indexed fields"}
 
-def view.of(target: IR.Expr, s: Signed) -> Result<&2, &2, String, IR.Word>:
+# A view when writes is False, a call that may write otherwise.
+def view.of(+writes: Bool, +target: IR.Expr, s: Signed) -> Result<&2, &2, String, IR.Word>:
   match s:
-    case Signed{signature, Nil{}, data}:
-      Done{IR.View{target, signature, data}}
+    case Signed{+signature, Nil{}, +data}:
+      Done{Bool.pick(IR.Word, writes, IR.Call{target, signature, data}, IR.View{target, signature, data})}
     case _:
       Fail{"A call has no Evm.Indexed fields"}
 
-# balanceOf(token, who) in Evm.view: the target is the first argument, and
-# the signature comes from the def's name and its other parameter types.
-def view(c: Call, +evm: String, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Word>:
+# balanceOf(token, who) in Evm.view or Evm.call: the target is the first
+# argument, and the signature comes from the def's name and its other
+# parameter types.
+def view(+writes: Bool, c: Call, +evm: String, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Word>:
   match c:
     case Call{_, +name, target <> args}:
       do Result<&2, &2, String, IR.Word>:
         t : IR.Expr <- expr(target, decls)
         s : Signed <- signed.found(CallDef{}, evm, lookup(decls, name), name, args, decls)
-        view.of(t, s)
+        view.of(writes, t, s)
     case _:
       Fail{wanted(CallDef{})}
 
@@ -778,7 +782,9 @@ def word(c: Call, +evm: String, +decls: List<&2, Core.Declaration>) -> Result<&2
         r : IR.Expr <- expr(right, decls)
         return IR.Sub{l, r}
     case Call{View{}, _, called <> Nil{}}:
-      view(call(called, Nil{}), evm, decls)
+      view(False{}, call(called, Nil{}), evm, decls)
+    case Call{CallOut{}, _, called <> Nil{}}:
+      view(True{}, call(called, Nil{}), evm, decls)
     case _:
       Fail{"Unsupported word action"}
 

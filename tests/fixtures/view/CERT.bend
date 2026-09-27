@@ -2,6 +2,7 @@
 import Base
 import ../../../src/Evm.bend as Evm
 import ../../../src/ir.bend as IR
+import ../../../src/calls.bend as Calls
 import ./program.bend as Program
 
 def ir.mint() -> IR.Cmd:
@@ -61,3 +62,9 @@ law others:
 def others(p0, p1):
   {==}
 
+def entries() -> List<&2, Calls.Entry>:
+  [Calls.Entry{ir.mint(), IR.Stops{}, 2n},
+  Calls.Entry{ir.balanceOf(), IR.Returns{}, 1n},
+  Calls.Entry{ir.totalSupply(), IR.Returns{}, 0n},
+  Calls.Entry{ir.holding(), IR.Returns{}, 2n},
+  Calls.Entry{ir.others(), IR.Returns{}, 2n}]

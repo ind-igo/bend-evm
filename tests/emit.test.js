@@ -28,7 +28,7 @@ test('the ABI gives no names when two defs with one signature disagree on them',
 }, 120_000);
 
 test('an event or error whose body disagrees with its def fails the certificate', () => {
-  sandbox(['src/Evm.bend', 'src/ir.bend', 'tests/fixtures/emit'], dir => {
+  sandbox(['src/Evm.bend', 'src/ir.bend', 'src/yul.bend', 'src/calls.bend', 'tests/fixtures/emit'], dir => {
     const program = path.join(dir, 'tests/fixtures/emit/program.bend');
     const good = readFileSync(program, 'utf8');
     for (const [from, to] of [['[from], [amount]', '[amount], [from]'], ['"Moved"', '"Move"'],

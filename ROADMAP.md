@@ -236,3 +236,16 @@ An event, error or interface def gives only its name, as in `Evm.Log{"Transfer",
 
 Not in M17: a form with no string. Bend cannot see a def's name, and the IR that the certificate compares is plain data, so the name must be a string once.
 
+## M18: calls that write, and callbacks
+
+A contract can call another contract that may change state, as with `IERC20(token).transfer(to, amount)`. The called contract may call back into this one, and the model allows that: a law holds for every callback. A spike (3be714d) showed the model and the three kinds of law: with no callbacks, with any callbacks as a composition, and an invariant by induction.
+
+### Done when
+
+- [x] `Evm.call(call)` stops the contract as `Evm.Calling{call, state, resume}`, so an outcome holds a function and is no longer Data. [calls.bend](src/calls.bend) runs it with a tree of answers: each answer lists the callbacks into this contract's entries, each with its own answers, then the returned word. A callback that reverts changes nothing. The tree makes every run end, with no depth limit.
+- [x] The entry table is Data: the certificate lists each entry's IR, output and number of parameters, in order, without `init` (tests/certify.test.js checks the list). A callback runs an entry of the table.
+- [x] The lowering law holds under every list of answers and callbacks. Bend has no function extensionality, so the law compares the two runs after the answers: the proof is by induction on the command, with the IR's callbacks on both sides, and then by induction on the answers, which changes the lowered callbacks into the IR's. The lowering test changes a call into a view, and the proof fails.
+- [x] The reader, the certificate, the printer (`call` with no value) and the ABI (`nonpayable`) handle `Evm.call`, as the last step too.
+- [x] The vault fixture has laws: `withdraw` with no callbacks, and `deposit` with any callbacks, which run on the state with the new shares. On `anvil` a Solidity token calls back into the vault: a callback deposit runs inside the call, a caught callback that reverts changes nothing, and a call that returns false reverts (tests/vault.test.js).
+
+Not in M18: an invariant proved across every callback for a real contract (the spike has one for its own small model), a reentrancy guard with transient storage, sending ETH, and results other than one word. A law with checks before the call takes their results as hypotheses, as `drive` stops at a pick that it cannot pass.

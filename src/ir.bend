@@ -33,6 +33,7 @@ type Word is Data:
   Id{text: String}
   Recover{digest: Expr, v: Expr, r: Expr, s: Expr}
   View{target: Expr, signature: String, args: List<&2, Expr>}
+  Call{target: Expr, signature: String, args: List<&2, Expr>}
 
 type Effect is Data:
   SStore{loc: Loc, value: Expr}
@@ -141,6 +142,8 @@ def word(w: Word, +env: List<&2, Binding>) -> Evm.Contract(Nat):
       Evm.recover(eval(digest, env), eval(v, env), eval(r, env), eval(s, env))
     case View{target, signature, args}:
       Evm.view(Evm.Call{eval(target, env), name(signature), evals(args, env)})
+    case Call{target, signature, args}:
+      Evm.call(Evm.Call{eval(target, env), name(signature), evals(args, env)})
 
 def effect(e: Effect, +env: List<&2, Binding>) -> Evm.Contract(Unit):
   match e:
@@ -247,6 +250,8 @@ def closed.word(w: Word, +scope: List<&2, Nat>) -> Bool:
     case Recover{digest, v, r, s}:
       Bool.and(closed.two(digest, v, scope), closed.two(r, s, scope))
     case View{target, _, args}:
+      Bool.and(closed.expr(target, scope), closed.list(args, scope))
+    case Call{target, _, args}:
       Bool.and(closed.expr(target, scope), closed.list(args, scope))
 
 def closed.effect(e: Effect, +scope: List<&2, Nat>) -> Bool:

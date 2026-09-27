@@ -6,7 +6,7 @@ import { check, sandbox } from '../scripts/tools.js';
 // Each mutation keeps yul.bend well typed, so only the preservation proof
 // in src/PROOF.bend can reject it.
 test('the preservation proof rejects a wrong lowering', () => {
-  const files = ['Evm.bend', 'ir.bend', 'yul.bend', 'nat.bend', 'LAWS.bend', 'PROOF.bend'];
+  const files = ['Evm.bend', 'ir.bend', 'yul.bend', 'calls.bend', 'nat.bend', 'LAWS.bend', 'PROOF.bend'];
   sandbox(files.map(f => `src/${f}`), dir => {
     const src = path.join(dir, 'src');
     writeFileSync(path.join(src, 'probe.bend'), 'import Base\nimport ./yul.bend as Yul\n\ndef main() -> Nat:\n  0n\n');
@@ -27,6 +27,8 @@ test('the preservation proof rejects a wrong lowering', () => {
       ['Guard{lower.cond(c), error, args, Stop{}}', 'Guard{lower.test(c), error, args, Stop{}}'],
       ['View{level, target, signature, args, lower(body, o)}', 'View{level, target, signature, Nil{}, lower(body, o)}'],
       ['      Answer{target, signature, args}\n', '      Answer{IR.Lit{0n}, signature, args}\n'],
+      ['Call{level, target, signature, args, lower(body, o)}', 'View{level, target, signature, args, lower(body, o)}'],
+      ['      Reply{target, signature, args}\n', '      Answer{target, signature, args}\n'],
       ['Bool.pick(Nat, Nat.is_eq(c, 0n), n, y)', 'Bool.pick(Nat, Nat.is_eq(c, 0n), y, n)'],
       ['Not{Atom{IR.Lit{0n}}}', 'Atom{IR.Lit{0n}}'],
       ['If{lower.test(c), lower(yes, o), lower(no, o)}', 'If{lower.test(c), lower(no, o), lower(yes, o)}'],
