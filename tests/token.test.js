@@ -40,6 +40,10 @@ afterAll(() => {
 
 test('the committed certificate is current', () => {
   expect(built).toBe(readFileSync(cert, 'utf8'));
+  // The entry table for callbacks has every entry but init and the constants, in order.
+  const table = built.split('def entry.table()')[1];
+  expect([...table.matchAll(/Calls\.Entry\{ir\.(\w+)\(\)/g)].map(m => m[1]))
+    .toEqual(entries.token.filter(f => !['init', 'name', 'symbol'].includes(f)));
 });
 
 test('wallets read the name, symbol and decimals, and the ABI is valid', () => {

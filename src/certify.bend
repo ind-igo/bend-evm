@@ -166,7 +166,7 @@ def claims(fs: List<&2, Read.Function>) -> String:
 
 # The entries that a callback can run (calls.bend), in the order given: all
 # but init, which runs once at deploy time, and constants, which change
-# nothing. A callback names an entry by its index in this list.
+# nothing and have no IR. A callback names an entry by its index in this list.
 def row.text(+name: String, levels: List<&2, Nat>, kind: String & String) -> String:
   match kind:
     case Tuple{out, _}:
@@ -188,7 +188,7 @@ def rows(fs: List<&2, Read.Function>) -> List<&2, String>:
       List.append(&2, String, row(f), rows(rest))
 
 def table(fs: List<&2, Read.Function>) -> String:
-  "def entries() -> List<&2, Calls.Entry>:\n  [" ++ String.join(rows(fs), ",\n  ") ++ "]\n"
+  "def entry.table() -> List<&2, Calls.Entry>:\n  [" ++ String.join(rows(fs), ",\n  ") ++ "]\n"
 
 # evm is the Evm module's name prefix, such as "../Evm."; ir.bend sits beside it.
 def header(+evm: String, file: String) -> String:

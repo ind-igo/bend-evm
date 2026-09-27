@@ -1219,9 +1219,13 @@ def function.found(+name: String, text: Maybe<&2, String>, found: Maybe<&2, Def>
     case None{} None{}:
       Fail{missing(decls, name)}
 
+# The ABI names a function with an identifier, and the certificate's own
+# defs, such as ir.name and entry.table, have dots, so no entry can clash
+# with them.
 def function(+evm: String, +decls: List<&2, Core.Declaration>, +name: String) -> Result<&2, &2, String, Function>:
   +found = lookup(decls, name)
-  function.found(name, constant.text(found), found, evm, decls)
+  Bool.pick(Result<&2, &2, String, Function>, identifier(name), function.found(name, constant.text(found), found, evm, decls),
+    Fail{name ++ ": an entry needs an identifier name"})
 
 def functions(+evm: String, +decls: List<&2, Core.Declaration>, names: List<&2, String>) ->
   Result<&2, &2, String, List<&2, Function>>:

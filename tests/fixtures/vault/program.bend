@@ -52,3 +52,12 @@ def ping(+x: Nat) -> Evm.Contract(Nat):
   do Evm.Contract<Nat>:
     +token : Nat <- Evm.sload(2n)
     Evm.call(IToken.ping(token, x))
+
+# Stores the caller after a call, which the called contract may answer
+# with callbacks from other senders.
+def touch(+x: Nat) -> Evm.Contract(Unit):
+  do Evm.Contract<Unit>:
+    +token : Nat <- Evm.sload(2n)
+    _ : Nat <- Evm.call(IToken.ping(token, x))
+    +who : Nat <- Evm.caller()
+    Evm.sstore(3n, who)

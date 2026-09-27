@@ -62,7 +62,7 @@ law others:
 def others(p0, p1):
   {==}
 
-def entries() -> List<&2, Calls.Entry>:
+def entry.table() -> List<&2, Calls.Entry>:
   [Calls.Entry{ir.mint(), IR.Stops{}, 2n},
   Calls.Entry{ir.balanceOf(), IR.Returns{}, 1n},
   Calls.Entry{ir.totalSupply(), IR.Returns{}, 0n},

@@ -48,7 +48,7 @@ law set:
 def set(p0):
   {==}
 
-def entries() -> List<&2, Calls.Entry>:
+def entry.table() -> List<&2, Calls.Entry>:
   [Calls.Entry{ir.get(), IR.Returns{}, 0n},
   Calls.Entry{ir.increment(), IR.Stops{}, 0n},
   Calls.Entry{ir.decrement(), IR.Stops{}, 0n},

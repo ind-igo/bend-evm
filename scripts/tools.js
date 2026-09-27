@@ -60,7 +60,7 @@ export const entries = {
   calls: ['run', 'outer'],
   emit: ['moved', 'take'],
   view: ['mint', 'balanceOf', 'totalSupply', 'holding', 'others'],
-  vault: ['init', 'token', 'sharesOf', 'totalShares', 'deposit', 'withdraw', 'ping'],
+  vault: ['init', 'token', 'sharesOf', 'totalShares', 'deposit', 'withdraw', 'ping', 'touch'],
 };
 
 // The largest word, 2^256 - 1.

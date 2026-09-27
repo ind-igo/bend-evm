@@ -16,7 +16,7 @@ for (const [program, functions] of [
     expect(generated.ok).toBe(true);
     expect(generated.text).toBe(readFileSync(path.join(root, `${program}/CERT.bend`), 'utf8'));
     // The entry table for callbacks has every entry but init, in order.
-    const table = generated.text.split('def entries()')[1];
+    const table = generated.text.split('def entry.table()')[1];
     expect([...table.matchAll(/Calls\.Entry\{ir\.(\w+)\(\)/g)].map(m => m[1])).toEqual(functions.filter(f => f !== 'init'));
   }, 120_000);
 }

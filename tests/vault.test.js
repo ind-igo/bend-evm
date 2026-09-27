@@ -44,7 +44,8 @@ test('a callback runs an entry inside the call, on the updated state', () => {
 });
 
 test('a callback that reverts changes nothing when the callee catches it', () => {
-  // The hook tries to withdraw more shares than it has.
+  // The hook's callback deposit gives it shares, then reverts, as its own
+  // transferFrom returns false.
   must(chain.send(chain.sender, 'setMode(uint256)', '2'));
   must(send('deposit(uint256)', '2'));
   expect(state()).toEqual([18n, 5n, 23n, 23n]);
@@ -57,14 +58,30 @@ test('an entry reverts when the call returns a word other than 1', () => {
   expect(state()).toEqual([18n, 5n, 23n, 23n]);
 });
 
+test('an entry reverts when the call reverts or returns no data', () => {
+  for (const mode of ['4', '5']) {
+    must(chain.send(chain.sender, 'setMode(uint256)', mode));
+    reverts(send('deposit(uint256)', '1'));
+  }
+  expect(state()).toEqual([18n, 5n, 23n, 23n]);
+  must(chain.send(chain.sender, 'setMode(uint256)', '3'));
+});
+
 test('a call as the last step returns its word', () => {
   // The hook is in mode 3 now, and ping adds the mode.
   expect(read('ping(uint256)(uint256)', '4')).toBe(7n);
+});
+
+test('the caller after a call is the caller again', () => {
+  // ping reads the vault back, from the hook.
+  must(chain.send(chain.sender, 'setMode(uint256)', '6'));
+  must(send('touch(uint256)', '0'));
+  expect(BigInt(must(chain.cast('storage', vault, '3')))).toBe(BigInt(chain.sender));
 });
 
 test('a function that makes a call that may write is nonpayable', () => {
   const abi = JSON.parse(must(bend('src/abi.bend', program, ...entries.vault)));
   expect(abi.filter(f => f.type === 'function').map(f => [f.name, f.stateMutability])).toEqual([
     ['token', 'view'], ['sharesOf', 'view'], ['totalShares', 'view'], ['deposit', 'nonpayable'], ['withdraw', 'nonpayable'],
-    ['ping', 'nonpayable']]);
+    ['ping', 'nonpayable'], ['touch', 'nonpayable']]);
 }, 120_000);

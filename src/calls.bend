@@ -20,9 +20,9 @@ type Step is Data:
   Enter{sender: Nat, entry: Nat, args: List<&2, Nat>, answers: List<&2, Step>}
 
 # An entry that a callback can run: its IR, its output, and its number of
-# parameters, which have the levels 0, 1, ... in order. The certificate
-# lists the contract's entries, and a callback names one by its index in
-# that list.
+# parameters, which have the levels 0, 1, ... in order. The certificate's
+# entry.table lists the contract's entries, and a callback names one by its
+# index in that list.
 type Entry is Data:
   Entry{cmd: IR.Cmd, out: IR.Output, arity: Nat}
 

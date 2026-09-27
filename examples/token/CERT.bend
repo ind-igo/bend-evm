@@ -247,7 +247,7 @@ law permit:
 def permit(p0, p1, p2, p3, p4, p5, p6):
   {==}
 
-def entries() -> List<&2, Calls.Entry>:
+def entry.table() -> List<&2, Calls.Entry>:
   [Calls.Entry{ir.decimals(), IR.Returns{}, 0n},
   Calls.Entry{ir.owner(), IR.Returns{}, 0n},
   Calls.Entry{ir.transferOwnership(), IR.Stops{}, 1n},

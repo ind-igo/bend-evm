@@ -74,7 +74,7 @@ law marked:
 def marked():
   {==}
 
-def entries() -> List<&2, Calls.Entry>:
+def entry.table() -> List<&2, Calls.Entry>:
   [Calls.Entry{ir.keep(), IR.Returns{}, 1n},
   Calls.Entry{ir.grade(), IR.Returns{}, 1n},
   Calls.Entry{ir.get(), IR.Returns{}, 0n},

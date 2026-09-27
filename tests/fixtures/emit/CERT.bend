@@ -28,6 +28,6 @@ law take:
 def take(p0):
   {==}
 
-def entries() -> List<&2, Calls.Entry>:
+def entry.table() -> List<&2, Calls.Entry>:
   [Calls.Entry{ir.moved(), IR.Stops{}, 1n},
   Calls.Entry{ir.take(), IR.Stops{}, 1n}]

@@ -93,10 +93,24 @@ law ping:
 def ping(p0):
   {==}
 
-def entries() -> List<&2, Calls.Entry>:
+def ir.touch() -> IR.Cmd:
+  IR.Bind{IR.SLoad{IR.Plain{IR.Lit{2n}}}, 1n,
+    IR.Bind{IR.Call{IR.Var{1n}, "ping(uint256)", [IR.Var{0n}]}, 2n,
+    IR.Bind{IR.Caller{}, 3n,
+    IR.Finish{IR.SStore{IR.Plain{IR.Lit{3n}}, IR.Var{3n}}}}}}
+
+law touch:
+  for +p0: Nat
+  {IR.call(ir.touch(), IR.Stops{}, [IR.Binding{0n, p0}]) == Program.touch(p0) : Evm.Contract(Unit)}
+
+def touch(p0):
+  {==}
+
+def entry.table() -> List<&2, Calls.Entry>:
   [Calls.Entry{ir.token(), IR.Returns{}, 0n},
   Calls.Entry{ir.sharesOf(), IR.Returns{}, 1n},
   Calls.Entry{ir.totalShares(), IR.Returns{}, 0n},
   Calls.Entry{ir.deposit(), IR.Stops{}, 1n},
   Calls.Entry{ir.withdraw(), IR.Stops{}, 1n},
-  Calls.Entry{ir.ping(), IR.Returns{}, 1n}]
+  Calls.Entry{ir.ping(), IR.Returns{}, 1n},
+  Calls.Entry{ir.touch(), IR.Stops{}, 1n}]
