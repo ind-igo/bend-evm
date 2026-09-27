@@ -1,5 +1,6 @@
 import Base
 import ../../src/Evm.bend as Evm
+import ../../src/sum.bend as Sum
 import ./program.bend as Token
 
 # Each law gives every outcome from any state: any storage, caller, word
@@ -305,18 +306,7 @@ def deployed(+deployer: Nat, +limit: Nat, +initial: Nat, +world: Evm.World) -> E
 
 # The balances of a list of accounts, summed.
 def holdings(+storage: List<&2, Evm.Slot>, accounts: List<&2, Nat>) -> Nat:
-  match accounts:
-    case Nil{}:
-      0n
-    case +a <> rest:
-      Nat.add(balance(storage, a), holdings(storage, rest))
-
-def count(+who: Nat, accounts: List<&2, Nat>) -> Nat:
-  match accounts:
-    case Nil{}:
-      0n
-    case +a <> +rest:
-      Bool.pick(Nat, Nat.is_eq(who, a), 1n+count(who, rest), count(who, rest))
+  Sum.holdings(storage, 1n, accounts)
 
 def balanced(s: Evm.State, +accounts: List<&2, Nat>) -> Bool:
   match s:
@@ -327,13 +317,13 @@ def balanced(s: Evm.State, +accounts: List<&2, Nat>) -> Bool:
 def listed(c: Call, +accounts: List<&2, Nat>) -> Bool:
   match c:
     case Transfer{+who, +to, _}:
-      Bool.and(Nat.is_eq(1n, count(who, accounts)), Nat.is_eq(1n, count(to, accounts)))
+      Bool.and(Nat.is_eq(1n, Sum.count(who, accounts)), Nat.is_eq(1n, Sum.count(to, accounts)))
     case Mint{_, +to, _}:
-      Nat.is_eq(1n, count(to, accounts))
+      Nat.is_eq(1n, Sum.count(to, accounts))
     case TransferFrom{_, +from, +to, _}:
-      Bool.and(Nat.is_eq(1n, count(from, accounts)), Nat.is_eq(1n, count(to, accounts)))
+      Bool.and(Nat.is_eq(1n, Sum.count(from, accounts)), Nat.is_eq(1n, Sum.count(to, accounts)))
     case Burn{+who, _}:
-      Nat.is_eq(1n, count(who, accounts))
+      Nat.is_eq(1n, Sum.count(who, accounts))
     case _:
       True{}
 
@@ -362,5 +352,5 @@ law supply_sum:
   for +limit: Nat
   for +initial: Nat
   for +world: Evm.World
-  for +e: {True{} == Bool.and(Nat.is_eq(1n, count(deployer, accounts)), all_listed(txs, accounts)) : Bool}
+  for +e: {True{} == Bool.and(Nat.is_eq(1n, Sum.count(deployer, accounts)), all_listed(txs, accounts)) : Bool}
   {True{} == balanced(trace(txs, deployed(deployer, limit, initial, world)), accounts) : Bool}
