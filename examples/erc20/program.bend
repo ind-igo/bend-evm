@@ -13,7 +13,7 @@ def NONCES() -> Nat:
 def OWNER() -> Nat:
   4n
 
-def OwnershipTransferred(previous: Evm.Indexed(Evm.Address), next: Evm.Indexed(Evm.Address)) -> Evm.Event:
+def OwnershipTransferred(previous: Evm.Indexed(Evm.Address), next: Evm.Indexed(Evm.Address)) -> Evm.Log:
   Evm.Log{"OwnershipTransferred", [previous, next], []}
 
 # Errors, with OpenZeppelin's names, so that wallets and explorers know them.

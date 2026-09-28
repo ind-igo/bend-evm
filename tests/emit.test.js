@@ -4,7 +4,7 @@ import path from 'node:path';
 import { bend, check, entries, must, sandbox } from '../scripts/tools.js';
 
 // Events and errors: Evm.emit(Event(...)) with a def whose result type is
-// Evm.Event, and Evm.ensure(ok, Error(...)) with one whose result type is
+// Evm.Log, and Evm.ensure(ok, Error(...)) with one whose result type is
 // Evm.Error. tests/reject.test.js has the ones that compile rejects.
 
 test('the ABI rejects one signature with different indexed parameters', () => {

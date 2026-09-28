@@ -5,7 +5,7 @@ import ../../../src/Evm.bend as Evm
 # event's topic, from the parameter types, and the certificate checks each
 # body against them.
 
-def Moved(from: Evm.Indexed(Evm.Address), amount: Nat) -> Evm.Event:
+def Moved(from: Evm.Indexed(Evm.Address), amount: Nat) -> Evm.Log:
   Evm.Log{"Moved", [from], [amount]}
 
 def TooSmall(amount: Nat, least: Nat) -> Evm.Error:

@@ -100,7 +100,7 @@ type Tag is Data:
   Store2{}
   Require{}
   Ensure{}
-  Emit{}
+  EmitEvent{}
   View{}
   CallOut{}
   IsEq{}
@@ -141,7 +141,7 @@ def tags() -> List<&2, Named>:
   Named{"Evm.store2", Store2{}},
   Named{"Evm.require", Require{}},
   Named{"Evm.ensure", Ensure{}},
-  Named{"Evm.emit", Emit{}},
+  Named{"Evm.emit", EmitEvent{}},
   Named{"Evm.view", View{}},
   Named{"Evm.call", CallOut{}},
   Named{"Nat.is_eq", IsEq{}},
@@ -153,7 +153,7 @@ def tags() -> List<&2, Named>:
   Named{"Evm.Contract.pure", Pure{}},
   Named{"Evm.branch", Branch{}},
   Named{"Evm.Indexed", Indexed{}},
-  Named{"Evm.Event", EventType{}},
+  Named{"Evm.Log", EventType{}},
   Named{"Evm.Error", ErrorType{}},
   Named{"Evm.Call", CallType{}}]
 
@@ -192,7 +192,7 @@ type Def is Data:
 
 def definition(found: Maybe<&2, Core.Declaration>) -> Maybe<&2, Def>:
   match found:
-    case Some{Core.Definition{Core.Header{_, _, arity, typ}, 0, False{}, Nil{}, _, Some{body}}}:
+    case Some{Core.Definition{Core.Header{_, _, arity, typ}, 0, False{}, Nil{}, _, _, Some{body}}}:
       Some{Def{U32.to_nat(arity), typ, body}}
     case _:
       None{}
@@ -534,7 +534,7 @@ def parts(fs: List<&2, Field>, args: List<&2, Core.Term>, +late: Bool, +decls: L
     case _ _:
       Fail{"An event needs one argument for each field"}
 
-# An event, an error or a call: a def whose result type is Evm.Event,
+# An event, an error or a call: a def whose result type is Evm.Log,
 # Evm.Error or Evm.Call.
 type Declared is Data:
   EventDef{}
@@ -555,7 +555,7 @@ def marks(k: Declared, c: Call) -> Bool:
 def wanted(k: Declared) -> String:
   match k:
     case EventDef{}:
-      "Evm.emit takes an event: a safe, concrete def whose result type is Evm.Event"
+      "Evm.emit takes an event: a safe, concrete def whose result type is Evm.Log"
     case ErrorDef{}:
       "Evm.ensure takes an error: a safe, concrete def whose result type is Evm.Error"
     case CallDef{}:
@@ -701,38 +701,38 @@ def ensure(x: IR.Cond, s: Signed) -> Result<&2, &2, String, IR.Effect>:
       Fail{"An error has no Evm.Indexed fields"}
 
 # A view when writes is False, a call that may write otherwise.
-def view.of(+writes: Bool, +target: IR.Expr, s: Signed) -> Result<&2, &2, String, IR.Word>:
+def view.of(+writes: Bool, +target: IR.Expr, s: Signed) -> Result<&2, &2, String, IR.Action>:
   match s:
     case Signed{+signature, Nil{}, +data}:
-      Done{Bool.pick(IR.Word, writes, IR.Call{target, signature, data}, IR.View{target, signature, data})}
+      Done{Bool.pick(IR.Action, writes, IR.Call{target, signature, data}, IR.View{target, signature, data})}
     case _:
       Fail{"A call has no Evm.Indexed fields"}
 
 # balanceOf(token, who) in Evm.view or Evm.call: the target is the first
 # argument, and the signature comes from the def's name and its other
 # parameter types.
-def view(+writes: Bool, c: Call, +evm: String, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Word>:
+def view(+writes: Bool, c: Call, +evm: String, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Action>:
   match c:
     case Call{_, +name, target <> args}:
-      do Result<&2, &2, String, IR.Word>:
+      do Result<&2, &2, String, IR.Action>:
         t : IR.Expr <- expr(target, decls)
         s : Signed <- signed.found(CallDef{}, evm, lookup(decls, name), name, args, decls)
         view.of(writes, t, s)
     case _:
       Fail{wanted(CallDef{})}
 
-def word(c: Call, +evm: String, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Word>:
+def word(c: Call, +evm: String, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Action>:
   match c:
     case Call{Sload{}, _, slot <> Nil{}}:
-      do Result<&2, &2, String, IR.Word>:
+      do Result<&2, &2, String, IR.Action>:
         l : IR.Loc <- location(slot, Nil{}, decls)
         return IR.SLoad{l}
     case Call{Load{}, _, slot <> key <> Nil{}}:
-      do Result<&2, &2, String, IR.Word>:
+      do Result<&2, &2, String, IR.Action>:
         l : IR.Loc <- location(slot, [key], decls)
         return IR.SLoad{l}
     case Call{Load2{}, _, slot <> outer <> inner <> Nil{}}:
-      do Result<&2, &2, String, IR.Word>:
+      do Result<&2, &2, String, IR.Action>:
         l : IR.Loc <- location(slot, [outer, inner], decls)
         return IR.SLoad{l}
     case Call{Caller{}, _, Nil{}}:
@@ -746,38 +746,38 @@ def word(c: Call, +evm: String, +decls: List<&2, Core.Declaration>) -> Result<&2
     case Call{Self{}, _, Nil{}}:
       Done{IR.Self{}}
     case Call{Keccak{}, _, words <> Nil{}}:
-      do Result<&2, &2, String, IR.Word>:
+      do Result<&2, &2, String, IR.Action>:
         ws : List<&2, IR.Expr> <- exprs(words, decls)
         return IR.Keccak{ws}
     case Call{Typed{}, _, domain <> message <> Nil{}}:
-      do Result<&2, &2, String, IR.Word>:
+      do Result<&2, &2, String, IR.Action>:
         d : IR.Expr <- expr(domain, decls)
         m : IR.Expr <- expr(message, decls)
         return IR.Typed{d, m}
     case Call{Id{}, _, text <> Nil{}}:
-      do Result<&2, &2, String, IR.Word>:
+      do Result<&2, &2, String, IR.Action>:
         t : String <- phrase(text, decls)
         return IR.Id{t}
     case Call{Recover{}, _, digest <> v <> r <> s <> Nil{}}:
-      do Result<&2, &2, String, IR.Word>:
+      do Result<&2, &2, String, IR.Action>:
         d : IR.Expr <- expr(digest, decls)
         x : IR.Expr <- expr(v, decls)
         y : IR.Expr <- expr(r, decls)
         z : IR.Expr <- expr(s, decls)
         return IR.Recover{d, x, y, z}
     case Call{Select{}, _, test <> yes <> no <> Nil{}}:
-      do Result<&2, &2, String, IR.Word>:
+      do Result<&2, &2, String, IR.Action>:
         x : IR.Cond <- cond(test, decls)
         y : IR.Expr <- expr(yes, decls)
         n : IR.Expr <- expr(no, decls)
         return IR.Select{x, y, n}
     case Call{Add{}, _, left <> right <> Nil{}}:
-      do Result<&2, &2, String, IR.Word>:
+      do Result<&2, &2, String, IR.Action>:
         l : IR.Expr <- expr(left, decls)
         r : IR.Expr <- expr(right, decls)
         return IR.Add{l, r}
     case Call{Sub{}, _, left <> right <> Nil{}}:
-      do Result<&2, &2, String, IR.Word>:
+      do Result<&2, &2, String, IR.Action>:
         l : IR.Expr <- expr(left, decls)
         r : IR.Expr <- expr(right, decls)
         return IR.Sub{l, r}
@@ -884,7 +884,7 @@ def effect(c: Call, +evm: String, +decls: List<&2, Core.Declaration>) -> Result<
       do Result<&2, &2, String, IR.Effect>:
         x : IR.Cond <- cond(condition, decls)
         return IR.Require{x}
-    case Call{Emit{}, _, event <> Nil{}}:
+    case Call{EmitEvent{}, _, event <> Nil{}}:
       do Result<&2, &2, String, IR.Effect>:
         e : Signed <- signed(EventDef{}, evm, call(event, Nil{}), decls)
         emit(e)
@@ -926,9 +926,9 @@ def called.tail(k: Result<&2, &2, String, Inline.Callee>, +bound: Nat) -> Result
     callee : Inline.Callee <- k
     Inline.place(callee, bound)
 
-def own.word(w: Result<&2, &2, String, IR.Word>, +level: Nat, +rest: IR.Cmd) -> Result<&2, &2, String, IR.Cmd>:
+def own.word(w: Result<&2, &2, String, IR.Action>, +level: Nat, +rest: IR.Cmd) -> Result<&2, &2, String, IR.Cmd>:
   do Result<&2, &2, String, IR.Cmd>:
-    value : IR.Word <- w
+    value : IR.Action <- w
     return IR.Bind{value, level, rest}
 
 def own.unit(e: Result<&2, &2, String, IR.Effect>, +rest: IR.Cmd) -> Result<&2, &2, String, IR.Cmd>:
@@ -988,7 +988,7 @@ def pure(typ: Call, value: Core.Term, +decls: List<&2, Core.Declaration>) -> Res
       Fail{"Only Nat and Unit results can be returned"}
 
 # A last step that is a word or an effect.
-def last.own(w: Result<&2, &2, String, IR.Word>, e: Result<&2, &2, String, IR.Effect>) ->
+def last.own(w: Result<&2, &2, String, IR.Action>, e: Result<&2, &2, String, IR.Effect>) ->
   Result<&2, &2, String, IR.Cmd>:
   match w e:
     case Done{value} _:

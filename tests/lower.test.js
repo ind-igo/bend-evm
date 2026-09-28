@@ -11,7 +11,7 @@ test('the preservation proof rejects a wrong lowering', () => {
     const src = path.join(dir, 'src');
     writeFileSync(path.join(src, 'probe.bend'), 'import Base\nimport ./yul.bend as Yul\n\ndef main() -> Nat:\n  0n\n');
     // The copy must check before it is broken, or a missing file would pass the test.
-    expect(check(path.join(src, 'PROOF.bend')).out).toContain('All terms check.');
+    expect(check(path.join(src, 'PROOF.bend')).out).toContain('ALL PROOFS CHECK');
     const yul = readFileSync(path.join(src, 'yul.bend'), 'utf8');
     for (const [from, to] of [
       ['    case IR.SLoad{loc}:\n      SLoad{loc}', '    case IR.SLoad{loc}:\n      Caller{}'],
@@ -36,7 +36,7 @@ test('the preservation proof rejects a wrong lowering', () => {
     ]) {
       expect(yul).toContain(from);
       writeFileSync(path.join(src, 'yul.bend'), yul.replace(from, to));
-      expect(check(path.join(src, 'probe.bend')).out).toContain('All terms check.');
+      expect(check(path.join(src, 'probe.bend')).out).toContain('ALL PROOFS CHECK');
       const proof = check(path.join(src, 'PROOF.bend'));
       expect(proof.ok).toBe(false);
       expect(proof.out + proof.err).toContain('Location:');

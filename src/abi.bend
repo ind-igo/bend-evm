@@ -41,7 +41,7 @@ def writes.effect(e: IR.Effect) -> Bool:
     case _:
       True{}
 
-def writes.word(w: IR.Word) -> Bool:
+def writes.word(w: IR.Action) -> Bool:
   match w:
     case IR.Call{_, _, _}:
       True{}

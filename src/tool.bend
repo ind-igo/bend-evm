@@ -100,4 +100,4 @@ def args(~make: String -> Setup -> Result<&2, &2, String, String>, usage: String
 def main(~make: String -> Setup -> Result<&2, &2, String, String>, usage: String) -> IO(Unit):
   do IO<Unit>:
     values : List<String> <- IO.args()
-    args(~make, usage, values)
+    args(~make, usage, List.tail(&1, String, values)) # the first is the program

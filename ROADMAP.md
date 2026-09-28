@@ -190,7 +190,7 @@ An event is declared once, with its field types, like Solidity's `event` line, a
 
 ### Done when
 
-- [x] `Evm.Event` is the result type of an event def, `Evm.Indexed(A)` marks an indexed parameter, and `Evm.emit(Transfer(from, to, amount))` logs an event. The reader takes only a def written with `Evm.Event`, and makes the signature, the topics and the data from its parameter types and its name; indexed parameters come first, at most three. The certificate proves the body's log equal to the reader's by `{==}`, so a body that disagrees does not build (tests/emit.test.js).
+- [x] `Evm.Event` is the result type of an event def, `Evm.Indexed(A)` marks an indexed parameter, and `Evm.emit(Transfer(from, to, amount))` logs an event. The reader takes only a def written with `Evm.Event`, and makes the signature, the topics and the data from its parameter types and its name; indexed parameters come first, at most three. The certificate proves the body's log equal to the reader's by `{==}`, so a body that disagrees does not build (tests/emit.test.js). With Bend 2.0.32 the result type is `Evm.Log`, as Base took the name `Event`.
 - [x] [ERC20.bend](examples/erc20/ERC20.bend) is only the ERC-20 core: named storage slots, the `Transfer` and `Approval` events, the standard functions, and internal `mint` and `burn`, with one helper, `move`. `permit`, `nonces`, `DOMAIN_SEPARATOR` and the owner move to the example token, with their own slots and `OwnershipTransferred` event. The token's laws did not change and still hold.
 - [x] `Evm.log` is no longer part of the contract language: contracts log with `Evm.emit`, and `Evm.log` stays as the model's primitive.
 

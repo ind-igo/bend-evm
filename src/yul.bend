@@ -169,7 +169,7 @@ def overflow(+left: IR.Expr, +right: IR.Expr) -> Exp:
 
 # A word as a Yul expression. Checked add and sub also need a check, which
 # lower adds before them.
-def lower.word(w: IR.Word) -> Exp:
+def lower.word(w: IR.Action) -> Exp:
   match w:
     case IR.SLoad{loc}:
       SLoad{loc}

@@ -56,15 +56,13 @@ def Indexed(A: Data) -> Data:
 # body gives the name and the reader gives the types. The certificate checks
 # that the name is the def's own. Two defs of one kind with one name must
 # have one signature, as the model cannot tell them apart.
+#
+# An event def returns its log. The reader compiles Evm.emit only for a def
+# written with this result type:
+#   def Transfer(from: Evm.Indexed(Evm.Address), to: Evm.Indexed(Evm.Address), amount: Nat) -> Evm.Log:
+#     Evm.Log{"Transfer", [from, to], [amount]}
 type Log is Data:
   Log{name: String, topics: List<&2, Nat>, data: List<&2, Nat>}
-
-# The result type of an event def, which is its log. The reader compiles
-# Evm.emit only for a def written with this result type:
-#   def Transfer(from: Evm.Indexed(Evm.Address), to: Evm.Indexed(Evm.Address), amount: Nat) -> Evm.Event:
-#     Evm.Log{"Transfer", [from, to], [amount]}
-def Event() -> Data:
-  Log
 
 # A custom error: its name and its argument words. The revert data is the
 # 4-byte selector of its signature, such as "Unauthorized(address)", then
@@ -280,10 +278,10 @@ def log(event: String, topics: List<&2, Nat>, data: List<&2, Nat>) -> Contract(U
   R => k => s => k(Unit{}, log.go(event, topics, data, s))
 
 # Logs an event, as in Evm.emit(ERC20.Transfer(from, to, amount)), where an
-# event is a def from its fields to Evm.Event. The reader takes the signature
+# event is a def from its fields to Evm.Log. The reader takes the signature
 # and the topics from the def's parameter types, and the certificate checks
 # that its body gives the same log.
-def emit(l: Event) -> Contract(Unit):
+def emit(l: Log) -> Contract(Unit):
   match l:
     case Log{event, topics, data}:
       log(event, topics, data)

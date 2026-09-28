@@ -36,11 +36,11 @@ def init(+supply: Nat) -> Evm.Contract(Unit):
 
 [LAWS.bend](examples/erc20/LAWS.bend) has the core's laws first, as `core.transfer`, `core.mint` and so on, then the token's. Each core law gives the outcome of a core function from any state, with any continuation: the rest of the token's function, or the end of the call. So a token proves the law for its own function from them, whatever it does before or after. The core's supply laws give the writes that keep the total supply equal to the sum of the balances: each of the core's writes, and each write to a token's own slots. The token's `supply_sum` law follows from them. [PROOF.bend](examples/erc20/PROOF.bend) proves both. Another contract that uses the core's laws imports that `PROOF.bend` too, as Bend refuses a law with no proof.
 
-An event is a def whose result type is `Evm.Event`, like Solidity's `event` line; an indexed parameter has the type `Evm.Indexed(...)`. Its body is its log, and `Evm.emit` logs it, like Solidity's `emit`:
+An event is a def whose result type is `Evm.Log`, like Solidity's `event` line; an indexed parameter has the type `Evm.Indexed(...)`. Its body is its log, and `Evm.emit` logs it, like Solidity's `emit`:
 
 ```bend
 # event Transfer(address indexed from, address indexed to, uint256 amount);
-def Transfer(from: Evm.Indexed(Evm.Address), to: Evm.Indexed(Evm.Address), amount: Nat) -> Evm.Event:
+def Transfer(from: Evm.Indexed(Evm.Address), to: Evm.Indexed(Evm.Address), amount: Nat) -> Evm.Log:
   Evm.Log{"Transfer", [from, to], [amount]}
 
 Evm.emit(Transfer(from, to, amount))

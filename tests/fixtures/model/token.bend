@@ -96,4 +96,4 @@ def start(args: List<String>) -> String:
 def main() -> IO(Unit):
   do IO<Unit>:
     args : List<String> <- IO.args()
-    IO.write(start(args))
+    IO.write(start(List.tail(&1, String, args))) # the first is the program

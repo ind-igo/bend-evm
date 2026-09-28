@@ -18,6 +18,6 @@ test('build prints Yul only when the certificate and proof check', () => {
     const bad = build();
     expect(bad.ok).toBe(false);
     expect(bad.out).toBe('');
-    expect(bad.err).toContain('Location: LAWS.increment');
+    expect(bad.err).toContain('Location: Laws.increment'); // the law as PROOF.bend writes it
   });
 }, 600_000);

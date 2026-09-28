@@ -23,10 +23,10 @@ def ALLOWANCES() -> Nat:
 
 # Events. The reader makes each log from the name and the parameter types,
 # and the certificate proves that the body gives the same log.
-def Transfer(from: Evm.Indexed(Evm.Address), to: Evm.Indexed(Evm.Address), amount: Nat) -> Evm.Event:
+def Transfer(from: Evm.Indexed(Evm.Address), to: Evm.Indexed(Evm.Address), amount: Nat) -> Evm.Log:
   Evm.Log{"Transfer", [from, to], [amount]}
 
-def Approval(owner: Evm.Indexed(Evm.Address), spender: Evm.Indexed(Evm.Address), amount: Nat) -> Evm.Event:
+def Approval(owner: Evm.Indexed(Evm.Address), spender: Evm.Indexed(Evm.Address), amount: Nat) -> Evm.Log:
   Evm.Log{"Approval", [owner, spender], [amount]}
 
 def totalSupply() -> Evm.Contract(Nat):

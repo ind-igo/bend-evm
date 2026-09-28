@@ -30,7 +30,7 @@ test('the certificate of the inlined calls checks, and catches a wrong join', ()
       const checked = check(cert);
       return checked.out + checked.err;
     };
-    expect(certify()).toContain('All terms check.');
+    expect(certify()).toContain('ALL PROOFS CHECK');
     const inline = path.join(dir, 'src/inline.bend');
     const good = readFileSync(inline, 'utf8');
     expect(good).toContain('Done{subst(rest, level, v)}');

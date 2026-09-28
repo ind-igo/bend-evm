@@ -27,7 +27,7 @@ const cert = path.join(dir, 'CERT.bend');
 writeFileSync(cert, bend(host, 'src/certify.bend', program, ...entries));
 for (const file of [cert, path.join(dir, 'PROOF.bend')].filter(existsSync)) {
   const out = bend(checker, file, '--check-only');
-  if (!out.includes('All terms check.')) {
+  if (!out.includes('ALL PROOFS CHECK')) {
     console.error(out);
     process.exit(1);
   }

@@ -43,7 +43,7 @@ def show.list(exprs: List<&2, IR.Expr>) -> List<&2, String>:
     case e <> rest:
       show.expr(e) <> show.list(rest)
 
-def show.word(w: IR.Word) -> String:
+def show.word(w: IR.Action) -> String:
   match w:
     case IR.SLoad{l}:
       "IR.SLoad{" ++ show.loc(l) ++ "}"

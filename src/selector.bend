@@ -13,4 +13,4 @@ def lines(signatures: List<String>) -> String:
 def main() -> IO(Unit):
   do IO<Unit>:
     signatures : List<String> <- IO.args()
-    IO.write(lines(signatures))
+    IO.write(lines(List.tail(&1, String, signatures))) # the first is the program

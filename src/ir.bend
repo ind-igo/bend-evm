@@ -17,8 +17,8 @@ type Loc is Data:
   Plain{slot: Expr}
   Mapped{base: Loc, key: Expr}
 
-# Word actions return a word; effects return Unit.
-type Word is Data:
+# Actions return a word; effects return Unit.
+type Action is Data:
   SLoad{loc: Loc}
   Caller{}
   Add{left: Expr, right: Expr}
@@ -42,10 +42,10 @@ type Effect is Data:
   Ensure{cond: Cond, error: String, args: List<&2, Expr>}
 
 type Cmd is Data:
-  Bind{word: Word, level: Nat, body: Cmd}
+  Bind{word: Action, level: Nat, body: Cmd}
   Then{effect: Effect, body: Cmd}
   Return{value: Expr}
-  Tail{word: Word}
+  Tail{word: Action}
   Finish{effect: Effect}
   Stop{}
   If{cond: Cond, yes: Cmd, no: Cmd}
@@ -112,7 +112,7 @@ def name(s: String) -> String:
     case SCon{+c, rest}:
       Bool.pick(String, Char.is_eq(c, '('), SNil{}, SCon{c, name(rest)})
 
-def word(w: Word, +env: List<&2, Binding>) -> Evm.Contract(Nat):
+def word(w: Action, +env: List<&2, Binding>) -> Evm.Contract(Nat):
   match w:
     case SLoad{l}:
       Evm.read(loc(l, env))
@@ -221,7 +221,7 @@ def closed.loc(l: Loc, +scope: List<&2, Nat>) -> Bool:
     case Mapped{base, key}:
       Bool.and(closed.loc(base, scope), closed.expr(key, scope))
 
-def closed.word(w: Word, +scope: List<&2, Nat>) -> Bool:
+def closed.word(w: Action, +scope: List<&2, Nat>) -> Bool:
   match w:
     case SLoad{l}:
       closed.loc(l, scope)
