@@ -1,6 +1,6 @@
 import Base
 import ../../src/Evm.bend as Evm
-import ../../lib/ERC20.bend as ERC20
+import ./ERC20.bend as ERC20
 
 # A mintable ERC-20 on the ERC20 core, with EIP-2612 permit. The deployer
 # owns it and receives the initial supply, the owner can mint more, as with

@@ -82,7 +82,7 @@ let chain, solidity, created;
 
 beforeAll(async () => {
   const supply = BigInt(Math.floor(generator(seed)() * 1000));
-  chain = await deploy({ program: 'examples/token/program.bend', functions: entries.token, deployer: people[0],
+  chain = await deploy({ program: 'examples/erc20/program.bend', functions: entries.erc20, deployer: people[0],
     args: [supply] });
   for (const who of people.slice(1)) chain.fund(who);
   const out = must(run('solc', '--evm-version', 'shanghai', '--bin', 'tests/fixtures/reference/Token.sol'));

@@ -54,7 +54,7 @@ export function sandbox(parts, fn) {
 // The entries that each program compiles and certifies.
 export const entries = {
   counter: ['get', 'increment', 'decrement', 'set'],
-  token: ['name', 'symbol', 'decimals', 'init', 'owner', 'transferOwnership', 'totalSupply', 'balanceOf', 'transfer',
+  erc20: ['name', 'symbol', 'decimals', 'init', 'owner', 'transferOwnership', 'totalSupply', 'balanceOf', 'transfer',
     'mint', 'burn', 'allowance', 'approve', 'transferFrom', 'nonces', 'DOMAIN_SEPARATOR', 'permit'],
   branch: ['init', 'keep', 'grade', 'get', 'mark', 'marked'],
   calls: ['run', 'outer'],

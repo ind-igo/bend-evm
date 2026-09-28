@@ -2,7 +2,7 @@
 
 An EVM backend for **Bend 2**, written in Bend. It consumes the checked `Core.Program` from [bend-frontend](https://github.com/ind-igo/bend-frontend).
 
-Contracts are ordinary Bend functions in the `Contract` monad of [Evm.bend](src/Evm.bend). Specifications are laws about them, as in [examples/counter/LAWS.bend](examples/counter/LAWS.bend) and [examples/token/LAWS.bend](examples/token/LAWS.bend).
+Contracts are ordinary Bend functions in the `Contract` monad of [Evm.bend](src/Evm.bend). Specifications are laws about them, as in [examples/counter/LAWS.bend](examples/counter/LAWS.bend) and [examples/erc20/LAWS.bend](examples/erc20/LAWS.bend).
 
 ```text
 contract.bend ─ Frontend.check ─ read ─→ IR ─ lower ─→ Yul ─ solc ─→ bytecode
@@ -14,10 +14,10 @@ contract.bend ─ Frontend.check ─ read ─→ IR ─ lower ─→ Yul ─ sol
 
 ## Write an ERC-20
 
-[lib/ERC20.bend](lib/ERC20.bend) is the ERC-20 core, after solmate's: its storage slots, its `Transfer` and `Approval` events, the standard functions, and internal `mint` and `burn`. A token imports it, gives its name, symbol and decimals, and exposes each function with a one-line def. [examples/token/program.bend](examples/token/program.bend) is a complete token: it adds EIP-2612 `permit` and an owner, who receives the initial supply and can mint; holders can burn.
+[examples/erc20](examples/erc20) has an ERC-20. [ERC20.bend](examples/erc20/ERC20.bend) is the core, after solmate's: its storage slots, its `Transfer` and `Approval` events, the standard functions, and internal `mint` and `burn`. A token imports it, gives its name, symbol and decimals, and exposes each function with a one-line def. [program.bend](examples/erc20/program.bend) is a complete token on it: it adds EIP-2612 `permit` and an owner, who receives the initial supply and can mint; holders can burn.
 
 ```bend
-import ../../lib/ERC20.bend as ERC20
+import ./ERC20.bend as ERC20
 
 def name() -> String:
   "Bend Token"
@@ -34,7 +34,7 @@ def init(+supply: Nat) -> Evm.Contract(Unit):
     ERC20.mint(who, supply)
 ```
 
-The core has its own laws, in [lib/LAWS.bend](lib/LAWS.bend), proved in [lib/PROOF.bend](lib/PROOF.bend). Each gives the outcome of a core function from any state, with any continuation: the rest of the token's function, or the end of the call. So a token proves the law for its own function from them, whatever it does before or after. The supply laws give the writes that keep the total supply equal to the sum of the balances: each of the core's writes, and each write to a token's own slots. A token proves its own supply law from them, as [examples/token](examples/token/PROOF.bend) does. A proof that uses the core's laws imports `lib/PROOF.bend`, as Bend refuses a law with no proof.
+[LAWS.bend](examples/erc20/LAWS.bend) has the core's laws first, as `core.transfer`, `core.mint` and so on, then the token's. Each core law gives the outcome of a core function from any state, with any continuation: the rest of the token's function, or the end of the call. So a token proves the law for its own function from them, whatever it does before or after. The core's supply laws give the writes that keep the total supply equal to the sum of the balances: each of the core's writes, and each write to a token's own slots. The token's `supply_sum` law follows from them. [PROOF.bend](examples/erc20/PROOF.bend) proves both. Another contract that uses the core's laws imports that `PROOF.bend` too, as Bend refuses a law with no proof.
 
 An event is a def whose result type is `Evm.Event`, like Solidity's `event` line; an indexed parameter has the type `Evm.Indexed(...)`. Its body is its log, and `Evm.emit` logs it, like Solidity's `emit`:
 
@@ -83,7 +83,7 @@ Evm.require(Nat.is_eq(ok, 1n))
 Build it, then deploy the bytecode with the constructor arguments after it. An entry named `init` is the constructor: it returns `Unit` and runs in the deploy code, so the deployer is `caller()`, and its parameters are the ABI words after the deploy code, as in Solidity.
 
 ```sh
-bun run build --out build/Token examples/token/program.bend name symbol decimals init owner \
+bun run build --out build/Token examples/erc20/program.bend name symbol decimals init owner \
   transferOwnership totalSupply balanceOf transfer mint burn allowance approve transferFrom \
   nonces DOMAIN_SEPARATOR permit
 ARGS=$(cast abi-encode "constructor(uint256)" 1000000000000000000000000)
@@ -162,7 +162,7 @@ The proofs cover deployed code only when the certificate covers the same entries
 
 ## Model
 
-- A contract passes its result and state to a continuation, and `Evm.run(A, m, s)` gives its outcome. Each check is then a `Bool.pick` at the top of the normal form. So a law can state every outcome from any state, with symbolic storage, caller, addresses and amounts, and `{==}` proves it. See the [counter](examples/counter/LAWS.bend) and [token](examples/token/LAWS.bend) laws.
+- A contract passes its result and state to a continuation, and `Evm.run(A, m, s)` gives its outcome. Each check is then a `Bool.pick` at the top of the normal form. So a law can state every outcome from any state, with symbolic storage, caller, addresses and amounts, and `{==}` proves it. See the [counter](examples/counter/LAWS.bend) and [ERC-20](examples/erc20/LAWS.bend) laws.
 - Laws can also cover many calls. The token's `supply_sum` law runs any list of calls from deployment, with a `Call` for each function that writes storage, and proves that `totalSupply` is the sum of the balances of any list of accounts that has the deployer and each sender and receiver once. The list of every address qualifies, so the supply is the sum of all balances. Its proof is by induction over the calls and the list, with Nat facts from [nat.bend](src/nat.bend) and the ERC20 core's supply laws. [sum.bend](src/sum.bend) has the facts about a sum over a mapping that such a law needs.
 - A state also has a `World`: the block time, the chain id, the contract's address, tables that stand for `keccak256` and `ecrecover`, and the answers of view calls in order. A law holds for every table, so no law depends on how either function works, and the printer uses the real ones: `keccak256` over memory, and the `ecrecover` precompile, which gives zero for a bad signature. `permit` checks that the signer is not zero.
 - A contract that makes calls that may write runs with `Calls.run`, which takes the answers and callbacks as above. A callback names an entry by its index in the certificate's table: the listed entries in order, without `init` and the constants. The EVM rejects some callbacks before an entry runs, such as ones with a bad selector or a bad argument; they change nothing, so a real run has a list without them.

@@ -18,12 +18,12 @@ let chain, sender, send, owner;
 // As a user would: bun run build --out, then deploy the bytecode with no
 // initial supply. The deployer, sender, is the owner. The build runs in a
 // copy, and the CERT.bend that it writes must equal the committed one.
-const cert = 'examples/token/CERT.bend';
+const cert = 'examples/erc20/CERT.bend';
 let built;
 
 beforeAll(async () => {
-  sandbox(['src', 'lib', 'scripts', 'examples/token'], dir => {
-    must(spawn([process.execPath, 'scripts/build.js', '--out', out, 'examples/token/program.bend', ...entries.token],
+  sandbox(['src', 'scripts', 'examples/erc20'], dir => {
+    must(spawn([process.execPath, 'scripts/build.js', '--out', out, 'examples/erc20/program.bend', ...entries.erc20],
       { cwd: dir, timeout: 600_000 }));
     built = readFileSync(path.join(dir, cert), 'utf8');
   });
@@ -43,7 +43,7 @@ test('the committed certificate is current', () => {
   // The entry table for callbacks has every entry but init and the constants, in order.
   const table = built.split('def entry.table()')[1];
   expect([...table.matchAll(/Calls\.Entry\{ir\.(\w+)\(\)/g)].map(m => m[1]))
-    .toEqual(entries.token.filter(f => !['init', 'name', 'symbol'].includes(f)));
+    .toEqual(entries.erc20.filter(f => !['init', 'name', 'symbol'].includes(f)));
 });
 
 test('wallets read the name, symbol and decimals, and the ABI is valid', () => {

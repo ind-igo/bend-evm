@@ -1,10 +1,10 @@
 import Base
-import ../src/Evm.bend as Evm
+import ../../src/Evm.bend as Evm
 
 # The ERC-20 core, after solmate's ERC20. A token imports it, defines name(),
 # symbol() and decimals(), and exposes each function with a one-line def;
 # mint and burn are internal, like solmate's _mint and _burn. See
-# examples/token.
+# program.bend.
 #
 # As in solmate, there are no zero-address checks, and the largest allowance
 # is unlimited. Unlike solmate, the receiver's add is checked. It cannot fail,

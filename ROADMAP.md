@@ -143,7 +143,7 @@ The first law over many calls. From deployment, after any list of calls by anyon
 
 ### Done when
 
-- [x] `law supply_sum` in [examples/token/LAWS.bend](examples/token/LAWS.bend) states it for any list of accounts that has the deployer and each sender and receiver exactly once, such as the list of every address. It needs no de-duplication of storage keys: each step is a lookup and Nat arithmetic.
+- [x] `law supply_sum` in [examples/erc20/LAWS.bend](examples/erc20/LAWS.bend) states it for any list of accounts that has the deployer and each sender and receiver exactly once, such as the list of every address. It needs no de-duplication of storage keys: each step is a lookup and Nat arithmetic.
 - [x] The proof shows what one transfer and one mint do to each balance, sums that over the list, and shows that `approve` and `transferOwnership` write no balance. The proof never uses the limit, so it holds at 2^256.
 - [x] With `transfer` changed to credit one more than it debits, the supply proof alone fails (checked by hand, apart from the other laws, which fail too).
 
@@ -157,7 +157,7 @@ A token that someone can write, deploy and use from a wallet, after solmate's ER
 
 - [x] A constant string entry, such as `name()`, returns its ABI encoding; `Evm.Uint8` and `Evm.Boolean` are words with their ABI types; parameters are range-checked, results are not.
 - [x] `src/abi.bend` prints the ABI JSON, and `bun run build --out` writes the Yul, the bytecode and the ABI.
-- [x] [lib/ERC20.bend](lib/ERC20.bend) is the base, and the example token uses it. Its laws, including `supply_sum`, still hold; `init` now mints, so its law states the overflow checks.
+- [x] [ERC20.bend](examples/erc20/ERC20.bend) is the base, and the example token uses it. Its laws, including `supply_sum`, still hold; `init` now mints, so its law states the overflow checks.
 - [x] The token test deploys the output of `bun run build --out`, reads the name, symbol and decimals with `cast`, and checks the ABI with `cast interface`.
 - [x] Holders can `burn`; its law, the supply proof and both chain tests cover it.
 - [x] A differential test runs the token and the same token in Solidity with solmate's logic on the same calls, with 256-bit amounts, and requires the same successes, return bytes and logs. When the Solidity reference forgets the unlimited allowance, the test fails (checked by hand).
@@ -191,7 +191,7 @@ An event is declared once, with its field types, like Solidity's `event` line, a
 ### Done when
 
 - [x] `Evm.Event` is the result type of an event def, `Evm.Indexed(A)` marks an indexed parameter, and `Evm.emit(Transfer(from, to, amount))` logs an event. The reader takes only a def written with `Evm.Event`, and makes the signature, the topics and the data from its parameter types and its name; indexed parameters come first, at most three. The certificate proves the body's log equal to the reader's by `{==}`, so a body that disagrees does not build (tests/emit.test.js).
-- [x] [lib/ERC20.bend](lib/ERC20.bend) is only the ERC-20 core: named storage slots, the `Transfer` and `Approval` events, the standard functions, and internal `mint` and `burn`, with one helper, `move`. `permit`, `nonces`, `DOMAIN_SEPARATOR` and the owner move to the example token, with their own slots and `OwnershipTransferred` event. The token's laws did not change and still hold.
+- [x] [ERC20.bend](examples/erc20/ERC20.bend) is only the ERC-20 core: named storage slots, the `Transfer` and `Approval` events, the standard functions, and internal `mint` and `burn`, with one helper, `move`. `permit`, `nonces`, `DOMAIN_SEPARATOR` and the owner move to the example token, with their own slots and `OwnershipTransferred` event. The token's laws did not change and still hold.
 - [x] `Evm.log` is no longer part of the contract language: contracts log with `Evm.emit`, and `Evm.log` stays as the model's primitive.
 
 Not in M14: custom errors (every revert is `revert(0, 0)`), and event parameter names in the ABI JSON. M15 adds both.
@@ -266,10 +266,11 @@ Not in M19: a reentrancy guard with transient storage. The laws above show that 
 
 ## M20: laws for the ERC20 core
 
-The token's laws were only about the example token, so a new token that used lib/ERC20.bend had to prove everything again.
+The token's laws were only about the example token, so a new token that used the core had to prove everything again.
 
 ### Done when
 
-- [x] [lib/LAWS.bend](lib/LAWS.bend) gives the outcome of each core function from any state and with any continuation, so a token's law for a function that calls the core follows from the core's law.
+- [x] The core's laws give the outcome of each core function from any state and with any continuation, so a token's law for a function that calls the core follows from the core's law.
 - [x] Supply laws for the core's writes (move, mint, burn), and for writes that are not to the supply or a balance: a plain slot other than 0, an entry of another mapping, and an entry of a nested mapping such as an allowance.
 - [x] The example token proves `transferFrom` and `supply_sum` from them. Its proof went from 400 to 305 lines.
+- [x] The core and the token are one example, [examples/erc20](examples/erc20), with one `LAWS.bend` and `PROOF.bend`, where the core's laws are `core.*`. `lib/` and `examples/token` are gone; later examples go beside it in `examples/`.
