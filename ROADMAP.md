@@ -263,3 +263,13 @@ M18 lets a called contract call back. M19 proves an invariant across every callb
 - [x] A differential test ([tests/callbacks.test.js](tests/callbacks.test.js)) sends random transactions to the vault on `anvil`, takes the answers and callbacks from each call trace, runs the certified entries with them in Bend, and requires the same result and shares. It fails when a callback does not restore the caller or loses its writes.
 
 Not in M19: a reentrancy guard with transient storage. The laws above show that a contract can allow callbacks and prove them safe, which was the goal. A guard needs a new kind of key in the model, the IR, the Yul and the lowering proof, so it waits until a contract needs one.
+
+## M20: laws for the ERC20 core
+
+The token's laws were only about the example token, so a new token that used lib/ERC20.bend had to prove everything again.
+
+### Done when
+
+- [x] [lib/LAWS.bend](lib/LAWS.bend) gives the outcome of each core function from any state and with any continuation, so a token's law for a function that calls the core follows from the core's law.
+- [x] Supply laws for the core's writes (move, mint, burn), and for writes that are not to the supply or a balance: a plain slot other than 0, an entry of another mapping, and an entry of a nested mapping such as an allowance.
+- [x] The example token proves `transferFrom` and `supply_sum` from them. Its proof went from 400 to 305 lines.

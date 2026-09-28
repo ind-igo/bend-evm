@@ -3,7 +3,7 @@ import { checker, root } from './tools.js';
 
 // Checks every committed proof and certificate, and every Bend tool.
 checkUpstream();
-for (const file of ['src/PROOF.bend',
+for (const file of ['src/PROOF.bend', 'lib/PROOF.bend',
   'examples/counter/PROOF.bend', 'examples/counter/CERT.bend',
   'examples/token/PROOF.bend', 'examples/token/CERT.bend',
   'tests/fixtures/branch/PROOF.bend', 'tests/fixtures/branch/CERT.bend', 'tests/fixtures/emit/CERT.bend',

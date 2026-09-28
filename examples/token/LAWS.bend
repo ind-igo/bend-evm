@@ -1,42 +1,25 @@
 import Base
 import ../../src/Evm.bend as Evm
 import ../../src/sum.bend as Sum
+import ../../lib/LAWS.bend as ERC20
 import ./program.bend as Token
 
 # Each law gives every outcome from any state: any storage, caller, word
-# limit, earlier logs and world, and any addresses. Slot 0 holds the total
-# supply, the mapping at slot 1 holds balances, the mapping at slot 2 holds
-# allowances, the mapping at slot 3 holds nonces, and slot 4 holds the
+# limit, earlier logs and world, and any addresses. The ERC20 core's laws
+# (lib/LAWS.bend) name its storage: slot 0 holds the total supply, the
+# mapping at slot 1 holds balances and the mapping at slot 2 holds
+# allowances. The mapping at slot 3 holds nonces, and slot 4 holds the
 # owner. Storage is newest first, so new slots shadow old ones.
-
-def supply(storage: List<&2, Evm.Slot>) -> Nat:
-  Evm.lookup(storage, Evm.Plain{0n})
 
 def owner_of(storage: List<&2, Evm.Slot>) -> Nat:
   Evm.lookup(storage, Evm.Plain{4n})
-
-def balance(storage: List<&2, Evm.Slot>, who: Nat) -> Nat:
-  Evm.lookup(storage, Evm.Mapped{Evm.Plain{1n}, who})
-
-def allowed(storage: List<&2, Evm.Slot>, holder: Nat, spender: Nat) -> Nat:
-  Evm.lookup(storage, Evm.Mapped{Evm.Mapped{Evm.Plain{2n}, holder}, spender})
-
-def debit(+storage: List<&2, Evm.Slot>, +from: Nat, amount: Nat) -> List<&2, Evm.Slot>:
-  Evm.Slot{Evm.Mapped{Evm.Plain{1n}, from}, Nat.sub(balance(storage, from), amount)} <> storage
 
 # The outcome when who moves amount from `from` to `to`, from storage: the
 # end of transfer and of transferFrom.
 def paid(+storage: List<&2, Evm.Slot>, who: Nat, +from: Nat, +to: Nat, +amount: Nat, +limit: Nat, logs: List<&2, Evm.Log>,
   world: Evm.World) -> Evm.Outcome<Nat>:
-  Bool.pick(Evm.Outcome<Nat>, Nat.is_lt(balance(storage, from), amount),
-    Evm.Revert{},
-    Bool.pick(Evm.Outcome<Nat>, Nat.is_lt(Nat.add(balance(debit(storage, from, amount), to), amount), limit),
-      Evm.Ok{1n, Evm.State{Evm.Slot{Evm.Mapped{Evm.Plain{1n}, to}, Nat.add(balance(debit(storage, from, amount), to), amount)}
-          <> debit(storage, from, amount), who, limit, Evm.Log{"Transfer", [from, to], [amount]} <> logs, world}},
-      Evm.Revert{}))
+  ERC20.moving(Nat, x => t => Evm.Ok{x, t}, storage, who, from, to, amount, limit, logs, world)
 
-# The receiver's balance is read after the debit, so a transfer to oneself
-# keeps the balance. Transfer writes no plain slot, so the supply stays.
 law transfer:
   for +storage: List<&2, Evm.Slot>
   for +who: Nat
@@ -60,10 +43,9 @@ law mint:
   for +amount: Nat
   {Evm.run(Unit, Token.mint(to, amount), Evm.State{storage, who, limit, logs, world})
     == Bool.pick(Evm.Outcome<Unit>, Nat.is_eq(who, owner_of(storage)),
-      Bool.pick(Evm.Outcome<Unit>, Nat.is_lt(Nat.add(supply(storage), amount), limit),
-        Bool.pick(Evm.Outcome<Unit>, Nat.is_lt(Nat.add(balance(storage, to), amount), limit),
-          Evm.Ok{Unit{}, Evm.State{Evm.Slot{Evm.Mapped{Evm.Plain{1n}, to}, Nat.add(balance(storage, to), amount)}
-              <> Evm.Slot{Evm.Plain{0n}, Nat.add(supply(storage), amount)} <> storage, who, limit, Evm.Log{"Transfer", [0n, to], [amount]} <> logs, world}},
+      Bool.pick(Evm.Outcome<Unit>, Nat.is_lt(Nat.add(ERC20.supply(storage), amount), limit),
+        Bool.pick(Evm.Outcome<Unit>, Nat.is_lt(Nat.add(ERC20.balance(storage, to), amount), limit),
+          Evm.Ok{Unit{}, Evm.State{ERC20.minted(storage, to, amount), who, limit, Evm.Log{"Transfer", [0n, to], [amount]} <> logs, world}},
           Evm.Revert{}),
         Evm.Revert{}),
       Evm.Raise{Token.OwnableUnauthorizedAccount(who)}) : Evm.Outcome<Unit>}
@@ -78,11 +60,11 @@ law burn:
   for world: Evm.World
   for +amount: Nat
   {Evm.run(Unit, Token.burn(amount), Evm.State{storage, who, limit, logs, world})
-    == Bool.pick(Evm.Outcome<Unit>, Nat.is_lt(balance(storage, who), amount),
+    == Bool.pick(Evm.Outcome<Unit>, Nat.is_lt(ERC20.balance(storage, who), amount),
       Evm.Revert{},
-      Bool.pick(Evm.Outcome<Unit>, Nat.is_lt(supply(storage), amount),
+      Bool.pick(Evm.Outcome<Unit>, Nat.is_lt(ERC20.supply(storage), amount),
         Evm.Revert{},
-        Evm.Ok{Unit{}, Evm.State{Evm.Slot{Evm.Plain{0n}, Nat.sub(supply(storage), amount)} <> debit(storage, who, amount), who, limit, Evm.Log{"Transfer", [who, 0n], [amount]} <> logs, world}})) : Evm.Outcome<Unit>}
+        Evm.Ok{Unit{}, Evm.State{ERC20.burned(storage, who, amount), who, limit, Evm.Log{"Transfer", [who, 0n], [amount]} <> logs, world}})) : Evm.Outcome<Unit>}
 
 law allowance:
   for +storage: List<&2, Evm.Slot>
@@ -93,7 +75,7 @@ law allowance:
   for holder: Nat
   for spender: Nat
   {Evm.run(Nat, Token.allowance(holder, spender), Evm.State{storage, who, limit, logs, world})
-    == Evm.Ok{allowed(storage, holder, spender), Evm.State{storage, who, limit, logs, world}} : Evm.Outcome<Nat>}
+    == Evm.Ok{ERC20.allowed(storage, holder, spender), Evm.State{storage, who, limit, logs, world}} : Evm.Outcome<Nat>}
 
 # Approve sets the allowance, whatever it was.
 law approve:
@@ -105,7 +87,7 @@ law approve:
   for +spender: Nat
   for +amount: Nat
   {Evm.run(Nat, Token.approve(spender, amount), Evm.State{storage, who, limit, logs, world})
-    == Evm.Ok{1n, Evm.State{Evm.Slot{Evm.Mapped{Evm.Mapped{Evm.Plain{2n}, who}, spender}, amount} <> storage, who, limit, Evm.Log{"Approval", [who, spender], [amount]} <> logs, world}} : Evm.Outcome<Nat>}
+    == Evm.Ok{1n, Evm.State{ERC20.approved(storage, who, spender, amount), who, limit, Evm.Log{"Approval", [who, spender], [amount]} <> logs, world}} : Evm.Outcome<Nat>}
 
 # The caller spends from the allowance of `from`. An allowance of the
 # largest word, limit - 1, is unlimited and stays as it is. Any other must
@@ -120,11 +102,11 @@ law transferFrom:
   for +to: Nat
   for +amount: Nat
   {Evm.run(Nat, Token.transferFrom(from, to, amount), Evm.State{storage, who, limit, logs, world})
-    == Bool.pick(Evm.Outcome<Nat>, Nat.is_eq(allowed(storage, from, who), Nat.sub(limit, 1n)),
+    == Bool.pick(Evm.Outcome<Nat>, Nat.is_eq(ERC20.allowed(storage, from, who), Nat.sub(limit, 1n)),
       paid(storage, who, from, to, amount, limit, logs, world),
-      Bool.pick(Evm.Outcome<Nat>, Nat.is_lt(allowed(storage, from, who), amount),
+      Bool.pick(Evm.Outcome<Nat>, Nat.is_lt(ERC20.allowed(storage, from, who), amount),
         Evm.Revert{},
-        paid(Evm.Slot{Evm.Mapped{Evm.Mapped{Evm.Plain{2n}, from}, who}, Nat.sub(allowed(storage, from, who), amount)} <> storage,
+        paid(ERC20.approved(storage, from, who, Nat.sub(ERC20.allowed(storage, from, who), amount)),
           who, from, to, amount, limit, logs, world))) : Evm.Outcome<Nat>}
 
 # The deployer becomes the owner and receives the initial supply by a mint,
@@ -138,10 +120,10 @@ law init:
   for world: Evm.World
   for +initial: Nat
   {Evm.run(Unit, Token.init(initial), Evm.State{storage, who, limit, logs, world})
-    == Bool.pick(Evm.Outcome<Unit>, Nat.is_lt(Nat.add(supply(storage), initial), limit),
-      Bool.pick(Evm.Outcome<Unit>, Nat.is_lt(Nat.add(balance(storage, who), initial), limit),
-        Evm.Ok{Unit{}, Evm.State{Evm.Slot{Evm.Mapped{Evm.Plain{1n}, who}, Nat.add(balance(storage, who), initial)}
-          <> Evm.Slot{Evm.Plain{0n}, Nat.add(supply(storage), initial)} <> Evm.Slot{Evm.Plain{4n}, who} <> storage, who, limit, Evm.Log{"Transfer", [0n, who], [initial]}
+    == Bool.pick(Evm.Outcome<Unit>, Nat.is_lt(Nat.add(ERC20.supply(storage), initial), limit),
+      Bool.pick(Evm.Outcome<Unit>, Nat.is_lt(Nat.add(ERC20.balance(storage, who), initial), limit),
+        Evm.Ok{Unit{}, Evm.State{Evm.Slot{Evm.Mapped{Evm.Plain{1n}, who}, Nat.add(ERC20.balance(storage, who), initial)}
+          <> Evm.Slot{Evm.Plain{0n}, Nat.add(ERC20.supply(storage), initial)} <> Evm.Slot{Evm.Plain{4n}, who} <> storage, who, limit, Evm.Log{"Transfer", [0n, who], [initial]}
             <> Evm.Log{"OwnershipTransferred", [0n, who], []} <> logs, world}},
         Evm.Revert{}),
       Evm.Revert{}) : Evm.Outcome<Unit>}
@@ -304,14 +286,10 @@ def deployed(+deployer: Nat, +limit: Nat, +initial: Nat, +world: Evm.World) -> E
   after(Unit, Evm.run(Unit, Token.init(initial), Evm.State{[], deployer, limit, [], world}),
     Evm.State{[], deployer, limit, [], world})
 
-# The balances of a list of accounts, summed.
-def holdings(+storage: List<&2, Evm.Slot>, accounts: List<&2, Nat>) -> Nat:
-  Sum.holdings(storage, 1n, accounts)
-
 def balanced(s: Evm.State, +accounts: List<&2, Nat>) -> Bool:
   match s:
-    case Evm.State{+storage, _, _, _, _}:
-      Nat.is_eq(supply(storage), holdings(storage, accounts))
+    case Evm.State{storage, _, _, _, _}:
+      ERC20.balanced(storage, accounts)
 
 # Each account whose balance the call can change is in the list once.
 def listed(c: Call, +accounts: List<&2, Nat>) -> Bool:

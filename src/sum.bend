@@ -174,3 +174,29 @@ def skip_plain(+storage: List<&2, Evm.Slot>, +base: Nat, +n: Nat, +v: Nat, +acco
       %skip_plain(storage, base, n, v, rest) : {Nat.add(share(storage, base, a), holdings(storage, base, rest))
         == Nat.add(share(storage, base, a), _) : Nat}
       {==}
+
+# An entry of a nested mapping, such as an allowance, is not in the mapping.
+def skip_nested(+storage: List<&2, Evm.Slot>, +base: Nat, +k: Evm.Key, +x: Nat, +y: Nat, +v: Nat, +accounts: List<&2, Nat>) ->
+  {holdings(storage, base, accounts) == holdings(Evm.Slot{Evm.Mapped{Evm.Mapped{k, x}, y}, v} <> storage, base, accounts) : Nat}:
+  match accounts:
+    case Nil{}:
+      {==}
+    case +a <> +rest:
+      %skip_nested(storage, base, k, x, y, v, rest) : {Nat.add(share(storage, base, a), holdings(storage, base, rest))
+        == Nat.add(share(storage, base, a), _) : Nat}
+      {==}
+
+# An entry of the mapping at another plain slot is not in the mapping.
+def skip_mapped(+storage: List<&2, Evm.Slot>, +base: Nat, +other: Nat, +x: Nat, +v: Nat, +accounts: List<&2, Nat>,
+  +o: {False{} == Nat.is_eq(other, base) : Bool}) ->
+  {holdings(storage, base, accounts) == holdings(Evm.Slot{Evm.Mapped{Evm.Plain{other}, x}, v} <> storage, base, accounts) : Nat}:
+  match accounts:
+    case Nil{}:
+      {==}
+    case +a <> +rest:
+      %o : {Nat.add(share(storage, base, a), holdings(storage, base, rest))
+        == Nat.add(Bool.pick(Nat, Bool.and(_, Nat.is_eq(x, a)), v, share(storage, base, a)),
+          holdings(Evm.Slot{Evm.Mapped{Evm.Plain{other}, x}, v} <> storage, base, rest)) : Nat}
+      %skip_mapped(storage, base, other, x, v, rest, o) : {Nat.add(share(storage, base, a), holdings(storage, base, rest))
+        == Nat.add(share(storage, base, a), _) : Nat}
+      {==}
