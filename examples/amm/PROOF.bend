@@ -2,6 +2,7 @@ import Base
 import ../../src/Evm.bend as Evm
 import ../../src/calls.bend as Calls
 import ../../src/nat.bend as N
+import ../erc20/ERC20.bend as ERC20
 import ./Pair.bend as Pair
 import ./CERT.bend as Cert
 import ./LAWS.bend as Laws
@@ -17,7 +18,7 @@ import ./LAWS.bend as Laws
 def at(+storage: List<&2, Evm.Slot>, +n: Nat) -> Nat:
   Evm.lookup(storage, Evm.Plain{n})
 
-def ok() -> Unit -> Evm.State -> Evm.Outcome<Unit>:
+def ok(-A: Data) -> A -> Evm.State -> Evm.Outcome<A>:
   x => t => Evm.Ok{x, t}
 
 def closed(steps: List<&2, Calls.Step>, o: Evm.Outcome<Unit>) -> Evm.Outcome<Unit>:
@@ -26,31 +27,12 @@ def closed(steps: List<&2, Calls.Step>, o: Evm.Outcome<Unit>) -> Evm.Outcome<Uni
 def opened(steps: List<&2, Calls.Step>, s: Evm.State) -> Evm.Outcome<Unit>:
   Calls.drive(Calls.Model{}, Cert.entry.table(), steps, Unit, True{}, Evm.Ok{Unit{}, s})
 
-def closed_revert(steps: List<&2, Calls.Step>, -k: Nat) -> {True{} == Laws.kept(k, closed(steps, Evm.Revert{})) : Bool}:
-  match steps:
-    case Nil{}:
-      {==}
-    case step <> _:
-      match step:
-        case Calls.Enter{_, _, _, _}:
-          {==}
-        case Calls.Answer{_, _, _}:
-          {==}
+# A property of an outcome, which Revert and Raise have.
+def keeps(+k: Nat) -> Evm.Outcome<Unit> -> Bool:
+  o => Laws.kept(k, o)
 
-def closed_raise(steps: List<&2, Calls.Step>, -e: Evm.Error, -k: Nat) ->
-  {True{} == Laws.kept(k, closed(steps, Evm.Raise{e})) : Bool}:
-  match steps:
-    case Nil{}:
-      {==}
-    case step <> _:
-      match step:
-        case Calls.Enter{_, _, _, _}:
-          {==}
-        case Calls.Answer{_, _, _}:
-          {==}
-
-def closed_ok(steps: List<&2, Calls.Step>, -t: Evm.State, -k: Nat, h: {True{} == Laws.kept(k, Evm.Ok{Unit{}, t}) : Bool}) ->
-  {True{} == Laws.kept(k, closed(steps, Evm.Ok{Unit{}, t})) : Bool}:
+def closed_revert(steps: List<&2, Calls.Step>, -p: Evm.Outcome<Unit> -> Bool, +h: {True{} == p(Evm.Revert{}) : Bool}) ->
+  {True{} == p(closed(steps, Evm.Revert{})) : Bool}:
   match steps:
     case Nil{}:
       h
@@ -61,41 +43,66 @@ def closed_ok(steps: List<&2, Calls.Step>, -t: Evm.State, -k: Nat, h: {True{} ==
         case Calls.Answer{_, _, _}:
           h
 
-def pick_keep(+b: Bool, -x: Evm.Outcome<Unit>, -y: Evm.Outcome<Unit>, -k: Nat,
-  hx: {True{} == b : Bool} -> {True{} == Laws.kept(k, x) : Bool},
-  hy: {False{} == b : Bool} -> {True{} == Laws.kept(k, y) : Bool}) ->
-  {True{} == Laws.kept(k, Bool.pick(Evm.Outcome<Unit>, b, x, y)) : Bool}:
+def closed_raise(steps: List<&2, Calls.Step>, -e: Evm.Error, -p: Evm.Outcome<Unit> -> Bool, +h: {True{} == p(Evm.Raise{e}) : Bool}) ->
+  {True{} == p(closed(steps, Evm.Raise{e})) : Bool}:
+  match steps:
+    case Nil{}:
+      h
+    case step <> _:
+      match step:
+        case Calls.Enter{_, _, _, _}:
+          h
+        case Calls.Answer{_, _, _}:
+          h
+
+def closed_ok(steps: List<&2, Calls.Step>, -t: Evm.State, -p: Evm.Outcome<Unit> -> Bool, +h: {True{} == p(Evm.Ok{Unit{}, t}) : Bool}) ->
+  {True{} == p(closed(steps, Evm.Ok{Unit{}, t})) : Bool}:
+  match steps:
+    case Nil{}:
+      h
+    case step <> _:
+      match step:
+        case Calls.Enter{_, _, _, _}:
+          h
+        case Calls.Answer{_, _, _}:
+          h
+
+def pick_keep(+b: Bool, -x: Evm.Outcome<Unit>, -y: Evm.Outcome<Unit>, -p: Evm.Outcome<Unit> -> Bool,
+  hx: {True{} == b : Bool} -> {True{} == p(x) : Bool},
+  hy: {False{} == b : Bool} -> {True{} == p(y) : Bool}) ->
+  {True{} == p(Bool.pick(Evm.Outcome<Unit>, b, x, y)) : Bool}:
   match b:
     case True{}:
       hx({==})
     case False{}:
       hy({==})
 
-def closed_pick(-steps: List<&2, Calls.Step>, +b: Bool, -x: Evm.Outcome<Unit>, -y: Evm.Outcome<Unit>, -k: Nat,
-  hx: {True{} == b : Bool} -> {True{} == Laws.kept(k, closed(steps, x)) : Bool},
-  hy: {False{} == b : Bool} -> {True{} == Laws.kept(k, closed(steps, y)) : Bool}) ->
-  {True{} == Laws.kept(k, closed(steps, Bool.pick(Evm.Outcome<Unit>, b, x, y))) : Bool}:
+def closed_pick(-steps: List<&2, Calls.Step>, +b: Bool, -x: Evm.Outcome<Unit>, -y: Evm.Outcome<Unit>, -p: Evm.Outcome<Unit> -> Bool,
+  hx: {True{} == b : Bool} -> {True{} == p(closed(steps, x)) : Bool},
+  hy: {False{} == b : Bool} -> {True{} == p(closed(steps, y)) : Bool}) ->
+  {True{} == p(closed(steps, Bool.pick(Evm.Outcome<Unit>, b, x, y))) : Bool}:
   match b:
     case True{}:
       hx({==})
     case False{}:
       hy({==})
 
-# A call keeps the bound when the rest of the run keeps it from any state:
+# A call keeps a property when the rest of the run keeps it from any state:
 # the answer's callbacks may leave any state.
-def calling(inner: List<&2, Calls.Step>, +c: Evm.Call, +t: Evm.State, -r: Nat -> Evm.State -> Evm.Outcome<Unit>, -k: Nat,
-  hr: @x: Nat -> @rest: List<&2, Calls.Step> -> @u: Evm.State -> {True{} == Laws.kept(k, closed(rest, r(x, u))) : Bool}) ->
-  {True{} == Laws.kept(k, closed(inner, Evm.Calling{c, t, r})) : Bool}:
+def calling(inner: List<&2, Calls.Step>, +c: Evm.Call, +t: Evm.State, -r: Nat -> Evm.State -> Evm.Outcome<Unit>,
+  -p: Evm.Outcome<Unit> -> Bool, +h: {True{} == p(Evm.Revert{}) : Bool},
+  hr: @x: Nat -> @rest: List<&2, Calls.Step> -> @u: Evm.State -> {True{} == p(closed(rest, r(x, u))) : Bool}) ->
+  {True{} == p(closed(inner, Evm.Calling{c, t, r})) : Bool}:
   match inner:
     case Nil{}:
-      {==}
+      h
     case step <> +rest:
       match step:
         case Calls.Enter{_, _, _, _}:
-          {==}
+          h
         case Calls.Answer{+q, +cbs, +x}:
-          pick_keep(Evm.same.call(q, c), closed(rest, r(x, Calls.after(Unit, t, opened(cbs, t)))), Evm.Revert{}, k,
-            _ => hr(x, rest, Calls.after(Unit, t, opened(cbs, t))), _ => {==})
+          pick_keep(Evm.same.call(q, c), closed(rest, r(x, Calls.after(Unit, t, opened(cbs, t)))), Evm.Revert{}, p,
+            _ => hr(x, rest, Calls.after(Unit, t, opened(cbs, t))), _ => h)
 
 # (b0 * c) * (b1 * c) = ((b0 * b1) * c) * c.
 def square(+b0: Nat, +b1: Nat, +c: Nat) -> {Nat.mul(Nat.mul(b0, c), Nat.mul(b1, c)) == Nat.mul(Nat.mul(Nat.mul(b0, b1), c), c) : Nat}:
@@ -168,63 +175,63 @@ def check.go(rest: List<&2, Calls.Step>, +who: Nat, +to: Nat, +out0: Nat, +out1:
     Evm.Raise{Pair.InsufficientInputAmount()}))))) : Bool}:
   match cl0:
     case True{}:
-      closed_revert(rest, Nat.mul(r0, r1))
+      closed_revert(rest, keeps(Nat.mul(r0, r1)), {==})
     case False{}:
       match cl1:
         case True{}:
-          closed_revert(rest, Nat.mul(r0, r1))
+          closed_revert(rest, keeps(Nat.mul(r0, r1)), {==})
         case False{}:
           match cin:
             case False{}:
-              closed_raise(rest, Pair.InsufficientInputAmount(), Nat.mul(r0, r1))
+              closed_raise(rest, Pair.InsufficientInputAmount(), keeps(Nat.mul(r0, r1)), {==})
             case True{}:
               match cm0:
                 case False{}:
-                  closed_revert(rest, Nat.mul(r0, r1))
+                  closed_revert(rest, keeps(Nat.mul(r0, r1)), {==})
                 case True{}:
                   match cf0:
                     case False{}:
-                      closed_revert(rest, Nat.mul(r0, r1))
+                      closed_revert(rest, keeps(Nat.mul(r0, r1)), {==})
                     case True{}:
                       match ca0:
                         case True{}:
-                          closed_revert(rest, Nat.mul(r0, r1))
+                          closed_revert(rest, keeps(Nat.mul(r0, r1)), {==})
                         case False{}:
                           match cm1:
                             case False{}:
-                              closed_revert(rest, Nat.mul(r0, r1))
+                              closed_revert(rest, keeps(Nat.mul(r0, r1)), {==})
                             case True{}:
                               match cf1:
                                 case False{}:
-                                  closed_revert(rest, Nat.mul(r0, r1))
+                                  closed_revert(rest, keeps(Nat.mul(r0, r1)), {==})
                                 case True{}:
                                   match ca1:
                                     case True{}:
-                                      closed_revert(rest, Nat.mul(r0, r1))
+                                      closed_revert(rest, keeps(Nat.mul(r0, r1)), {==})
                                     case False{}:
                                       match cA:
                                         case False{}:
-                                          closed_revert(rest, Nat.mul(r0, r1))
+                                          closed_revert(rest, keeps(Nat.mul(r0, r1)), {==})
                                         case True{}:
                                           match cB:
                                             case False{}:
-                                              closed_revert(rest, Nat.mul(r0, r1))
+                                              closed_revert(rest, keeps(Nat.mul(r0, r1)), {==})
                                             case True{}:
                                               match cS:
                                                 case False{}:
-                                                  closed_revert(rest, Nat.mul(r0, r1))
+                                                  closed_revert(rest, keeps(Nat.mul(r0, r1)), {==})
                                                 case True{}:
                                                   match cL:
                                                     case False{}:
-                                                      closed_revert(rest, Nat.mul(r0, r1))
+                                                      closed_revert(rest, keeps(Nat.mul(r0, r1)), {==})
                                                     case True{}:
                                                       match cK:
                                                         case False{}:
-                                                          closed_raise(rest, Pair.K(), Nat.mul(r0, r1))
+                                                          closed_raise(rest, Pair.K(), keeps(Nat.mul(r0, r1)), {==})
                                                         case True{}:
                                                           closed_ok(rest, Evm.State{Evm.Slot{Evm.Plain{6n}, b1} <> Evm.Slot{Evm.Plain{5n}, b0} <> st,
                                                             ca, li, Evm.Log{"Swap", [who, to], [i0, i1, out0, out1]} <> Evm.Log{"Sync", [], [b0, b1]} <> lo, w},
-                                                            Nat.mul(r0, r1), bound(b0, b1, Nat.mul(i0, 3n), Nat.mul(i1, 3n), r0, r1, eK))
+                                                            keeps(Nat.mul(r0, r1)), bound(b0, b1, Nat.mul(i0, 3n), Nat.mul(i1, 3n), r0, r1, eK))
 
 # The amount in of one token: its balance above the reserve left after
 # the amount out.
@@ -234,7 +241,7 @@ def into(+r: Nat, +out: Nat, +b: Nat, +li: Nat) -> Nat:
 def check.at(rest: List<&2, Calls.Step>, +who: Nat, +to: Nat, +out0: Nat, +out1: Nat, +r0: Nat, +r1: Nat, +b0: Nat,
   +b1: Nat, +st: List<&2, Evm.Slot>, +ca: Nat, +li: Nat, +lo: List<&2, Evm.Log>, +w: Evm.World) ->
   {True{} == Laws.kept(Nat.mul(r0, r1), closed(rest,
-    Pair.check(who, to, out0, out1, r0, r1, b0, b1)(Unit, ok(), Evm.State{st, ca, li, lo, w}))) : Bool}:
+    Pair.check(who, to, out0, out1, r0, r1, b0, b1)(Unit, ok(Unit), Evm.State{st, ca, li, lo, w}))) : Bool}:
   +i0 = into(r0, out0, b0, li)
   +i1 = into(r1, out1, b1, li)
   +a0 = Nat.sub(Nat.mul(b0, 1000n), Nat.mul(i0, 3n))
@@ -255,63 +262,63 @@ def viewed(+rest: List<&2, Calls.Step>, +who: Nat, +to: Nat, +out0: Nat, +out1: 
   +st: List<&2, Evm.Slot>, +ca: Nat, +li: Nat, +lo: List<&2, Evm.Log>, +time: Nat, +chain: Nat, +self: Nat,
   +hashes: List<&2, Evm.Hashed>, +signers: List<&2, Evm.Signed>, answers: List<&2, Evm.Answer>) ->
   {True{} == Laws.kept(Nat.mul(r0, r1), closed(rest, Evm.answer(Unit, balance.of(st, 4n, self),
-    b1 => v => Pair.check(who, to, out0, out1, r0, r1, b0, b1)(Unit, ok(), v),
+    b1 => v => Pair.check(who, to, out0, out1, r0, r1, b0, b1)(Unit, ok(Unit), v),
     Evm.State{st, ca, li, lo, Evm.World{time, chain, self, hashes, signers, answers}}))) : Bool}:
   match answers:
     case Nil{}:
-      closed_revert(rest, Nat.mul(r0, r1))
+      closed_revert(rest, keeps(Nat.mul(r0, r1)), {==})
     case Evm.Answer{+q, +b1} <> +more:
       closed_pick(rest, Evm.same.call(q, balance.of(st, 4n, self)),
-        Pair.check(who, to, out0, out1, r0, r1, b0, b1)(Unit, ok(),
+        Pair.check(who, to, out0, out1, r0, r1, b0, b1)(Unit, ok(Unit),
           Evm.State{st, ca, li, lo, Evm.World{time, chain, self, hashes, signers, more}}),
-        Evm.Revert{}, Nat.mul(r0, r1),
+        Evm.Revert{}, keeps(Nat.mul(r0, r1)),
         _ => check.at(rest, who, to, out0, out1, r0, r1, b0, b1, st, ca, li, lo, Evm.World{time, chain, self, hashes, signers, more}),
-        _ => closed_revert(rest, Nat.mul(r0, r1)))
+        _ => closed_revert(rest, keeps(Nat.mul(r0, r1)), {==}))
 
 # settle from any state: the callbacks may leave any storage and answers.
 def settled(+rest: List<&2, Calls.Step>, +who: Nat, +to: Nat, +out0: Nat, +out1: Nat, +r0: Nat, +r1: Nat, u: Evm.State) ->
-  {True{} == Laws.kept(Nat.mul(r0, r1), closed(rest, Pair.settle(who, to, out0, out1, r0, r1)(Unit, ok(), u))) : Bool}:
+  {True{} == Laws.kept(Nat.mul(r0, r1), closed(rest, Pair.settle(who, to, out0, out1, r0, r1)(Unit, ok(Unit), u))) : Bool}:
   match u:
     case Evm.State{+st, +ca, +li, +lo, Evm.World{+time, +chain, +self, +hashes, +signers, answers}}:
       match answers:
         case Nil{}:
-          closed_revert(rest, Nat.mul(r0, r1))
+          closed_revert(rest, keeps(Nat.mul(r0, r1)), {==})
         case Evm.Answer{+q, +b0} <> +more:
           closed_pick(rest, Evm.same.call(q, balance.of(st, 3n, self)),
-            Evm.answer(Unit, balance.of(st, 4n, self), b1 => v => Pair.check(who, to, out0, out1, r0, r1, b0, b1)(Unit, ok(), v),
+            Evm.answer(Unit, balance.of(st, 4n, self), b1 => v => Pair.check(who, to, out0, out1, r0, r1, b0, b1)(Unit, ok(Unit), v),
               Evm.State{st, ca, li, lo, Evm.World{time, chain, self, hashes, signers, more}}),
-            Evm.Revert{}, Nat.mul(r0, r1),
+            Evm.Revert{}, keeps(Nat.mul(r0, r1)),
             _ => viewed(rest, who, to, out0, out1, r0, r1, b0, st, ca, li, lo, time, chain, self, hashes, signers, more),
-            _ => closed_revert(rest, Nat.mul(r0, r1)))
+            _ => closed_revert(rest, keeps(Nat.mul(r0, r1)), {==}))
 
 # After the second call: the token must return 1.
 def paid1(+x: Nat, +rest: List<&2, Calls.Step>, u: Evm.State, +who: Nat, +to: Nat, +out0: Nat, +out1: Nat, +r0: Nat, +r1: Nat) ->
   {True{} == Laws.kept(Nat.mul(r0, r1), closed(rest, Bool.pick(Evm.Outcome<Unit>, Nat.is_eq(x, 1n),
-    Pair.settle(who, to, out0, out1, r0, r1)(Unit, ok(), u), Evm.Raise{Pair.TransferFailed()}))) : Bool}:
-  closed_pick(rest, Nat.is_eq(x, 1n), Pair.settle(who, to, out0, out1, r0, r1)(Unit, ok(), u), Evm.Raise{Pair.TransferFailed()},
-    Nat.mul(r0, r1),
+    Pair.settle(who, to, out0, out1, r0, r1)(Unit, ok(Unit), u), Evm.Raise{Pair.TransferFailed()}))) : Bool}:
+  closed_pick(rest, Nat.is_eq(x, 1n), Pair.settle(who, to, out0, out1, r0, r1)(Unit, ok(Unit), u), Evm.Raise{Pair.TransferFailed()},
+    keeps(Nat.mul(r0, r1)),
     _ => settled(rest, who, to, out0, out1, r0, r1, u),
-    _ => closed_raise(rest, Pair.TransferFailed(), Nat.mul(r0, r1)))
+    _ => closed_raise(rest, Pair.TransferFailed(), keeps(Nat.mul(r0, r1)), {==}))
 
 def after1(+who: Nat, +to: Nat, +out0: Nat, +out1: Nat, +r0: Nat, +r1: Nat) -> Nat -> Evm.State -> Evm.Outcome<Unit>:
-  x => u => Bool.pick(Evm.Outcome<Unit>, Nat.is_eq(x, 1n), Pair.settle(who, to, out0, out1, r0, r1)(Unit, ok(), u),
+  x => u => Bool.pick(Evm.Outcome<Unit>, Nat.is_eq(x, 1n), Pair.settle(who, to, out0, out1, r0, r1)(Unit, ok(Unit), u),
     Evm.Raise{Pair.TransferFailed()})
 
 # After the first call: the token must return 1, then the second call.
 def paid0(+x: Nat, +rest: List<&2, Calls.Step>, +u: Evm.State, +who: Nat, +to: Nat, +out0: Nat, +out1: Nat, +r0: Nat, +r1: Nat,
   +t1: Nat) ->
   {True{} == Laws.kept(Nat.mul(r0, r1), closed(rest, Bool.pick(Evm.Outcome<Unit>, Nat.is_eq(x, 1n),
-    Pair.pay(t1, to, out1)(Unit, v => w => Pair.settle(who, to, out0, out1, r0, r1)(Unit, ok(), w), u),
+    Pair.pay(t1, to, out1)(Unit, v => w => Pair.settle(who, to, out0, out1, r0, r1)(Unit, ok(Unit), w), u),
     Evm.Raise{Pair.TransferFailed()}))) : Bool}:
-  closed_pick(rest, Nat.is_eq(x, 1n), Pair.pay(t1, to, out1)(Unit, v => w => Pair.settle(who, to, out0, out1, r0, r1)(Unit, ok(), w), u),
-    Evm.Raise{Pair.TransferFailed()}, Nat.mul(r0, r1),
-    _ => calling(rest, Evm.Call{t1, "transfer", [to, out1]}, u, after1(who, to, out0, out1, r0, r1), Nat.mul(r0, r1),
+  closed_pick(rest, Nat.is_eq(x, 1n), Pair.pay(t1, to, out1)(Unit, v => w => Pair.settle(who, to, out0, out1, r0, r1)(Unit, ok(Unit), w), u),
+    Evm.Raise{Pair.TransferFailed()}, keeps(Nat.mul(r0, r1)),
+    _ => calling(rest, Evm.Call{t1, "transfer", [to, out1]}, u, after1(who, to, out0, out1, r0, r1), keeps(Nat.mul(r0, r1)), {==},
       y => more => v => paid1(y, more, v, who, to, out0, out1, r0, r1)),
-    _ => closed_raise(rest, Pair.TransferFailed(), Nat.mul(r0, r1)))
+    _ => closed_raise(rest, Pair.TransferFailed(), keeps(Nat.mul(r0, r1)), {==}))
 
 def after0(+who: Nat, +to: Nat, +out0: Nat, +out1: Nat, +r0: Nat, +r1: Nat, +t1: Nat) -> Nat -> Evm.State -> Evm.Outcome<Unit>:
   x => u => Bool.pick(Evm.Outcome<Unit>, Nat.is_eq(x, 1n),
-    Pair.pay(t1, to, out1)(Unit, v => w => Pair.settle(who, to, out0, out1, r0, r1)(Unit, ok(), w), u),
+    Pair.pay(t1, to, out1)(Unit, v => w => Pair.settle(who, to, out0, out1, r0, r1)(Unit, ok(Unit), w), u),
     Evm.Raise{Pair.TransferFailed()})
 
 # The checks before the first call, then the call.
@@ -330,26 +337,26 @@ def top(steps: List<&2, Calls.Step>, +st: List<&2, Evm.Slot>, +ca: Nat, +li: Nat
       Evm.Raise{Pair.InsufficientOutputAmount()}))) : Bool}:
   match c1:
     case False{}:
-      closed_raise(steps, Pair.InsufficientOutputAmount(), Nat.mul(at(st, 5n), at(st, 6n)))
+      closed_raise(steps, Pair.InsufficientOutputAmount(), keeps(Nat.mul(at(st, 5n), at(st, 6n))), {==})
     case True{}:
       match c2:
         case False{}:
-          closed_raise(steps, Pair.InsufficientLiquidity(), Nat.mul(at(st, 5n), at(st, 6n)))
+          closed_raise(steps, Pair.InsufficientLiquidity(), keeps(Nat.mul(at(st, 5n), at(st, 6n))), {==})
         case True{}:
           match c3:
             case False{}:
-              closed_raise(steps, Pair.InsufficientLiquidity(), Nat.mul(at(st, 5n), at(st, 6n)))
+              closed_raise(steps, Pair.InsufficientLiquidity(), keeps(Nat.mul(at(st, 5n), at(st, 6n))), {==})
             case True{}:
               match c4:
                 case False{}:
-                  closed_raise(steps, Pair.InvalidTo(), Nat.mul(at(st, 5n), at(st, 6n)))
+                  closed_raise(steps, Pair.InvalidTo(), keeps(Nat.mul(at(st, 5n), at(st, 6n))), {==})
                 case True{}:
                   match c5:
                     case False{}:
-                      closed_raise(steps, Pair.InvalidTo(), Nat.mul(at(st, 5n), at(st, 6n)))
+                      closed_raise(steps, Pair.InvalidTo(), keeps(Nat.mul(at(st, 5n), at(st, 6n))), {==})
                     case True{}:
                       calling(steps, Evm.Call{at(st, 3n), "transfer", [to, out0]}, Evm.State{st, ca, li, lo, w},
-                        after0(ca, to, out0, out1, at(st, 5n), at(st, 6n), at(st, 4n)), Nat.mul(at(st, 5n), at(st, 6n)),
+                        after0(ca, to, out0, out1, at(st, 5n), at(st, 6n), at(st, 4n)), keeps(Nat.mul(at(st, 5n), at(st, 6n))), {==},
                         x => rest => u => paid0(x, rest, u, ca, to, out0, out1, at(st, 5n), at(st, 6n), at(st, 4n)))
 
 def Laws.swap(steps, s, amount0Out, amount1Out, to):
@@ -358,3 +365,248 @@ def Laws.swap(steps, s, amount0Out, amount1Out, to):
       top(steps, st, ca, li, lo, w, amount0Out, amount1Out, to,
         Nat.is_lt(0n, Evm.op(Evm.Or{}, [amount0Out, amount1Out], li)), Nat.is_lt(amount0Out, at(st, 5n)),
         Nat.is_lt(amount1Out, at(st, 6n)), Bool.not(Nat.is_eq(to, at(st, 3n))), Bool.not(Nat.is_eq(to, at(st, 4n))))
+
+def Laws.sync(storage, caller, limit, logs, time, chain, self, hashes, signers, q0, b0, q1, b1, more):
+  {==}
+
+# ---- A mint does not dilute ----
+
+def lt_asym(+x: Nat, +y: Nat, +e: {True{} == Nat.is_lt(x, y) : Bool}) -> {False{} == Nat.is_lt(y, x) : Bool}:
+  match x y:
+    case 0n 0n:
+      N.absurd({False{} == Nat.is_lt(0n, 0n) : Bool}, e)
+    case 0n 1n+q:
+      {==}
+    case 1n+p 0n:
+      N.absurd({False{} == Nat.is_lt(0n, 1n+p) : Bool}, e)
+    case 1n+p 1n+q:
+      lt_asym(p, q, e)
+
+# The smaller of s0 and s1 is at most each.
+def min_left(c: Bool, +s0: Nat, +s1: Nat, +ec: {c == Nat.is_lt(s0, s1) : Bool}) ->
+  {False{} == Nat.is_lt(s0, Bool.pick(Nat, c, s0, s1)) : Bool}:
+  match c:
+    case True{}:
+      N.lt_irrefl(s0)
+    case False{}:
+      ec
+
+def min_right(c: Bool, +s0: Nat, +s1: Nat, +ec: {c == Nat.is_lt(s0, s1) : Bool}) ->
+  {False{} == Nat.is_lt(s1, Bool.pick(Nat, c, s0, s1)) : Bool}:
+  match c:
+    case True{}:
+      lt_asym(s0, s1, ec)
+    case False{}:
+      N.lt_irrefl(s1)
+
+def not_irrefl(+d: Nat) -> {True{} == Bool.not(Nat.is_lt(d, d)) : Bool}:
+  %N.lt_irrefl(d) : {True{} == Bool.not(_) : Bool}
+  {==}
+
+# (p / r) * r <= p, as r * (p / r) <= p.
+def floored(+q: Nat, +p: Nat) -> {False{} == Nat.is_lt(p, Nat.mul(Nat.div(p, 1n+q), 1n+q)) : Bool}:
+  %N.mul_comm(1n+q, Nat.div(p, 1n+q)) : {False{} == Nat.is_lt(p, _) : Bool}
+  N.lt_succ_flip(Nat.mul(1n+q, Nat.div(p, 1n+q)), p,
+    Equal.trans(Bool, True{}, Bool.not(Nat.is_lt(Nat.div(p, 1n+q), Nat.div(p, 1n+q))), Nat.is_lt(Nat.mul(1n+q, Nat.div(p, 1n+q)), 1n+p),
+      not_irrefl(Nat.div(p, 1n+q)), N.floor(q, Nat.div(p, 1n+q), p)))
+
+def share.go(+s: Nat, +l: Nat, +b: Nat, +q: Nat,
+  +hl: {False{} == Nat.is_lt(Nat.div(Nat.mul(Nat.sub(b, 1n+q), s), 1n+q), l) : Bool},
+  +hr: {False{} == Nat.is_lt(b, 1n+q) : Bool}) ->
+  {False{} == Nat.is_lt(Nat.mul(s, b), Nat.mul(Nat.add(s, l), 1n+q)) : Bool}:
+  %N.sub_add(b, 1n+q, hr) : {False{} == Nat.is_lt(Nat.mul(s, _), Nat.mul(Nat.add(s, l), 1n+q)) : Bool}
+  %N.mul_comm(Nat.add(Nat.sub(b, 1n+q), 1n+q), s) : {False{} == Nat.is_lt(_, Nat.mul(Nat.add(s, l), 1n+q)) : Bool}
+  %Equal.sym(Nat, Nat.mul(Nat.add(Nat.sub(b, 1n+q), 1n+q), s), Nat.add(Nat.mul(Nat.sub(b, 1n+q), s), Nat.mul(1n+q, s)),
+    N.mul_add(Nat.sub(b, 1n+q), 1n+q, s)) : {False{} == Nat.is_lt(_, Nat.mul(Nat.add(s, l), 1n+q)) : Bool}
+  %N.mul_comm(s, 1n+q) : {False{} == Nat.is_lt(Nat.add(Nat.mul(Nat.sub(b, 1n+q), s), _), Nat.mul(Nat.add(s, l), 1n+q)) : Bool}
+  %N.add_comm(Nat.mul(s, 1n+q), Nat.mul(Nat.sub(b, 1n+q), s)) : {False{} == Nat.is_lt(_, Nat.mul(Nat.add(s, l), 1n+q)) : Bool}
+  %Equal.sym(Nat, Nat.mul(Nat.add(s, l), 1n+q), Nat.add(Nat.mul(s, 1n+q), Nat.mul(l, 1n+q)), N.mul_add(s, l, 1n+q)) :
+    {False{} == Nat.is_lt(Nat.add(Nat.mul(s, 1n+q), Nat.mul(Nat.sub(b, 1n+q), s)), _) : Bool}
+  N.add_mono_left(Nat.mul(s, 1n+q), Nat.mul(l, 1n+q), Nat.mul(Nat.sub(b, 1n+q), s),
+    N.le_trans(Nat.mul(l, 1n+q), Nat.mul(Nat.div(Nat.mul(Nat.sub(b, 1n+q), s), 1n+q), 1n+q), Nat.mul(Nat.sub(b, 1n+q), s),
+      N.mul_mono_left(l, Nat.div(Nat.mul(Nat.sub(b, 1n+q), s), 1n+q), 1n+q, hl),
+      floored(q, Nat.mul(Nat.sub(b, 1n+q), s))))
+
+# A minter who gets l <= (b - r) * s / r liquidity tokens, for supply s and
+# reserve r of a token whose balance is b, leaves s * b >= (s + l) * r.
+def share(+s: Nat, +l: Nat, +b: Nat, r: Nat,
+  +hl: {False{} == Nat.is_lt(Nat.div(Nat.mul(Nat.sub(b, r), s), r), l) : Bool},
+  +hr: {False{} == Nat.is_lt(b, r) : Bool}, +hz: {False{} == Nat.is_eq(r, 0n) : Bool}) ->
+  {False{} == Nat.is_lt(Nat.mul(s, b), Nat.mul(Nat.add(s, l), r)) : Bool}:
+  match r:
+    case 0n:
+      N.absurd({False{} == Nat.is_lt(Nat.mul(s, b), Nat.mul(Nat.add(s, l), 0n)) : Bool}, Equal.sym(Bool, False{}, True{}, hz))
+    case 1n+q:
+      share.go(s, l, b, q, hl, hr)
+
+def both(+x: Bool, +y: Bool, +hx: {False{} == x : Bool}, +hy: {False{} == y : Bool}) ->
+  {True{} == Bool.and(Bool.not(x), Bool.not(y)) : Bool}:
+  %hx : {True{} == Bool.and(Bool.not(_), Bool.not(y)) : Bool}
+  %hy : {True{} == Bool.and(Bool.not(False{}), Bool.not(_)) : Bool}
+  {==}
+
+def fair_pick(+b: Bool, -x: Evm.Outcome<Nat>, -y: Evm.Outcome<Nat>, -st: List<&2, Evm.Slot>,
+  hx: {True{} == b : Bool} -> {True{} == Laws.fair(st, x) : Bool},
+  hy: {False{} == b : Bool} -> {True{} == Laws.fair(st, y) : Bool}) ->
+  {True{} == Laws.fair(st, Bool.pick(Evm.Outcome<Nat>, b, x, y)) : Bool}:
+  match b:
+    case True{}:
+      hx({==})
+    case False{}:
+      hy({==})
+
+# The first mint has no bound.
+def fair_first(+st: List<&2, Evm.Slot>, o: Evm.Outcome<Nat>, +ez: {True{} == Nat.is_eq(Laws.supply(st), 0n) : Bool}) ->
+  {True{} == Laws.fair(st, o) : Bool}:
+  match o:
+    case Evm.Ok{_, t}:
+      match t:
+        case Evm.State{+storage, _, _, _, _}:
+          %ez : {True{} == Bool.or(_, Laws.gained(st, storage)) : Bool}
+          {==}
+    case Evm.Revert{}:
+      {==}
+    case Evm.Raise{_}:
+      {==}
+    case Evm.Calling{_, _, _}:
+      {==}
+
+# The part of the supply s that the balance b above the reserve r buys.
+def part(+b: Nat, +r: Nat, +s: Nat) -> Nat:
+  Nat.div(Nat.mul(Nat.sub(b, r), s), r)
+
+# The liquidity of a later mint.
+def minimum(+b0: Nat, +b1: Nat, +st: List<&2, Evm.Slot>) -> Nat:
+  Bool.pick(Nat, Nat.is_lt(part(b0, at(st, 5n), at(st, 0n)), part(b1, at(st, 6n), at(st, 0n))),
+    part(b0, at(st, 5n), at(st, 0n)), part(b1, at(st, 6n), at(st, 0n)))
+
+# A later mint, with its checks as parameters.
+def more.go(+to: Nat, +b0: Nat, +b1: Nat, +st: List<&2, Evm.Slot>, +ca: Nat, +li: Nat, +lo: List<&2, Evm.Log>, +w: Evm.World,
+  +ez: {False{} == Nat.is_eq(at(st, 0n), 0n) : Bool}, +hr0: {False{} == Nat.is_lt(b0, at(st, 5n)) : Bool},
+  +hr1: {False{} == Nat.is_lt(b1, at(st, 6n)) : Bool},
+  cx: Bool, cd0: Bool, +ed0: {cd0 == Nat.is_eq(at(st, 5n), 0n) : Bool}, cy: Bool, cd1: Bool,
+  +ed1: {cd1 == Nat.is_eq(at(st, 6n), 0n) : Bool}, cl: Bool, cadd: Bool, cbal: Bool) ->
+  {True{} == Laws.fair(st,
+    Bool.pick(Evm.Outcome<Nat>, cx,
+    Bool.pick(Evm.Outcome<Nat>, cd0, Evm.Revert{},
+    Bool.pick(Evm.Outcome<Nat>, cy,
+    Bool.pick(Evm.Outcome<Nat>, cd1, Evm.Revert{},
+    Bool.pick(Evm.Outcome<Nat>, cl,
+    Bool.pick(Evm.Outcome<Nat>, cadd,
+    Bool.pick(Evm.Outcome<Nat>, cbal,
+      Evm.Ok{minimum(b0, b1, st), Evm.State{Evm.Slot{Evm.Plain{6n}, b1} <> Evm.Slot{Evm.Plain{5n}, b0}
+        <> Evm.Slot{Evm.Mapped{Evm.Plain{1n}, to}, Nat.add(Evm.lookup(st, Evm.Mapped{Evm.Plain{1n}, to}), minimum(b0, b1, st))}
+        <> Evm.Slot{Evm.Plain{0n}, Nat.add(at(st, 0n), minimum(b0, b1, st))} <> st, ca, li,
+        Pair.Mint(ca, Nat.sub(b0, at(st, 5n)), Nat.sub(b1, at(st, 6n))) <> Pair.Sync(b0, b1)
+        <> Evm.Log{"Transfer", [0n, to], [minimum(b0, b1, st)]} <> lo, w}},
+      Evm.Revert{}),
+      Evm.Revert{}),
+      Evm.Raise{Pair.InsufficientLiquidityMinted()})),
+      Evm.Revert{})),
+      Evm.Revert{})) : Bool}:
+  match cx:
+    case False{}:
+      {==}
+    case True{}:
+      match cd0:
+        case True{}:
+          {==}
+        case False{}:
+          match cy:
+            case False{}:
+              {==}
+            case True{}:
+              match cd1:
+                case True{}:
+                  {==}
+                case False{}:
+                  match cl:
+                    case False{}:
+                      {==}
+                    case True{}:
+                      match cadd:
+                        case False{}:
+                          {==}
+                        case True{}:
+                          match cbal:
+                            case False{}:
+                              {==}
+                            case True{}:
+                              %ez : {True{} == Bool.or(_, Laws.gained(st, Evm.Slot{Evm.Plain{6n}, b1} <> Evm.Slot{Evm.Plain{5n}, b0}
+                                <> Evm.Slot{Evm.Mapped{Evm.Plain{1n}, to}, Nat.add(Evm.lookup(st, Evm.Mapped{Evm.Plain{1n}, to}), minimum(b0, b1, st))}
+                                <> Evm.Slot{Evm.Plain{0n}, Nat.add(at(st, 0n), minimum(b0, b1, st))} <> st)) : Bool}
+                              both(Nat.is_lt(Nat.mul(at(st, 0n), b0), Nat.mul(Nat.add(at(st, 0n), minimum(b0, b1, st)), at(st, 5n))),
+                                Nat.is_lt(Nat.mul(at(st, 0n), b1), Nat.mul(Nat.add(at(st, 0n), minimum(b0, b1, st)), at(st, 6n))),
+                                share(at(st, 0n), minimum(b0, b1, st), b0, at(st, 5n),
+                                  min_left(Nat.is_lt(part(b0, at(st, 5n), at(st, 0n)), part(b1, at(st, 6n), at(st, 0n))),
+                                    part(b0, at(st, 5n), at(st, 0n)), part(b1, at(st, 6n), at(st, 0n)), {==}), hr0, ed0),
+                                share(at(st, 0n), minimum(b0, b1, st), b1, at(st, 6n),
+                                  min_right(Nat.is_lt(part(b0, at(st, 5n), at(st, 0n)), part(b1, at(st, 6n), at(st, 0n))),
+                                    part(b0, at(st, 5n), at(st, 0n)), part(b1, at(st, 6n), at(st, 0n)), {==}), hr1, ed1))
+
+# What mint does after it reads the balances.
+def mint.rest(+to: Nat, +b0: Nat, +b1: Nat) -> Evm.Contract(Nat):
+  do Evm.Contract<Nat>:
+    +r0 : Nat <- Evm.sload(Pair.RESERVE0())
+    +r1 : Nat <- Evm.sload(Pair.RESERVE1())
+    +amount0 : Nat <- Evm.sub(b0, r0)
+    +amount1 : Nat <- Evm.sub(b1, r1)
+    +supply : Nat <- Evm.sload(ERC20.SUPPLY())
+    Evm.branch(Nat, Nat.is_eq(supply, 0n), Pair.first(to, b0, b1, amount0, amount1),
+      Pair.more(to, b0, b1, amount0, amount1, r0, r1, supply))
+
+def mint.go(+to: Nat, +b0: Nat, +b1: Nat, +st: List<&2, Evm.Slot>, +ca: Nat, +li: Nat, +lo: List<&2, Evm.Log>, +w: Evm.World,
+  ca0: Bool, +e0: {ca0 == Nat.is_lt(b0, at(st, 5n)) : Bool}, ca1: Bool, +e1: {ca1 == Nat.is_lt(b1, at(st, 6n)) : Bool},
+  cz: Bool, +ez: {cz == Nat.is_eq(at(st, 0n), 0n) : Bool}) ->
+  {True{} == Laws.fair(st,
+    Bool.pick(Evm.Outcome<Nat>, ca0, Evm.Revert{},
+    Bool.pick(Evm.Outcome<Nat>, ca1, Evm.Revert{},
+      Bool.pick(Evm.Contract(Nat), cz, Pair.first(to, b0, b1, Nat.sub(b0, at(st, 5n)), Nat.sub(b1, at(st, 6n))),
+        Pair.more(to, b0, b1, Nat.sub(b0, at(st, 5n)), Nat.sub(b1, at(st, 6n)), at(st, 5n), at(st, 6n), at(st, 0n)))(Nat,
+        ok(Nat), Evm.State{st, ca, li, lo, w})))) : Bool}:
+  match ca0:
+    case True{}:
+      {==}
+    case False{}:
+      match ca1:
+        case True{}:
+          {==}
+        case False{}:
+          match cz:
+            case True{}:
+              fair_first(st, Pair.first(to, b0, b1, Nat.sub(b0, at(st, 5n)), Nat.sub(b1, at(st, 6n)))(Nat, ok(Nat), Evm.State{st, ca, li, lo, w}), ez)
+            case False{}:
+              more.go(to, b0, b1, st, ca, li, lo, w, ez, e0, e1,
+                Nat.is_lt(Nat.mul(Nat.sub(b0, at(st, 5n)), at(st, 0n)), li), Nat.is_eq(at(st, 5n), 0n), {==},
+                Nat.is_lt(Nat.mul(Nat.sub(b1, at(st, 6n)), at(st, 0n)), li), Nat.is_eq(at(st, 6n), 0n), {==},
+                Nat.is_lt(0n, minimum(b0, b1, st)), Nat.is_lt(Nat.add(at(st, 0n), minimum(b0, b1, st)), li),
+                Nat.is_lt(Nat.add(Evm.lookup(st, Evm.Mapped{Evm.Plain{1n}, to}), minimum(b0, b1, st)), li))
+
+def mint.second(+to: Nat, +b0: Nat, +st: List<&2, Evm.Slot>, +ca: Nat, +li: Nat, +lo: List<&2, Evm.Log>, +time: Nat,
+  +chain: Nat, +self: Nat, +hashes: List<&2, Evm.Hashed>, +signers: List<&2, Evm.Signed>, answers: List<&2, Evm.Answer>) ->
+  {True{} == Laws.fair(st, Evm.answer(Nat, balance.of(st, 4n, self), b1 => v => mint.rest(to, b0, b1)(Nat, ok(Nat), v),
+    Evm.State{st, ca, li, lo, Evm.World{time, chain, self, hashes, signers, answers}})) : Bool}:
+  match answers:
+    case Nil{}:
+      {==}
+    case Evm.Answer{+q, +b1} <> +more:
+      fair_pick(Evm.same.call(q, balance.of(st, 4n, self)),
+        mint.rest(to, b0, b1)(Nat, ok(Nat), Evm.State{st, ca, li, lo, Evm.World{time, chain, self, hashes, signers, more}}),
+        Evm.Revert{}, st,
+        _ => mint.go(to, b0, b1, st, ca, li, lo, Evm.World{time, chain, self, hashes, signers, more},
+          Nat.is_lt(b0, at(st, 5n)), {==}, Nat.is_lt(b1, at(st, 6n)), {==}, Nat.is_eq(at(st, 0n), 0n), {==}),
+        _ => {==})
+
+def Laws.mint(storage, caller, limit, logs, world, to):
+  match world:
+    case Evm.World{+time, +chain, +self, +hashes, +signers, answers}:
+      match answers:
+        case Nil{}:
+          {==}
+        case Evm.Answer{+q, +b0} <> +more:
+          fair_pick(Evm.same.call(q, balance.of(storage, 3n, self)),
+            Evm.answer(Nat, balance.of(storage, 4n, self), b1 => v => mint.rest(to, b0, b1)(Nat, ok(Nat), v),
+              Evm.State{storage, caller, limit, logs, Evm.World{time, chain, self, hashes, signers, more}}),
+            Evm.Revert{}, storage,
+            _ => mint.second(to, b0, storage, caller, limit, logs, time, chain, self, hashes, signers, more),
+            _ => {==})
