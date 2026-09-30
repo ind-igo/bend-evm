@@ -235,7 +235,73 @@ def lower.word(w: IR.Action) -> Exp:
     case IR.Env{_, _}:
       Atom{IR.Lit{0n}}
 
-# The entry's output is known, so a tail of the wrong kind lowers to a revert.
+# A tail word of an entry that returns a word.
+def lower.tail(w: IR.Action) -> Stmt:
+  match w:
+    case IR.Add{+left, +right}:
+      Check{overflow(left, right), Result{Add{Atom{left}, Atom{right}}}}
+    case IR.Sub{+left, +right}:
+      Check{Lt{Atom{left}, Atom{right}}, Result{Sub{Atom{left}, Atom{right}}}}
+    case IR.Mul{+left, +right}:
+      Check{mul.overflow(left, right), Result{Op{Evm.Mul{}, [left, right]}}}
+    case IR.Div{left, +right}:
+      Check{IsZero{Atom{right}}, Result{Op{Evm.Div{}, [left, right]}}}
+    case IR.Mod{left, +right}:
+      Check{IsZero{Atom{right}}, Result{Op{Evm.Mod{}, [left, right]}}}
+    case IR.View{target, signature, args}:
+      Answer{target, signature, args}
+    case IR.Call{target, signature, args}:
+      Reply{target, signature, args}
+    case IR.Env{e, args}:
+      Sensed{e, args}
+    case +other:
+      Result{lower.word(other)}
+
+# A last effect of an entry that returns Unit.
+def lower.finish(e: IR.Effect) -> Stmt:
+  match e:
+    case IR.SStore{loc, value}:
+      SStore{loc, Atom{value}, Stop{}}
+    case IR.Log{event, topics, data}:
+      Log{event, topics, data, Stop{}}
+    case IR.Require{c}:
+      Check{lower.cond(c), Stop{}}
+    case IR.Ensure{c, error, args}:
+      Guard{lower.cond(c), error, args, Stop{}}
+    case IR.Pay{target, amount}:
+      Pay{target, amount, Stop{}}
+
+# The entry's output is known, so a tail of the wrong kind lowers to a
+# revert. Each looks at the output first, so a proof about a tail of the
+# wrong kind needs no case for each word or effect.
+def tail.return(value: IR.Expr, out: IR.Output) -> Stmt:
+  match out:
+    case IR.Returns{}:
+      Result{Atom{value}}
+    case _:
+      Revert{}
+
+def tail.word(w: IR.Action, out: IR.Output) -> Stmt:
+  match out:
+    case IR.Returns{}:
+      lower.tail(w)
+    case _:
+      Revert{}
+
+def tail.effect(e: IR.Effect, out: IR.Output) -> Stmt:
+  match out:
+    case IR.Stops{}:
+      lower.finish(e)
+    case _:
+      Revert{}
+
+def tail.stop(out: IR.Output) -> Stmt:
+  match out:
+    case IR.Stops{}:
+      Stop{}
+    case _:
+      Revert{}
+
 def lower(cmd: IR.Cmd, +out: IR.Output) -> Stmt:
   match cmd out:
     case IR.Bind{IR.Add{+left, +right}, level, body} o:
@@ -266,39 +332,13 @@ def lower(cmd: IR.Cmd, +out: IR.Output) -> Stmt:
       Guard{lower.cond(c), error, args, lower(body, o)}
     case IR.Then{IR.Pay{target, amount}, body} o:
       Pay{target, amount, lower(body, o)}
-    case IR.Return{value} IR.Returns{}:
-      Result{Atom{value}}
-    case IR.Tail{IR.Add{+left, +right}} IR.Returns{}:
-      Check{overflow(left, right), Result{Add{Atom{left}, Atom{right}}}}
-    case IR.Tail{IR.Sub{+left, +right}} IR.Returns{}:
-      Check{Lt{Atom{left}, Atom{right}}, Result{Sub{Atom{left}, Atom{right}}}}
-    case IR.Tail{IR.Mul{+left, +right}} IR.Returns{}:
-      Check{mul.overflow(left, right), Result{Op{Evm.Mul{}, [left, right]}}}
-    case IR.Tail{IR.Div{left, +right}} IR.Returns{}:
-      Check{IsZero{Atom{right}}, Result{Op{Evm.Div{}, [left, right]}}}
-    case IR.Tail{IR.Mod{left, +right}} IR.Returns{}:
-      Check{IsZero{Atom{right}}, Result{Op{Evm.Mod{}, [left, right]}}}
-    case IR.Tail{IR.View{target, signature, args}} IR.Returns{}:
-      Answer{target, signature, args}
-    case IR.Tail{IR.Call{target, signature, args}} IR.Returns{}:
-      Reply{target, signature, args}
-    case IR.Tail{IR.Env{e, args}} IR.Returns{}:
-      Sensed{e, args}
-    case IR.Tail{w} IR.Returns{}:
-      Result{lower.word(w)}
-    case IR.Finish{IR.SStore{loc, value}} IR.Stops{}:
-      SStore{loc, Atom{value}, Stop{}}
-    case IR.Finish{IR.Log{event, topics, data}} IR.Stops{}:
-      Log{event, topics, data, Stop{}}
-    case IR.Finish{IR.Require{c}} IR.Stops{}:
-      Check{lower.cond(c), Stop{}}
-    case IR.Finish{IR.Ensure{c, error, args}} IR.Stops{}:
-      Guard{lower.cond(c), error, args, Stop{}}
-    case IR.Finish{IR.Pay{target, amount}} IR.Stops{}:
-      Pay{target, amount, Stop{}}
-    case IR.Stop{} IR.Stops{}:
-      Stop{}
+    case IR.Return{value} o:
+      tail.return(value, o)
+    case IR.Tail{w} o:
+      tail.word(w, o)
+    case IR.Finish{e} o:
+      tail.effect(e, o)
+    case IR.Stop{} o:
+      tail.stop(o)
     case IR.If{c, yes, no} o:
       If{lower.test(c), lower(yes, o), lower(no, o)}
-    case _ _:
-      Revert{}

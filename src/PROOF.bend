@@ -473,42 +473,6 @@ def sim(+cmd: IR.Cmd, +out: IR.Output, +env: List<&2, IR.Binding>, -R: Data,
       {==}
     case IR.Tail{IR.Call{_, _, _}} IR.Returns{}:
       {==}
-    case IR.Tail{IR.SLoad{_}} IR.Stops{}:
-      {==}
-    case IR.Tail{IR.Caller{}} IR.Stops{}:
-      {==}
-    case IR.Tail{IR.Add{_, _}} IR.Stops{}:
-      {==}
-    case IR.Tail{IR.Sub{_, _}} IR.Stops{}:
-      {==}
-    case IR.Tail{IR.Mul{_, _}} IR.Stops{}:
-      {==}
-    case IR.Tail{IR.Div{_, _}} IR.Stops{}:
-      {==}
-    case IR.Tail{IR.Mod{_, _}} IR.Stops{}:
-      {==}
-    case IR.Tail{IR.Math{_, _}} IR.Stops{}:
-      {==}
-    case IR.Tail{IR.Select{_, _, _}} IR.Stops{}:
-      {==}
-    case IR.Tail{IR.Max{}} IR.Stops{}:
-      {==}
-    case IR.Tail{IR.Env{_, _}} IR.Stops{}:
-      {==}
-    case IR.Tail{IR.Self{}} IR.Stops{}:
-      {==}
-    case IR.Tail{IR.Keccak{_}} IR.Stops{}:
-      {==}
-    case IR.Tail{IR.Typed{_, _}} IR.Stops{}:
-      {==}
-    case IR.Tail{IR.Id{_}} IR.Stops{}:
-      {==}
-    case IR.Tail{IR.Recover{_, _, _, _}} IR.Stops{}:
-      {==}
-    case IR.Tail{IR.View{_, _, _}} IR.Stops{}:
-      {==}
-    case IR.Tail{IR.Call{_, _, _}} IR.Stops{}:
-      {==}
     case IR.Finish{IR.SStore{_, _}} IR.Stops{}:
       {==}
     case IR.Finish{IR.Log{_, _, _}} IR.Stops{}:
@@ -522,17 +486,11 @@ def sim(+cmd: IR.Cmd, +out: IR.Output, +env: List<&2, IR.Binding>, -R: Data,
       %test_bit(c, env, s) : {obs(entries, steps, R, open)(Bool.pick(Evm.Outcome<R>, Nat.is_eq(Yul.bit(Nat.is_eq(_, 0n)), 0n), k(Unit{}, s), Evm.Raise{e}))
         == obs(entries, steps, R, open)(Bool.pick(Evm.Outcome<R>, IR.cond(c, env), k(Unit{}, s), Evm.Raise{e})) : Evm.Outcome<R>}
       require_step(IR.cond(c, env), R, Evm.Raise{e}, k(Unit{}, s), k(Unit{}, s), obs(entries, steps, R, open), {==})
-    case IR.Finish{IR.SStore{_, _}} IR.Returns{}:
-      {==}
-    case IR.Finish{IR.Log{_, _, _}} IR.Returns{}:
-      {==}
-    case IR.Finish{IR.Require{_}} IR.Returns{}:
-      {==}
-    case IR.Finish{IR.Ensure{_, _, _}} IR.Returns{}:
-      {==}
     case IR.Finish{IR.Pay{_, _}} IR.Stops{}:
       {==}
-    case IR.Finish{IR.Pay{_, _}} IR.Returns{}:
+    case IR.Tail{_} IR.Stops{}:
+      {==}
+    case IR.Finish{_} IR.Returns{}:
       {==}
     case IR.Stop{} IR.Stops{}:
       {==}
