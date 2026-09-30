@@ -23,6 +23,8 @@ def atom(e: IR.Expr) -> String:
       nat(value)
     case IR.Var{level}:
       var(level)
+    case IR.Item{level, index}:
+      var(level) ++ "_" ++ nat(index)
 
 def call(name: String, args: List<&2, String>) -> String:
   name ++ "(" ++ String.join(args, ", ") ++ ")"
@@ -136,18 +138,32 @@ def prelude(+pad: String, value: Yul.Exp) -> String:
 
 # A call to another contract, with staticcall for a view and with call and
 # no value otherwise: the selector and argument words go to memory at 0, and
-# the first returned word comes back to 0. The call reverts with no data
-# when it fails or returns less than a word; Solidity passes the callee's
-# revert data on instead. A callback into this contract runs in a new frame
-# with its own memory, so it cannot change these words.
-def external(+pad: String, +writes: Bool, +target: IR.Expr, +signature: String, +args: List<&2, IR.Expr>) -> String:
+# the first words returned come back to 0. When the call fails, the
+# contract reverts with the callee's revert data, as Solidity does; when it
+# returns fewer words, with no data. A callback into this contract runs in a
+# new frame with its own memory, so it cannot change these words.
+def external(+pad: String, +writes: Bool, +target: IR.Expr, +signature: String, +args: List<&2, IR.Expr>, +words: Nat) ->
+  String:
   +size = Nat.add(4n, Nat.mul(32n, List.length(&2, IR.Expr, args)))
-  +made = Bool.pick(String, writes, call("call", ["gas()", atom(target), "0", "0", nat(size), "0", "32"]),
-    call("staticcall", ["gas()", atom(target), "0", nat(size), "0", "32"]))
+  +out = nat(Nat.mul(32n, words))
+  +made = Bool.pick(String, writes, call("call", ["gas()", atom(target), "0", "0", nat(size), "0", out]),
+    call("staticcall", ["gas()", atom(target), "0", nat(size), "0", out]))
   pad ++ call("mstore", ["0", call("shl", ["224", Keccak.hex(Keccak.selector(signature))])]) ++ "\n"
     ++ stores(pad, args, 4n)
-    ++ pad ++ "if iszero(" ++ made ++ ") { " ++ revert() ++ " }\n"
-    ++ pad ++ "if lt(returndatasize(), 32) { " ++ revert() ++ " }\n"
+    ++ pad ++ "if iszero(" ++ made ++ ") {\n"
+    ++ pad ++ "  returndatacopy(0, 0, returndatasize())\n"
+    ++ pad ++ "  revert(0, returndatasize())\n"
+    ++ pad ++ "}\n"
+    ++ pad ++ "if lt(returndatasize(), " ++ out ++ ") { " ++ revert() ++ " }\n"
+
+# The locals of a Fetch at level: one for each word.
+def fetched(n: Nat, +pad: String, +level: Nat, +i: Nat) -> String:
+  match n:
+    case 0n:
+      ""
+    case 1n+m:
+      pad ++ "let " ++ atom(IR.Item{level, i}) ++ " := " ++ call("mload", [nat(Nat.mul(32n, i))]) ++ "\n"
+        ++ fetched(m, pad, level, Nat.add(i, 1n))
 
 # halt is the text for a final stop: stop() in the runtime code, nothing in
 # the deploy code.
@@ -172,13 +188,17 @@ def stmt(+pad: String, +halt: String, s: Yul.Stmt) -> String:
         ++ "\n" ++ stores(inner, args, 4n) ++ inner ++ call("revert", ["0", nat(size)]) ++ "\n" ++ pad ++ "}\n"
         ++ stmt(pad, halt, body)
     case Yul.View{level, target, +signature, +args, body}:
-      external(pad, False{}, target, signature, args) ++ pad ++ "let " ++ var(level) ++ " := mload(0)\n" ++ stmt(pad, halt, body)
+      external(pad, False{}, target, signature, args, 1n) ++ pad ++ "let " ++ var(level) ++ " := mload(0)\n" ++ stmt(pad, halt, body)
     case Yul.Call{level, target, +signature, +args, body}:
-      external(pad, True{}, target, signature, args) ++ pad ++ "let " ++ var(level) ++ " := mload(0)\n" ++ stmt(pad, halt, body)
+      external(pad, True{}, target, signature, args, 1n) ++ pad ++ "let " ++ var(level) ++ " := mload(0)\n" ++ stmt(pad, halt, body)
     case Yul.Reply{target, +signature, +args}:
-      external(pad, True{}, target, signature, args) ++ pad ++ "return(0, 32)\n"
+      external(pad, True{}, target, signature, args, 1n) ++ pad ++ "return(0, 32)\n"
     case Yul.Answer{target, +signature, +args}:
-      external(pad, False{}, target, signature, args) ++ pad ++ "return(0, 32)\n"
+      external(pad, False{}, target, signature, args, 1n) ++ pad ++ "return(0, 32)\n"
+    case Yul.Fetch{+level, target, +signature, +args, +count, body}:
+      external(pad, False{}, target, signature, args, count) ++ fetched(count, pad, level, 0n) ++ stmt(pad, halt, body)
+    case Yul.Results{+values}:
+      stores(pad, values, 0n) ++ pad ++ call("return", ["0", nat(Nat.mul(32n, List.length(&2, IR.Expr, values)))]) ++ "\n"
     case Yul.Pay{target, amount, body}:
       pad ++ "if iszero(" ++ call("call", ["gas()", atom(target), atom(amount), "0", "0", "0", "0"]) ++ ") { " ++ revert() ++ " }\n"
         ++ stmt(pad, halt, body)
@@ -237,11 +257,15 @@ def fixed.loc(l: IR.Loc) -> Bool:
       True{}
     case IR.Plain{IR.Var{_}}:
       False{}
+    case IR.Plain{IR.Item{_, _}}:
+      False{}
     case IR.Mapped{base, _}:
       fixed.loc(base)
     case IR.Temp{IR.Lit{_}}:
       True{}
     case IR.Temp{IR.Var{_}}:
+      False{}
+    case IR.Temp{IR.Item{_, _}}:
       False{}
 
 def fixed(cmd: IR.Cmd) -> Bool:
@@ -260,6 +284,8 @@ def fixed(cmd: IR.Cmd) -> Bool:
       fixed.loc(l)
     case IR.If{_, yes, no}:
       Bool.and(fixed(yes), fixed(no))
+    case IR.Fetch{_, _, _, _, _, body}:
+      fixed(body)
     case _:
       True{}
 
@@ -459,7 +485,7 @@ def init.stops(out: IR.Output, inputs: List<&2, Read.Input>, +levels: List<&2, N
       do Result<&2, &2, String, String>:
         checked : IR.Cmd <- valid("init", body, levels)
         return arguments(types(inputs)) ++ stmt("    ", "", Yul.lower(checked, IR.Stops{}))
-    case IR.Returns{}:
+    case _:
       Fail{"init must return Unit"}
 
 def constructor.of(f: Read.Function) -> Result<&2, &2, String, String>:
@@ -487,7 +513,7 @@ def receive.stops(out: IR.Output, +levels: List<&2, Nat>, +body: IR.Cmd) -> Resu
         checked : IR.Cmd <- valid("receive", body, levels)
         return "      if iszero(calldatasize()) {\n" ++ stmt(indent(), indent() ++ "stop()\n", Yul.lower(checked, IR.Stops{}))
           ++ "      }\n"
-    case IR.Returns{}:
+    case _:
       Fail{"receive must return Unit"}
 
 def receive.of(f: Read.Function) -> Result<&2, &2, String, String>:

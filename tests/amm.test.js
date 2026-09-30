@@ -53,7 +53,8 @@ const word = (to, signature, ...args) => BigInt(must(chain.cast('call', to, sign
 
 function state({ pair, coins }) {
   const lp = [...people, pair, '0x0000000000000000000000000000000000000000'].map(p => word(pair, 'balanceOf(address)(uint256)', p));
-  return ['state', word(pair, 'reserve0()(uint256)'), word(pair, 'reserve1()(uint256)'), word(pair, 'totalSupply()(uint256)'),
+  const reserves = must(chain.cast('call', pair, 'getReserves()(uint256,uint256)')).split('\n').map(l => l.split(' ')[0]);
+  return ['state', ...reserves, word(pair, 'totalSupply()(uint256)'),
     ...lp, ...coins.map(c => word(c, 'balanceOf(address)(uint256)', pair))].join(' ');
 }
 

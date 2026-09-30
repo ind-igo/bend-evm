@@ -6,6 +6,7 @@ import ./Evm.bend as Evm
 type Expr is Data:
   Lit{value: Nat}
   Var{level: Nat}
+  Item{level: Nat, index: Nat}
 
 type Cond is Data:
   Eq{left: Expr, right: Expr}
@@ -55,11 +56,17 @@ type Cmd is Data:
   Finish{effect: Effect}
   Stop{}
   If{cond: Cond, yes: Cmd, no: Cmd}
+  Give{signature: String, values: List<&2, Expr>}
+  Fetch{target: Expr, signature: String, args: List<&2, Expr>, count: Nat, level: Nat, body: Cmd}
 
-# What an entry point returns.
+# What an entry point returns: a word, Unit, or several words. Give returns
+# several words; its signature is the tuple def's, for the ABI, and the
+# model keeps only the words. Fetch binds the first count words of a view
+# call at level, and Item reads one.
 type Output is Data:
   Returns{}
   Stops{}
+  Gives{}
 
 def value(out: Output) -> Data:
   match out:
@@ -67,9 +74,15 @@ def value(out: Output) -> Data:
       Nat
     case Stops{}:
       Unit
+    case Gives{}:
+      Evm.Values
 
+# A level holds a word, or the words of a Fetch. The printer names each
+# word of a Fetch at level l as its own local, so an Item of a word level,
+# or a Var of a Fetch level, names no local and solc rejects it.
 type Binding is Data:
   Binding{level: Nat, value: Nat}
+  Bindings{level: Nat, values: Evm.Values}
 
 def lookup(env: List<&2, Binding>, +level: Nat) -> Nat:
   match env:
@@ -77,6 +90,17 @@ def lookup(env: List<&2, Binding>, +level: Nat) -> Nat:
       0n
     case Binding{k, v} <> rest:
       Bool.pick(Nat, Nat.is_eq(k, level), v, lookup(rest, level))
+    case Bindings{_, _} <> rest:
+      lookup(rest, level)
+
+def values(env: List<&2, Binding>, +level: Nat) -> Evm.Values:
+  match env:
+    case Nil{}:
+      Evm.Values{Nil{}}
+    case Binding{_, _} <> rest:
+      values(rest, level)
+    case Bindings{k, v} <> rest:
+      Bool.pick(Evm.Values, Nat.is_eq(k, level), v, values(rest, level))
 
 def eval(expr: Expr, +env: List<&2, Binding>) -> Nat:
   match expr:
@@ -84,6 +108,8 @@ def eval(expr: Expr, +env: List<&2, Binding>) -> Nat:
       value
     case Var{level}:
       lookup(env, level)
+    case Item{level, index}:
+      Evm.item(values(env, level), index)
 
 def evals(exprs: List<&2, Expr>, +env: List<&2, Binding>) -> List<&2, Nat>:
   match exprs:
@@ -192,6 +218,11 @@ def run(cmd: Cmd, +out: Output, +env: List<&2, Binding>) -> Evm.Contract(value(o
       Evm.Contract.pure(Unit, Unit{})
     case If{c, yes, no} o:
       Evm.branch(value(o), cond(c, env), run(yes, o, env), run(no, o, env))
+    case Give{_, vs} Gives{}:
+      Evm.Contract.pure(Evm.Values, Evm.Values{evals(vs, env)})
+    case Fetch{target, signature, args, count, level, body} o:
+      Evm.Contract.bind(Evm.Values, value(o), Evm.views(Evm.Call{eval(target, env), name(signature), evals(args, env)}, count),
+        v => run(body, o, Bindings{level, v} <> env))
     case _ o:
       abort(value(o))
 
@@ -209,6 +240,8 @@ def closed.expr(e: Expr, +scope: List<&2, Nat>) -> Bool:
     case Lit{_}:
       True{}
     case Var{level}:
+      has(scope, level)
+    case Item{level, _}:
       has(scope, level)
 
 def closed.two(left: Expr, right: Expr, +scope: List<&2, Nat>) -> Bool:
@@ -307,12 +340,18 @@ def closed(cmd: Cmd, +scope: List<&2, Nat>) -> Bool:
       True{}
     case If{c, yes, no}:
       Bool.and(closed.cond(c, scope), Bool.and(closed(yes, scope), closed(no, scope)))
+    case Give{_, vs}:
+      closed.list(vs, scope)
+    case Fetch{target, _, args, _, level, body}:
+      Bool.and(Bool.and(closed.expr(target, scope), closed.list(args, scope)), closed(body, level <> scope))
 
 def levels(env: List<&2, Binding>) -> List<&2, Nat>:
   match env:
     case Nil{}:
       Nil{}
     case Binding{level, _} <> rest:
+      level <> levels(rest)
+    case Bindings{level, _} <> rest:
       level <> levels(rest)
 
 # An entry point: reverts unless every variable is bound, then runs.

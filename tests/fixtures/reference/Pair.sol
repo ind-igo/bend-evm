@@ -2,9 +2,9 @@
 pragma solidity ^0.8.20;
 
 // The reference for examples/amm/Pair.bend: Uniswap V2's pair with the same
-// changes (no lock, no oracle, no flash swaps, no skim, full-word reserves,
-// custom errors, both transfers always made, indexed event parameters
-// first). The square root is Uniswap's Babylonian loop, not the Bend pair's
+// changes (no lock, no oracle, no flash swaps, no skim, full-word reserves
+// and no time in getReserves, custom errors, both transfers always made,
+// indexed event parameters first). The square root is Uniswap's Babylonian loop, not the Bend pair's
 // Newton steps, so the test checks one against the other.
 contract Pair {
     uint256 public totalSupply;
@@ -97,6 +97,10 @@ contract Pair {
         reserve0 = balance0;
         reserve1 = balance1;
         emit Sync(balance0, balance1);
+    }
+
+    function getReserves() external view returns (uint256, uint256) {
+        return (reserve0, reserve1);
     }
 
     function sync() public {

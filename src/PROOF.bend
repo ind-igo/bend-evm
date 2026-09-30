@@ -268,6 +268,21 @@ def view_step(+c: Evm.Call, -R: Data, -y: Nat -> Evm.State -> Evm.Outcome<R>, -f
           +t : Evm.State = Evm.State{storage, caller, limit, logs, Evm.World{facts, readings, self, hashes, signers, rest}}
           pick_step(Evm.same.call(q, c), R, y(x, t), f(x, t), Evm.Revert{}, d, h(x, t))
 
+# A Fetch: Yul and the IR take the same answers for the same call, and
+# their continuations agree on every words and state.
+def gather_step(n: Nat, +c: Evm.Call, -R: Data, -y: Evm.Values -> Evm.State -> Evm.Outcome<R>,
+  -f: Evm.Values -> Evm.State -> Evm.Outcome<R>, +s: Evm.State, -d: Evm.Outcome<R> -> Evm.Outcome<R>,
+  h: @v: Evm.Values -> @t: Evm.State -> {d(y(v, t)) == d(f(v, t)) : Evm.Outcome<R>}) ->
+  {d(Evm.gather(n, R, c, y, s)) == d(Evm.gather(n, R, c, f, s)) : Evm.Outcome<R>}:
+  match n:
+    case 0n:
+      h(Evm.Values{Nil{}}, s)
+    case 1n+m:
+      view_step(c, R, x => t => Evm.gather(m, R, c, v => u => y(Evm.prepend(x, v), u), t),
+        x => t => Evm.gather(m, R, c, v => u => f(Evm.prepend(x, v), u), t), s, d,
+        x => t => gather_step(m, c, R, v => u => y(Evm.prepend(x, v), u), v => u => f(Evm.prepend(x, v), u), t, d,
+          v => u => h(Evm.prepend(x, v), u)))
+
 # A Call: Yul and the IR stop at the same call. The run takes the same
 # answer and the same callbacks for both, and their continuations agree on
 # every later answers, word and state.
@@ -487,6 +502,25 @@ def sim(+cmd: IR.Cmd, +out: IR.Output, +env: List<&2, IR.Binding>, -R: Data,
         == obs(entries, steps, R, open)(Bool.pick(Evm.Outcome<R>, IR.cond(c, env), k(Unit{}, s), Evm.Raise{e})) : Evm.Outcome<R>}
       require_step(IR.cond(c, env), R, Evm.Raise{e}, k(Unit{}, s), k(Unit{}, s), obs(entries, steps, R, open), {==})
     case IR.Finish{IR.Pay{_, _}} IR.Stops{}:
+      {==}
+    case IR.Fetch{t, g, args, n, level, body} o:
+      gather_step(n, Evm.Call{IR.eval(t, env), IR.name(g), IR.evals(args, env)}, R,
+        v => Yul.exec(Yul.lower(body, o), o, IR.Bindings{level, v} <> env, R, k),
+        v => IR.run(body, o, IR.Bindings{level, v} <> env, R, k),
+        s, obs(entries, steps, R, open), v => u => sim(body, o, IR.Bindings{level, v} <> env, R, k, u, entries, steps, open))
+    case IR.Give{_, _} IR.Gives{}:
+      {==}
+    case IR.Give{_, _} IR.Returns{}:
+      {==}
+    case IR.Give{_, _} IR.Stops{}:
+      {==}
+    case IR.Return{_} IR.Gives{}:
+      {==}
+    case IR.Tail{_} IR.Gives{}:
+      {==}
+    case IR.Finish{_} IR.Gives{}:
+      {==}
+    case IR.Stop{} IR.Gives{}:
       {==}
     case IR.Tail{_} IR.Stops{}:
       {==}

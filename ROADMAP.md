@@ -344,3 +344,15 @@ Not in M24: calls to a function with ether (`token.deposit{value: x}()`), which 
 - [x] A reentrancy guard after solady's `ReentrancyGuardTransient` ([tests/fixtures/transient](tests/fixtures/transient)), with two laws: a guarded function with the lock clear makes its call with the lock set and clears it after, and one with the lock set raises `Reentrancy()`. So a callback into it while the call runs reverts. A test on `anvil` shows the callback's revert and that the lock is gone in the next transaction.
 
 Not in M25: a model of the end of a transaction. A law about one call holds for any transient values at its start; a law about a sequence of transactions must clear them itself. Transient mappings, which Solidity does not have either.
+
+## M26: more than one word
+
+### Done when
+
+- [x] A function returns several words with a tuple def, a def whose result type is `Evm.Values`, as in `Evm.Contract.pure(Evm.Values, Reserves(r0, r1))`. The ABI takes the names and types of the results from the def, and the reader checks that every branch returns the same one. The IR has a new output, `IR.Gives{}`, and a new tail, `IR.Give{signature, values}`.
+- [x] `Evm.views(call, n)` gives the first `n` words of a view call, and `Evm.item(v, i)` reads word `i`. The model takes `n` answers for the same call, one for each word. The IR binds them with `IR.Fetch{..., count, level, body}` and reads them with `IR.Item{level, i}`; the lowering proof covers it by induction on `n`.
+- [x] A call that fails passes on the callee's revert data, as Solidity does. The model's `Revert{}` is a revert whose data no law gives.
+- [x] The AMM has `getReserves()`, which returns both reserves without the time. [tests/fixtures/values](tests/fixtures/values) has a law for a view of two words and an anvil test.
+- [x] `Yul.lower` looks at the output before a tail, so a tail of the wrong kind needs one case in the lowering proof, not one for each word or effect (23 cases became 2).
+
+Not in M26: calls that write and give several words, and a call to one of the contract's own functions that returns a tuple. Add them when a contract needs them.

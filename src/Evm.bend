@@ -110,6 +110,32 @@ type Call is Data:
 type Answer is Data:
   Answer{call: Call, value: Nat}
 
+# Several words, as a Solidity tuple: a function's results, or the words
+# that a view call returns. A def with this result type names them, as an
+# event def names a log, and gives the ABI their names and types:
+#   def Reserves(reserve0: Nat, reserve1: Nat) -> Evm.Values:
+#     Evm.Values{[reserve0, reserve1]}
+type Values is Data:
+  Values{words: List<&2, Nat>}
+
+def nth(ws: List<&2, Nat>, +i: Nat) -> Nat:
+  match ws:
+    case Nil{}:
+      0n
+    case x <> rest:
+      Bool.pick(Nat, Nat.is_eq(i, 0n), x, nth(rest, Nat.sub(i, 1n)))
+
+# Word i of v, as in Solidity's (a, b) = ...; zero past the last word.
+def item(v: Values, +i: Nat) -> Nat:
+  match v:
+    case Values{ws}:
+      nth(ws, i)
+
+def prepend(+x: Nat, v: Values) -> Values:
+  match v:
+    case Values{ws}:
+      Values{x <> ws}
+
 # A value that a contract reads from its environment: the transaction, the
 # block or an account. Values that cannot change during a transaction come
 # from a table; the others (fixed is False) come from a list of readings,
@@ -534,6 +560,21 @@ def answer(-R: Data, c: Call, k: Nat -> State -> Outcome<R>, s: State) -> Outcom
 # read this contract's state, so its answer is not a function of the call.
 def view(c: Call) -> Contract(Nat):
   R => k => s => answer(R, c, k, s)
+
+# The first n words of a view call: one answer for each word, each for the
+# same call. A real run has such a list for each call that returns n words.
+def gather(n: Nat, -R: Data, +c: Call, k: Values -> State -> Outcome<R>, s: State) -> Outcome<R>:
+  match n:
+    case 0n:
+      k(Values{Nil{}}, s)
+    case 1n+m:
+      answer(R, c, x => t => gather(m, R, c, v => u => k(prepend(x, v), u), t), s)
+
+# Calls a function of another contract with staticcall and gives the first
+# n words it returns, as in (r0, r1) = pair.getReserves(). Evm.item reads
+# each word.
+def views(c: Call, n: Nat) -> Contract(Values):
+  R => k => s => gather(n, R, c, k, s)
 
 # Calls a function of another contract with call and gives the first word
 # it returns, as in IERC20(token).transfer(to, amount). The called contract

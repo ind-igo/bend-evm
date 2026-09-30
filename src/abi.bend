@@ -62,6 +62,8 @@ def writes(cmd: IR.Cmd) -> Bool:
       writes.effect(e)
     case IR.If{_, yes, no}:
       Bool.or(writes(yes), writes(no))
+    case IR.Fetch{_, _, _, _, _, body}:
+      writes(body)
     case _:
       False{}
 
@@ -70,7 +72,7 @@ def mutability(+payable: Bool, +w: Bool) -> String:
 
 def function.text(+name: String, +inputs: List<&2, String>, +output: String, +state: String) -> String:
   "{" ++ join([field("type", quote("function")), field("name", quote(name)), field("inputs", "[" ++ join(inputs) ++ "]"),
-    field("outputs", outputs(output)), field("stateMutability", quote(state))]) ++ "}"
+    field("outputs", output), field("stateMutability", quote(state))]) ++ "}"
 
 def constructor.text(+inputs: List<&2, String>, +state: String) -> String:
   "{" ++ join([field("type", quote("constructor")), field("inputs", "[" ++ join(inputs) ++ "]"),
@@ -97,6 +99,8 @@ def events(cmd: IR.Cmd) -> List<&2, Emitted>:
       [Emitted{event, List.length(&2, IR.Expr, topics)}]
     case IR.If{_, yes, no}:
       List.append(&2, Emitted, events(yes), events(no))
+    case IR.Fetch{_, _, _, _, _, body}:
+      events(body)
     case _:
       Nil{}
 
@@ -114,6 +118,8 @@ def errors(cmd: IR.Cmd) -> List<&2, Emitted>:
       [Emitted{error, 0n}]
     case IR.If{_, yes, no}:
       List.append(&2, Emitted, errors(yes), errors(no))
+    case IR.Fetch{_, _, _, _, _, body}:
+      errors(body)
     case _:
       Nil{}
 
@@ -232,18 +238,43 @@ def error.texts(+evm: String, +decls: List<&2, Core.Declaration>, es: List<&2, E
 type Item is Data:
   Item{text: String, events: List<&2, Emitted>, errors: List<&2, Emitted>}
 
-def item.contract(+name: String, inputs: List<&2, Read.Input>, +output: String, +payable: Bool, +body: IR.Cmd) -> Item:
+# The tuple def's signature in the first Give of cmd. The reader checks that
+# every Give of a function has one signature.
+def given(cmd: IR.Cmd) -> String:
+  match cmd:
+    case IR.Bind{_, _, body}:
+      given(body)
+    case IR.Then{_, body}:
+      given(body)
+    case IR.Fetch{_, _, _, _, _, body}:
+      given(body)
+    case IR.If{_, yes, _}:
+      given(yes)
+    case IR.Give{signature, _}:
+      signature
+    case _:
+      ""
+
+# A function's outputs: a tuple's come from its def, like an error's inputs.
+def result.outputs(+evm: String, +decls: List<&2, Core.Declaration>, +typ: String, body: IR.Cmd) -> String:
+  +signature = given(body)
+  Bool.pick(String, String.eq(typ, "tuple"),
+    "[" ++ join(error.inputs(types.of(signature), labels(Read.ValuesDef{}, evm, decls, signature))) ++ "]", outputs(typ))
+
+def item.contract(+evm: String, +decls: List<&2, Core.Declaration>, +name: String, inputs: List<&2, Read.Input>,
+  +result: String, +payable: Bool, +body: IR.Cmd) -> Item:
   +ins = params(inputs)
+  +output = result.outputs(evm, decls, result, body)
   Item{Bool.pick(String, String.eq(name, "init"), constructor.text(ins, Bool.pick(String, payable, "payable", "nonpayable")),
     Bool.pick(String, String.eq(name, "receive"), receive.text(),
       function.text(name, ins, output, mutability(payable, writes(body))))), events(body), errors(body)}
 
-def item(f: Read.Function) -> Item:
+def item(+evm: String, +decls: List<&2, Core.Declaration>, f: Read.Function) -> Item:
   match f:
     case Read.Constant{+name, _}:
-      Item{function.text(name, Nil{}, "string", "pure"), Nil{}, Nil{}}
+      Item{function.text(name, Nil{}, outputs("string"), "pure"), Nil{}, Nil{}}
     case Read.Contract{+name, inputs, +output, +payable, Read.Entry{_, +body}}:
-      item.contract(name, inputs, output, payable, body)
+      item.contract(evm, decls, name, inputs, output, payable, body)
 
 type Items is Data:
   Items{texts: List<&2, String>, events: List<&2, Emitted>, errors: List<&2, Emitted>}
@@ -253,12 +284,12 @@ def items.add(i: Item, rest: Items) -> Items:
     case Item{t, es, rs} Items{ts, found, raised}:
       Items{t <> ts, List.append(&2, Emitted, es, found), List.append(&2, Emitted, rs, raised)}
 
-def items(fs: List<&2, Read.Function>) -> Items:
+def items(+evm: String, +decls: List<&2, Core.Declaration>, fs: List<&2, Read.Function>) -> Items:
   match fs:
     case Nil{}:
       Items{Nil{}, Nil{}, Nil{}}
     case f <> rest:
-      items.add(item(f), items(rest))
+      items.add(item(evm, decls, f), items(evm, decls, rest))
 
 def document(+evm: String, +decls: List<&2, Core.Declaration>, all: Items) -> Result<&2, &2, String, String>:
   match all:
@@ -272,7 +303,7 @@ def document(+evm: String, +decls: List<&2, Core.Declaration>, all: Items) -> Re
 def abi(file: String, s: Tool.Setup) -> Result<&2, &2, String, String>:
   match s:
     case Tool.Setup{+evm, fs, +decls}:
-      document(evm, decls, items(fs))
+      document(evm, decls, items(evm, decls, fs))
 
 def main() -> IO(Unit):
   Tool.main(~abi, "Usage: abi.bend <contract.bend> <function>...")

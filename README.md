@@ -128,7 +128,7 @@ Every other arithmetic, comparison and bitwise opcode is a word operation that n
 
 [examples/amm](examples/amm) has a constant-product pair, after Uniswap V2's `UniswapV2Pair`, with the 0.3% fee. [Pair.bend](examples/amm/Pair.bend) uses the ERC-20 core as its liquidity token, calls its two tokens through the defs in [IERC20.bend](examples/amm/IERC20.bend), and takes the square root with solady's method, which has no loop ([Math.bend](examples/amm/Math.bend)). As in Uniswap, a user first sends tokens to the pair, then calls `mint` or `swap`. For `burn`, the user first sends liquidity tokens to the pair.
 
-It differs from Uniswap's pair in these ways. It has no lock, no price oracle, no flash swaps, no `skim` and no protocol fee. The reserves are full words, and `reserve0()` and `reserve1()` replace `getReserves()`. `burn` returns nothing, and the `Burn` event gives the amounts. The errors are custom errors with the names of Uniswap's messages. The indexed event parameters come first, so `Burn` and `Swap` have other signatures. A swap always makes both transfers, also for zero.
+It differs from Uniswap's pair in these ways. It has no lock, no price oracle, no flash swaps, no `skim` and no protocol fee. The reserves are full words, and `getReserves()` returns them without the time. `burn` returns nothing, and the `Burn` event gives the amounts. The errors are custom errors with the names of Uniswap's messages. The indexed event parameters come first, so `Burn` and `Swap` have other signatures. A swap always makes both transfers, also for zero.
 
 [LAWS.bend](examples/amm/LAWS.bend) has these laws, and [PROOF.bend](examples/amm/PROOF.bend) proves them:
 
@@ -167,6 +167,22 @@ def withdraw(+amount: Nat) -> Evm.Contract(Unit):
 [LAWS.bend](examples/weth/LAWS.bend) has three laws: `deposit` and `receive` give the sender as many tokens as the wei sent, and `withdraw` burns the tokens and logs before it pays, with the pay as its last step, so a callback sees the burned balance. [tests/weth.test.js](tests/weth.test.js) gives it and solmate's WETH in Solidity ([tests/fixtures/reference/WETH.sol](tests/fixtures/reference/WETH.sol)) the same random steps on `anvil`, with a holder that refuses ether, or deposits or withdraws again when it gets ether.
 
 The model has no ether balances: `balance` and `selfbalance` are readings. So a law cannot say that WETH holds as much ether as its supply.
+
+## Several words
+
+A function returns several words as Solidity's `returns (a, b)` does, with a tuple def whose result type is `Evm.Values`. The def gives the ABI the names and types of the results, as an event def does for a log. A view call gives several words with `Evm.views(call, n)`, and `Evm.item(v, i)` reads word `i`:
+
+```bend
+def Reserves(reserve0: Nat, reserve1: Nat) -> Evm.Values:
+  Evm.Values{[reserve0, reserve1]}
+
+def reserves(+pair: Evm.Address) -> Evm.Contract(Evm.Values):
+  do Evm.Contract<Evm.Values>:
+    +v : Evm.Values <- Evm.views(IPair.getReserves(pair), 2n)
+    Evm.Contract.pure(Evm.Values, Reserves(Evm.item(v, 0n), Evm.item(v, 1n)))
+```
+
+In the model, a view of `n` words takes `n` answers for the same call, one for each word. [tests/fixtures/values](tests/fixtures/values) has a law about it, and [tests/values.test.js](tests/values.test.js) runs it on `anvil`, with a call that fails and whose revert data the contract passes on.
 
 ## Gas
 
@@ -234,7 +250,7 @@ The proofs cover deployed code only when the certificate covers the same entries
 - Storage is an association list: the newest slot wins and missing slots read as zero. A key is a plain slot or an entry of a mapping, `Mapped{base, key}`, where `base` is a key too. The printer puts an entry at `keccak256(key . base)`, as Solidity does, so the model assumes that Keccak has no collisions. That is not enough for a slot that a variable gives, which could equal an entry's `keccak256(key . base)`, so `compile.bend` refuses an entry whose plain slots and mapping bases are not literals. Keys can be variables. A revert discards all state.
 - `branch(A, cond, a, b)` runs the contract `a` when `cond` holds and `b` otherwise, and must be the last step: each arm runs to the end of the call. Code that both arms run after the choice goes in each arm, as a call to a def, as `ERC20.transferFrom` does with `move`. A run stops at a branch whose condition is not known, so a law about it names both arms with `Evm.branch.run` ([tests/fixtures/branch](tests/fixtures/branch) has examples).
 - Events are `emit(Event(...))` with an event def, as above: at most three indexed parameters, before the others, as the ABI marks the first parameters as indexed, one for each topic word. The state keeps logs newest first, so a revert drops them too. Topic 0 is the Keccak-256 of the signature, which the printer computes. Two events with the same signature must agree on their indexed parameters.
-- Supported now: `sload`, `sstore`, mappings (`load(slot, key)`, `store(slot, key, value)`) and nested mappings (`load2(slot, outer, inner)`, `store2(slot, outer, inner, value)`); transient storage (`tload(slot)`, `tstore(slot, value)`); `caller` and `self`; the environment: `timestamp`, `chainid`, `origin`, `gasprice`, `coinbase`, `number`, `prevrandao`, `gaslimit`, `basefee`, `blobbasefee`, `blockhash(n)`, `blobhash(i)`, `codesize`, `gas`, `balance(a)`, `selfbalance`, `extcodesize(a)` and `extcodehash(a)`; checked `add`, `sub`, `mul`, `div` and `mod`; the word operations; `max()`; `select(cond, a, b)` and `branch(A, cond, a, b)`, where a condition is `Nat.is_eq` or `Nat.is_lt` under `Bool.not`; `require`; `ensure(cond, error)`; `emit`; `view(call)` and `call(call)`; `pay(to, amount)` and `callvalue()`, with `Evm.Payable(A)` results and `receive`; `keccak(words)`, `id(text)`, `typed(domain, message)` (the EIP-712 digest) and `recover(digest, v, r, s)`; `pure`; the parameter types above; literal constants; and calls to the contract's own functions, which the reader inlines. The reader rejects everything else.
+- Supported now: `sload`, `sstore`, mappings (`load(slot, key)`, `store(slot, key, value)`) and nested mappings (`load2(slot, outer, inner)`, `store2(slot, outer, inner, value)`); transient storage (`tload(slot)`, `tstore(slot, value)`); `caller` and `self`; the environment: `timestamp`, `chainid`, `origin`, `gasprice`, `coinbase`, `number`, `prevrandao`, `gaslimit`, `basefee`, `blobbasefee`, `blockhash(n)`, `blobhash(i)`, `codesize`, `gas`, `balance(a)`, `selfbalance`, `extcodesize(a)` and `extcodehash(a)`; checked `add`, `sub`, `mul`, `div` and `mod`; the word operations; `max()`; `select(cond, a, b)` and `branch(A, cond, a, b)`, where a condition is `Nat.is_eq` or `Nat.is_lt` under `Bool.not`; `require`; `ensure(cond, error)`; `emit`; `view(call)` and `call(call)`; `views(call, n)` and `item(v, i)`; tuple results, `Evm.Contract.pure(Evm.Values, Tuple(...))` with a tuple def; `pay(to, amount)` and `callvalue()`, with `Evm.Payable(A)` results and `receive`; `keccak(words)`, `id(text)`, `typed(domain, message)` (the EIP-712 digest) and `recover(digest, v, r, s)`; `pure`; the parameter types above; literal constants; and calls to the contract's own functions, which the reader inlines. The reader rejects everything else.
 
 ## Limits
 
@@ -242,7 +258,7 @@ The proofs cover deployed code only when the certificate covers the same entries
 - certify.bend must run through the frontend's `host/run.js`, which gives it its own path in `BEND_ENTRY`.
 - Literals are limited by `Nat.read` (about 2^48). Source Nat literals already stop at 2^32 - 1.
 - Parameters, results, event fields and error arguments are words with the ABI types above; only parameters are range-checked.
-- A view or a call gives one word, with no range check, and reverts with no data when the called function fails; Solidity passes on its revert data. `Evm.call` sends no ether; `Evm.pay` sends ether with no data.
+- A view or a call gives one word, and `views(call, n)` gives the first `n` words of a view, with no range check. When the called function fails, the contract reverts with its revert data, as Solidity does, and the model says only that it reverts: `Revert{}` is a revert whose data no law gives. A call that returns too few words reverts with no data. `Evm.call` sends no ether; `Evm.pay` sends ether with no data.
 - Nothing stops a callback. A law states what callbacks can do, and an invariant across every callback is proved by hand, by induction on the answers, with one lemma for each entry (see the vault's proof). A law about one call needs no induction when it holds for any state that the callbacks leave, as the AMM's `swap` law does. There is no reentrancy guard yet. While a call runs, the called contract can also read this contract's state, so update the state before the call.
 - Calls and branches nest at most 8 deep together, so a function cannot call itself. An `else if` chain of 8 branches is too deep.
 - A branch must be the last step, and its arms return `Nat` or `Unit`. There is no join point after a branch; see ROADMAP.md (M13).

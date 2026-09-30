@@ -122,6 +122,9 @@ type Tag is Data:
   EventType{}
   ErrorType{}
   CallType{}
+  ValuesType{}
+  Views{}
+  ItemOf{}
   Unknown{}
 
 type Named is Data:
@@ -190,7 +193,10 @@ def tags() -> List<&2, Named>:
   Named{"Evm.Indexed", Indexed{}},
   Named{"Evm.Log", EventType{}},
   Named{"Evm.Error", ErrorType{}},
-  Named{"Evm.Call", CallType{}}])
+  Named{"Evm.Call", CallType{}},
+  Named{"Evm.Values", ValuesType{}},
+  Named{"Evm.views", Views{}},
+  Named{"Evm.item", ItemOf{}}])
 
 def tag.go(table: List<&2, Named>, +name: String) -> Tag:
   match table:
@@ -303,9 +309,11 @@ def abi.term(+evm: String, typ: Core.Term) -> Result<&2, &2, String, String>:
     case _:
       Fail{"Unsupported parameter type"}
 
-# The ABI type of a result, "" for Unit.
+# The ABI type of a result: "" for Unit, and "tuple" for Evm.Values, whose
+# names and types come from the tuple def that the function returns.
 def result.name(+name: String) -> Result<&2, &2, String, String>:
-  Bool.pick(Result<&2, &2, String, String>, String.eq(name, "Unit"), Done{""}, abi(name))
+  Bool.pick(Result<&2, &2, String, String>, String.eq(name, "Unit"), Done{""},
+    Bool.pick(Result<&2, &2, String, String>, String.eq(name, "Evm.Values"), Done{"tuple"}, abi(name)))
 
 def result.term(+evm: String, typ: Core.Term) -> Result<&2, &2, String, String>:
   match typ:
@@ -363,6 +371,42 @@ def variable(level: Core.Level) -> Result<&2, &2, String, IR.Expr>:
     case Core.Placeholder{}:
       Fail{"Unbound variable"}
 
+def item.var(term: Core.Term) -> Result<&2, &2, String, IR.Expr>:
+  match term:
+    case Core.TAnn{value, _}:
+      item.var(value)
+    case Core.TVar{_, level, _}:
+      variable(level)
+    case _:
+      Fail{"Evm.item takes a variable that Evm.views bound"}
+
+def item.index(term: Core.Term) -> Result<&2, &2, String, IR.Expr>:
+  match term:
+    case Core.TAnn{value, _}:
+      item.index(value)
+    case Core.TLit{value}:
+      natural(value)
+    case _:
+      Fail{"Evm.item takes a literal index"}
+
+def item.at(x: IR.Expr, n: IR.Expr) -> Result<&2, &2, String, IR.Expr>:
+  match x n:
+    case IR.Var{level} IR.Lit{i}:
+      Done{IR.Item{level, i}}
+    case _ _:
+      Fail{"Evm.item takes a variable that Evm.views bound and a literal index"}
+
+# Word i of the words that Evm.views bound, as Evm.item(v, 1n).
+def item(c: Call) -> Result<&2, &2, String, IR.Expr>:
+  match c:
+    case Call{ItemOf{}, _, v <> i <> Nil{}}:
+      do Result<&2, &2, String, IR.Expr>:
+        x : IR.Expr <- item.var(v)
+        n : IR.Expr <- item.index(i)
+        item.at(x, n)
+    case _:
+      Fail{"Unsupported expression"}
+
 def expr(term: Core.Term, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Expr>:
   match term:
     case Core.TAnn{value, _}:
@@ -373,8 +417,8 @@ def expr(term: Core.Term, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, 
       variable(level)
     case Core.TRef{+name, _}:
       constant(lookup(decls, name))
-    case _:
-      Fail{"Unsupported expression"}
+    case +other:
+      item(call(other, Nil{}))
 
 def terms(ts: List<&2, Core.Term>, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, List<&2, IR.Expr>>:
   match ts:
@@ -575,6 +619,7 @@ type Declared is Data:
   EventDef{}
   ErrorDef{}
   CallDef{}
+  ValuesDef{}
 
 def marks(k: Declared, c: Call) -> Bool:
   match k c:
@@ -583,6 +628,8 @@ def marks(k: Declared, c: Call) -> Bool:
     case ErrorDef{} Call{ErrorType{}, _, Nil{}}:
       True{}
     case CallDef{} Call{CallType{}, _, Nil{}}:
+      True{}
+    case ValuesDef{} Call{ValuesType{}, _, Nil{}}:
       True{}
     case _ _:
       False{}
@@ -595,6 +642,8 @@ def wanted(k: Declared) -> String:
       "Evm.ensure takes an error: a safe, concrete def whose result type is Evm.Error"
     case CallDef{}:
       "Evm.view and Evm.call take a call: a safe, concrete def whose first parameter is the target and whose result type is Evm.Call"
+    case ValuesDef{}:
+      "Evm.Contract.pure(Evm.Values, ...) takes a tuple: a safe, concrete def whose result type is Evm.Values"
 
 # The parameters in the signature: a call's first parameter is its target.
 def signed.params(k: Declared, params: List<&2, Param>) -> List<&2, Param>:
@@ -1028,6 +1077,25 @@ def own.unit(e: Result<&2, &2, String, IR.Effect>, +rest: IR.Cmd) -> Result<&2, 
     value : IR.Effect <- e
     return IR.Then{value, rest}
 
+def fetched(a: IR.Action, n: IR.Expr, +level: Nat, +body: IR.Cmd) -> Result<&2, &2, String, IR.Cmd>:
+  match a n:
+    case IR.View{t, g, args} IR.Lit{k}:
+      Done{IR.Fetch{t, g, args, k, level, body}}
+    case _ _:
+      Fail{"Evm.views takes a call and a literal number of words"}
+
+# v : Evm.Values <- Evm.views(call, n): the first n words of a view call.
+def fetch(c: Call, +level: Nat, +body: IR.Cmd, +evm: String, +decls: List<&2, Core.Declaration>) ->
+  Result<&2, &2, String, IR.Cmd>:
+  match c:
+    case Call{Views{}, _, called <> count <> Nil{}}:
+      do Result<&2, &2, String, IR.Cmd>:
+        a : IR.Action <- view(False{}, call(called, Nil{}), evm, decls)
+        n : IR.Expr <- expr(count, decls)
+        fetched(a, n, level, body)
+    case _:
+      Fail{"A bind of Evm.Values takes Evm.views(call, n)"}
+
 # A bind over a word keeps its value; a bind over Unit is a plain step. The
 # action is a DSL call, or else k, a call to one of the contract's functions.
 def step(typ: Call, +action: Call, +level: Nat, rest: Result<&2, &2, String, IR.Cmd>,
@@ -1042,8 +1110,12 @@ def step(typ: Call, +action: Call, +level: Nat, rest: Result<&2, &2, String, IR.
       do Result<&2, &2, String, IR.Cmd>:
         +body : IR.Cmd <- rest
         first(own.unit(effect(action, evm, decls), body), called.unit(k, level, body))
+    case Call{ValuesType{}, _, Nil{}}:
+      do Result<&2, &2, String, IR.Cmd>:
+        +body : IR.Cmd <- rest
+        fetch(action, level, body, evm, decls)
     case _:
-      Fail{"Only Nat and Unit results can be bound"}
+      Fail{"Only Nat, Unit and Evm.Values results can be bound"}
 
 def bind(c: Call, +level: Nat, rest: Result<&2, &2, String, IR.Cmd>, k: Result<&2, &2, String, Inline.Callee>,
   +evm: String, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Cmd>:
@@ -1068,8 +1140,19 @@ def unit(term: Core.Term) -> Result<&2, &2, String, IR.Cmd>:
     case _:
       Fail{"Expected Unit{}"}
 
-def pure(typ: Call, value: Core.Term, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Cmd>:
+def give(s: Signed) -> Result<&2, &2, String, IR.Cmd>:
+  match s:
+    case Signed{signature, Nil{}, data}:
+      Done{IR.Give{signature, data}}
+    case _:
+      Fail{"A tuple has no Evm.Indexed fields"}
+
+def pure(typ: Call, value: Core.Term, +evm: String, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Cmd>:
   match typ:
+    case Call{ValuesType{}, _, Nil{}}:
+      do Result<&2, &2, String, IR.Cmd>:
+        s : Signed <- signed(ValuesDef{}, evm, call(value, Nil{}), decls)
+        give(s)
     case Call{NatType{}, _, Nil{}}:
       do Result<&2, &2, String, IR.Cmd>:
         v : IR.Expr <- expr(value, decls)
@@ -1095,7 +1178,7 @@ def last.step(c: Call, k: Result<&2, &2, String, Inline.Callee>, +bound: Nat, +e
   +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Cmd>:
   match c:
     case Call{Pure{}, _, typ <> value <> Nil{}}:
-      pure(call(typ, Nil{}), value, decls)
+      pure(call(typ, Nil{}), value, evm, decls)
     case +other:
       first(last.own(word(other, evm, decls), effect(other, evm, decls)), called.tail(k, bound))
 
@@ -1224,6 +1307,10 @@ def output(c: IR.Cmd) -> IR.Output:
       IR.Stops{}
     case IR.If{_, yes, _}:
       output(yes)
+    case IR.Give{_, _}:
+      IR.Gives{}
+    case IR.Fetch{_, _, _, _, _, body}:
+      output(body)
 
 # Entries
 # -------
@@ -1288,6 +1375,44 @@ def constant.text(found: Maybe<&2, Def>) -> Maybe<&2, String>:
     case _:
       None{}
 
+# The tuple defs that cmd returns.
+def gives(cmd: IR.Cmd) -> List<&2, String>:
+  match cmd:
+    case IR.Bind{_, _, body}:
+      gives(body)
+    case IR.Then{_, body}:
+      gives(body)
+    case IR.Fetch{_, _, _, _, _, body}:
+      gives(body)
+    case IR.If{_, yes, no}:
+      List.append(&2, String, gives(yes), gives(no))
+    case IR.Give{signature, _}:
+      [signature]
+    case _:
+      Nil{}
+
+def all.same(+first: String, rest: List<&2, String>) -> Bool:
+  match rest:
+    case Nil{}:
+      True{}
+    case s <> more:
+      Bool.and(String.eq(s, first), all.same(first, more))
+
+def one.tuple(signatures: List<&2, String>) -> Bool:
+  match signatures:
+    case Nil{}:
+      True{}
+    case +s <> rest:
+      all.same(s, rest)
+
+# The ABI names a function's results after its tuple def, so every branch
+# must return the same one.
+def tuples(+name: String, e: Entry) -> Result<&2, &2, String, Entry>:
+  match e:
+    case Entry{levels, +body}:
+      Bool.pick(Result<&2, &2, String, Entry>, one.tuple(gives(body)), Done{Entry{levels, body}},
+        Fail{name ++ ": every branch must return the same tuple def"})
+
 # An Evm.Payable(A) result, rather than Evm.Contract(A).
 def payable(+evm: String, c: Call) -> Bool:
   match c:
@@ -1305,7 +1430,8 @@ def contract(+name: String, d: Def, +evm: String, +decls: List<&2, Core.Declarat
         out : String <- result.call(evm, call(telescope.result(t), Nil{}))
         l : Lambdas <- lambdas(arity, strip(evm, body))
         e : Entry <- entry(name, l, evm, decls)
-        return Contract{name, ins, out, payable(evm, call(telescope.result(t), Nil{})), e}
+        f : Entry <- tuples(name, e)
+        return Contract{name, ins, out, payable(evm, call(telescope.result(t), Nil{})), f}
 
 # An entry named init is the constructor, so it cannot be a constant.
 def function.found(+name: String, text: Maybe<&2, String>, found: Maybe<&2, Def>, +evm: String,

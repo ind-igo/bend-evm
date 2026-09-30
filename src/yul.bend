@@ -41,6 +41,8 @@ type Stmt is Data:
   Pay{target: IR.Expr, amount: IR.Expr, body: Stmt}
   Sense{level: Nat, env: Evm.Env, args: List<&2, IR.Expr>, body: Stmt}
   Sensed{env: Evm.Env, args: List<&2, IR.Expr>}
+  Fetch{level: Nat, target: IR.Expr, signature: String, args: List<&2, IR.Expr>, count: Nat, body: Stmt}
+  Results{values: List<&2, IR.Expr>}
   Result{value: Exp}
   Stop{}
   Revert{}
@@ -121,8 +123,9 @@ def eval(e: Exp, +env: List<&2, IR.Binding>, +s: Evm.State) -> Nat:
 # reverts with its error's data. A View binds a staticcall's word, and an
 # Answer returns it; a Call and a Reply do the same with call. A Pay sends
 # ether with call. A Sense binds a value of the environment and a Sensed
-# returns it, as reading one can use up a reading. An If runs no when its
-# test is zero and yes otherwise.
+# returns it, as reading one can use up a reading. A Fetch binds the words
+# of a staticcall, and Results returns several words. An If runs no when
+# its test is zero and yes otherwise.
 def exec(stmt: Stmt, +out: IR.Output, +env: List<&2, IR.Binding>) -> Evm.Contract(IR.value(out)):
   match stmt out:
     case Let{level, value, body} o:
@@ -152,6 +155,11 @@ def exec(stmt: Stmt, +out: IR.Output, +env: List<&2, IR.Binding>) -> Evm.Contrac
       R => k => +s => exec(body, o, IR.Binding{level, Evm.sense(e, IR.evals(args, env), s)} <> env, R, k, Evm.sensed(e, s))
     case Sensed{e, args} IR.Returns{}:
       Evm.env(e, IR.evals(args, env))
+    case Fetch{level, target, signature, args, count, body} o:
+      R => k => Evm.views(Evm.Call{IR.eval(target, env), IR.name(signature), IR.evals(args, env)}, count, R,
+        v => exec(body, o, IR.Bindings{level, v} <> env, R, k))
+    case Results{values} IR.Gives{}:
+      R => k => s => k(Evm.Values{IR.evals(values, env)}, s)
     case Result{value} IR.Returns{}:
       R => k => +s => k(eval(value, env, s), s)
     case Stop{} IR.Stops{}:
@@ -295,6 +303,13 @@ def tail.effect(e: IR.Effect, out: IR.Output) -> Stmt:
     case _:
       Revert{}
 
+def tail.give(values: List<&2, IR.Expr>, out: IR.Output) -> Stmt:
+  match out:
+    case IR.Gives{}:
+      Results{values}
+    case _:
+      Revert{}
+
 def tail.stop(out: IR.Output) -> Stmt:
   match out:
     case IR.Stops{}:
@@ -342,3 +357,7 @@ def lower(cmd: IR.Cmd, +out: IR.Output) -> Stmt:
       tail.stop(o)
     case IR.If{c, yes, no} o:
       If{lower.test(c), lower(yes, o), lower(no, o)}
+    case IR.Give{_, values} o:
+      tail.give(values, o)
+    case IR.Fetch{target, signature, args, count, level, body} o:
+      Fetch{level, target, signature, args, count, lower(body, o)}

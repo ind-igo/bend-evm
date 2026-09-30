@@ -381,6 +381,17 @@ law swap:
 def swap(p0, p1, p2):
   {==}
 
+def ir.getReserves() -> IR.Cmd:
+  IR.Bind{IR.SLoad{IR.Plain{IR.Lit{5n}}}, 0n,
+    IR.Bind{IR.SLoad{IR.Plain{IR.Lit{6n}}}, 1n,
+    IR.Give{"Reserves(uint256,uint256)", [IR.Var{0n}, IR.Var{1n}]}}}
+
+law getReserves:
+  {IR.call(ir.getReserves(), IR.Gives{}, []) == Program.getReserves() : Evm.Contract(Evm.Values)}
+
+def getReserves():
+  {==}
+
 def entry.table() -> List<&2, Calls.Entry>:
   [Calls.Entry{ir.decimals(), IR.Returns{}, 0n},
   Calls.Entry{ir.token0(), IR.Returns{}, 0n},
@@ -396,4 +407,5 @@ def entry.table() -> List<&2, Calls.Entry>:
   Calls.Entry{ir.sync(), IR.Stops{}, 0n},
   Calls.Entry{ir.mint(), IR.Returns{}, 1n},
   Calls.Entry{ir.burn(), IR.Stops{}, 1n},
-  Calls.Entry{ir.swap(), IR.Stops{}, 3n}]
+  Calls.Entry{ir.swap(), IR.Stops{}, 3n},
+  Calls.Entry{ir.getReserves(), IR.Gives{}, 0n}]

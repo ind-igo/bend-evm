@@ -16,6 +16,8 @@ def show.expr(e: IR.Expr) -> String:
       "IR.Lit{" ++ nat(value) ++ "}"
     case IR.Var{level}:
       "IR.Var{" ++ nat(level) ++ "}"
+    case IR.Item{level, index}:
+      "IR.Item{" ++ nat(level) ++ ", " ++ nat(index) ++ "}"
 
 def show.two(name: String, left: IR.Expr, right: IR.Expr) -> String:
   l r = show.expr(left) show.expr(right)
@@ -123,6 +125,11 @@ def show.cmd(c: IR.Cmd) -> String:
     case IR.If{c, yes, no}:
       a b = show.cmd(yes) show.cmd(no)
       "IR.If{" ++ show.cond(c) ++ ",\n    " ++ a ++ ",\n    " ++ b ++ "}"
+    case IR.Give{signature, values}:
+      "IR.Give{\"" ++ signature ++ "\", [" ++ String.join(show.list(values), ", ") ++ "]}"
+    case IR.Fetch{target, signature, args, count, level, body}:
+      "IR.Fetch{" ++ show.expr(target) ++ ", \"" ++ signature ++ "\", [" ++ String.join(show.list(args), ", ") ++ "], "
+        ++ nat(count) ++ ", " ++ nat(level) ++ ",\n    " ++ show.cmd(body) ++ "}"
 
 def param(+level: Nat) -> String:
   "p" ++ Nat.show(level)
@@ -154,6 +161,8 @@ def output(out: IR.Output) -> String & String:
       ("IR.Returns{}", "Nat")
     case IR.Stops{}:
       ("IR.Stops{}", "Unit")
+    case IR.Gives{}:
+      ("IR.Gives{}", "Evm.Values")
 
 def claim.text(+name: String, +levels: List<&2, Nat>, body: IR.Cmd, kind: String & String) -> String:
   match kind:

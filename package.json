@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "check": "bun scripts/check.js",
-    "test": "bun test ./tests",
+    "test": "bun test ./tests --timeout 60000",
     "build": "bun scripts/build.js",
     "gas": "bun scripts/gas.js"
   }

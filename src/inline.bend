@@ -21,6 +21,8 @@ def top.expr(e: IR.Expr) -> Nat:
       0n
     case IR.Var{level}:
       level
+    case IR.Item{level, _}:
+      level
 
 def top.list(exprs: List<&2, IR.Expr>) -> Nat:
   match exprs:
@@ -119,6 +121,10 @@ def top(cmd: IR.Cmd) -> Nat:
       0n
     case IR.If{c, yes, no}:
       max(top.cond(c), max(top(yes), top(no)))
+    case IR.Give{_, values}:
+      top.list(values)
+    case IR.Fetch{target, _, args, _, +level, body}:
+      max(max(max(top.expr(target), top.list(args)), level), top(body))
 
 # A level is a parameter, replaced by its argument, or moves up by offset.
 def rename.var(+level: Nat, parameters: List<&2, Nat>, args: List<&2, IR.Expr>, +offset: Nat) -> IR.Expr:
@@ -134,6 +140,8 @@ def rename.expr(e: IR.Expr, +parameters: List<&2, Nat>, +args: List<&2, IR.Expr>
       IR.Lit{value}
     case IR.Var{level}:
       rename.var(level, parameters, args, offset)
+    case IR.Item{level, index}:
+      IR.Item{Nat.add(level, offset), index}
 
 def rename.list(exprs: List<&2, IR.Expr>, +parameters: List<&2, Nat>, +args: List<&2, IR.Expr>, +offset: Nat) ->
   List<&2, IR.Expr>:
@@ -231,6 +239,11 @@ def rename(cmd: IR.Cmd, +parameters: List<&2, Nat>, +args: List<&2, IR.Expr>, +o
       IR.Stop{}
     case IR.If{c, yes, no}:
       IR.If{rename.cond(c, parameters, args, offset), rename(yes, parameters, args, offset), rename(no, parameters, args, offset)}
+    case IR.Give{signature, values}:
+      IR.Give{signature, rename.list(values, parameters, args, offset)}
+    case IR.Fetch{target, signature, words, count, level, body}:
+      IR.Fetch{rename.expr(target, parameters, args, offset), signature, rename.list(words, parameters, args, offset), count,
+        Nat.add(level, offset), rename(body, parameters, args, offset)}
 
 # Substitutes value for the variable at level: a rename with one parameter
 # and offset 0.
@@ -258,6 +271,10 @@ def splice.word(callee: IR.Cmd, +level: Nat, +rest: IR.Cmd) -> Result<&2, &2, St
       do Result<&2, &2, String, IR.Cmd>:
         b : IR.Cmd <- splice.word(body, level, rest)
         return IR.Then{e, b}
+    case IR.Fetch{t, g, a, n, l, body}:
+      do Result<&2, &2, String, IR.Cmd>:
+        b : IR.Cmd <- splice.word(body, level, rest)
+        return IR.Fetch{t, g, a, n, l, b}
     case IR.Return{v}:
       Done{subst(rest, level, v)}
     case IR.Tail{w}:
@@ -278,6 +295,10 @@ def splice.unit(callee: IR.Cmd, +rest: IR.Cmd) -> Result<&2, &2, String, IR.Cmd>
       do Result<&2, &2, String, IR.Cmd>:
         b : IR.Cmd <- splice.unit(body, rest)
         return IR.Then{e, b}
+    case IR.Fetch{t, g, a, n, l, body}:
+      do Result<&2, &2, String, IR.Cmd>:
+        b : IR.Cmd <- splice.unit(body, rest)
+        return IR.Fetch{t, g, a, n, l, b}
     case IR.Finish{e}:
       Done{IR.Then{e, rest}}
     case IR.Stop{}:

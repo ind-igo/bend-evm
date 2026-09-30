@@ -48,6 +48,10 @@ def Swap(sender: Evm.Indexed(Evm.Address), to: Evm.Indexed(Evm.Address), amount0
 def Sync(reserve0: Nat, reserve1: Nat) -> Evm.Log:
   Evm.Log{"Sync", [], [reserve0, reserve1]}
 
+# The results of getReserves.
+def Reserves(reserve0: Nat, reserve1: Nat) -> Evm.Values:
+  Evm.Values{[reserve0, reserve1]}
+
 # Errors, with the names of Uniswap's messages.
 def InsufficientLiquidityMinted() -> Evm.Error:
   Evm.Error{"InsufficientLiquidityMinted", []}
@@ -116,6 +120,12 @@ def reserve0() -> Evm.Contract(Nat):
 
 def reserve1() -> Evm.Contract(Nat):
   Evm.sload(RESERVE1())
+
+def getReserves() -> Evm.Contract(Evm.Values):
+  do Evm.Contract<Evm.Values>:
+    r0 : Nat <- Evm.sload(RESERVE0())
+    r1 : Nat <- Evm.sload(RESERVE1())
+    Evm.Contract.pure(Evm.Values, Reserves(r0, r1))
 
 # Sends amount of token to to. The token must return true.
 def pay(+token: Nat, +to: Nat, +amount: Nat) -> Evm.Contract(Unit):
