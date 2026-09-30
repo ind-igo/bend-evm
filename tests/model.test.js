@@ -110,7 +110,7 @@ const supply = 1n + BigInt(Math.floor(generator(seed)() * 100));
 let chain;
 
 beforeAll(async () => {
-  chain = await deploy({ program: 'examples/erc20/program.bend', functions: entries.erc20,
+  chain = await deploy({ program: 'examples/erc20/Token.bend', functions: entries.erc20,
     deployer: address(people[0]), args: [supply] });
   for (const who of people.slice(1)) chain.fund(address(who));
 }, 120_000);

@@ -8,7 +8,7 @@ import { keys, separator, sign } from '../tests/permit.js';
 // one anvil chain. The numbers are receipt gasUsed, with the 21000 base and
 // the calldata cost. Usage: bun scripts/gas.js
 const word = x => BigInt(x).toString(16).padStart(64, '0');
-const yul = must(bend('src/compile.bend', 'examples/erc20/program.bend', ...entries.erc20));
+const yul = must(bend('src/compile.bend', 'examples/erc20/Token.bend', ...entries.erc20));
 const bend0 = bytecode(yul);
 const chain = await deploy({ bytecode: bend0, args: [0n] });
 const [a, b, c] = Object.keys(keys);

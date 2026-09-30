@@ -14,7 +14,7 @@ contract.bend ─ Frontend.check ─ read ─→ IR ─ lower ─→ Yul ─ sol
 
 ## Write an ERC-20
 
-[examples/erc20](examples/erc20) has an ERC-20. [ERC20.bend](examples/erc20/ERC20.bend) is the core, after solmate's: its storage slots, its `Transfer` and `Approval` events, the standard functions, and internal `mint` and `burn`. A token imports it, gives its name, symbol and decimals, and exposes each function with a one-line def. [program.bend](examples/erc20/program.bend) is a complete token on it: it adds EIP-2612 `permit` and an owner, who receives the initial supply and can mint; holders can burn.
+[examples/erc20](examples/erc20) has an ERC-20. [ERC20.bend](examples/erc20/ERC20.bend) is the core, after solmate's: its storage slots, its `Transfer` and `Approval` events, the standard functions, and internal `mint` and `burn`. A token imports it, gives its name, symbol and decimals, and exposes each function with a one-line def. [Token.bend](examples/erc20/Token.bend) is a complete token on it: it adds EIP-2612 `permit` and an owner, who receives the initial supply and can mint; holders can burn.
 
 ```bend
 import ./ERC20.bend as ERC20
@@ -83,7 +83,7 @@ Evm.require(Nat.is_eq(ok, 1n))
 Build it, then deploy the bytecode with the constructor arguments after it. An entry named `init` is the constructor: it returns `Unit` and runs in the deploy code, so the deployer is `caller()`, and its parameters are the ABI words after the deploy code, as in Solidity.
 
 ```sh
-bun run build --out build/Token examples/erc20/program.bend name symbol decimals init owner \
+bun run build --out build/Token examples/erc20/Token.bend name symbol decimals init owner \
   transferOwnership totalSupply balanceOf transfer mint burn allowance approve transferFrom \
   nonces DOMAIN_SEPARATOR permit
 ARGS=$(cast abi-encode "constructor(uint256)" 1000000000000000000000000)

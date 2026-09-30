@@ -3,7 +3,7 @@ import Base
 import ../../src/Evm.bend as Evm
 import ../../src/ir.bend as IR
 import ../../src/calls.bend as Calls
-import ./program.bend as Program
+import ./Token.bend as Program
 
 def ir.decimals() -> IR.Cmd:
   IR.Return{IR.Lit{18n}}

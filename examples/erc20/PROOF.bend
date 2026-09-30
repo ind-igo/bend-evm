@@ -4,7 +4,7 @@ import ../../src/nat.bend as N
 import ../../src/sum.bend as Sum
 import ./LAWS.bend as Laws
 import ./ERC20.bend as ERC20
-import ./program.bend as Token
+import ./Token.bend as Token
 
 # The core's laws.
 

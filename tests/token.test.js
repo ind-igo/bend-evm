@@ -23,7 +23,7 @@ let built;
 
 beforeAll(async () => {
   sandbox(['src', 'scripts', 'examples/erc20'], dir => {
-    must(spawn([process.execPath, 'scripts/build.js', '--out', out, 'examples/erc20/program.bend', ...entries.erc20],
+    must(spawn([process.execPath, 'scripts/build.js', '--out', out, 'examples/erc20/Token.bend', ...entries.erc20],
       { cwd: dir, timeout: 600_000 }));
     built = readFileSync(path.join(dir, cert), 'utf8');
   });

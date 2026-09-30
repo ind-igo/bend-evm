@@ -1,6 +1,6 @@
 import Base
 import ../../../src/Evm.bend as Evm
-import ../../../examples/erc20/program.bend as Token
+import ../../../examples/erc20/Token.bend as Token
 
 # Runs the token's Bend source on a sequence of calls, for the differential
 # test against anvil. The arguments are groups of five: the caller, the

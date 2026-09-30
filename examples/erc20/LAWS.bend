@@ -2,10 +2,10 @@ import Base
 import ../../src/Evm.bend as Evm
 import ../../src/sum.bend as Sum
 import ./ERC20.bend as ERC20
-import ./program.bend as Token
+import ./Token.bend as Token
 
 # The laws of the ERC20 core (ERC20.bend), for every token that uses it,
-# then the laws of this token (program.bend). The core's laws are core.*.
+# then the laws of this token (Token.bend). The core's laws are core.*.
 #
 # Each core law gives the outcome of a function from any state, with any
 # continuation k: the rest of the calling function, or the end of the call.
@@ -264,7 +264,7 @@ law core.nested_sum:
   for +h: {True{} == balanced(storage, accounts) : Bool}
   {True{} == balanced(Evm.Slot{Evm.Mapped{Evm.Mapped{key, x}, y}, v} <> storage, accounts) : Bool}
 
-# The token (program.bend). Each law gives every outcome from any state:
+# The token (Token.bend). Each law gives every outcome from any state:
 # any storage, caller, word limit, earlier logs and world, and any
 # addresses. After the core's slots, the mapping at slot 3 holds nonces,
 # and slot 4 holds the owner.
