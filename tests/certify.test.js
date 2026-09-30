@@ -5,26 +5,28 @@ import { bend, check, entries, root, sandbox } from '../scripts/tools.js';
 
 // The token's certificate is checked where it is built, in token.test.js.
 for (const [program, functions] of [
-  ['examples/counter', entries.counter],
-  ['tests/fixtures/branch', entries.branch],
-  ['tests/fixtures/emit', entries.emit],
-  ['tests/fixtures/view', entries.view],
-  ['tests/fixtures/vault', entries.vault],
-  ['tests/fixtures/math', entries.math],
+  ['examples/counter/program.bend', entries.counter],
+  ['examples/amm/Pair.bend', entries.amm],
+  ['tests/fixtures/branch/program.bend', entries.branch],
+  ['tests/fixtures/emit/program.bend', entries.emit],
+  ['tests/fixtures/view/program.bend', entries.view],
+  ['tests/fixtures/vault/program.bend', entries.vault],
+  ['tests/fixtures/math/program.bend', entries.math],
 ]) {
   test(`the committed ${program} certificate is current`, () => {
-    const generated = bend('src/certify.bend', `${program}/program.bend`, ...functions);
+    const generated = bend('src/certify.bend', program, ...functions);
     expect(generated.ok).toBe(true);
-    expect(generated.text).toBe(readFileSync(path.join(root, `${program}/CERT.bend`), 'utf8'));
-    // The entry table for callbacks has every entry but init, in order.
+    expect(generated.text).toBe(readFileSync(path.join(root, path.dirname(program), 'CERT.bend'), 'utf8'));
+    // The entry table for callbacks has every entry but init and the constants, in order.
     const table = generated.text.split('def entry.table()')[1];
-    expect([...table.matchAll(/Calls\.Entry\{ir\.(\w+)\(\)/g)].map(m => m[1])).toEqual(functions.filter(f => f !== 'init'));
+    expect([...table.matchAll(/Calls\.Entry\{ir\.(\w+)\(\)/g)].map(m => m[1]))
+      .toEqual(functions.filter(f => !['init', 'name', 'symbol'].includes(f)));
   }, 120_000);
 }
 
 // Each mutation of a copied certificate must fail at its law.
-function mutated(program, mutations) {
-  sandbox(['src/Evm.bend', 'src/ir.bend', 'src/yul.bend', 'src/calls.bend', program], dir => {
+function mutated(program, mutations, parts = []) {
+  sandbox(['src/Evm.bend', 'src/ir.bend', 'src/yul.bend', 'src/calls.bend', program, ...parts], dir => {
     const cert = path.join(dir, `${program}/CERT.bend`);
     const good = readFileSync(cert, 'utf8');
     for (const [from, to, law] of mutations) {
@@ -78,7 +80,14 @@ test('a certificate for the wrong word operation does not check', () => {
     ['IR.Math{Evm.Shl{}, [IR.Var{0n}, IR.Var{1n}]}', 'IR.Math{Evm.Shr{}, [IR.Var{0n}, IR.Var{1n}]}', 'shl'],
     ['IR.Math{Evm.SLt{}, [IR.Var{0n}, IR.Var{1n}]}', 'IR.Math{Evm.SLt{}, [IR.Var{1n}, IR.Var{0n}]}', 'slt'],
     ['IR.Tail{IR.Mul{IR.Var{0n}, IR.Var{1n}}}', 'IR.Tail{IR.Math{Evm.Mul{}, [IR.Var{0n}, IR.Var{1n}]}}', 'checked_mul'],
-  ]);
+  ], ['examples/amm/Math.bend']);
+}, 120_000);
+
+// Not mint: the checker prints the failed term without sharing, and the
+// square root's term then grows past a gigabyte.
+test('a certificate for the wrong fee does not check', () => {
+  mutated('examples/amm', [['IR.Mul{IR.Var{91n}, IR.Lit{3n}}', 'IR.Mul{IR.Var{91n}, IR.Lit{2n}}', 'swap']],
+    ['examples/erc20/ERC20.bend']);
 }, 120_000);
 
 // A copied Evm.bend and ir.bend could define different semantics.

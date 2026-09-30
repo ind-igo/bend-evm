@@ -1,8 +1,9 @@
 import Base
 import ../../../src/Evm.bend as Evm
+import ../../../examples/amm/Math.bend as Math
 
-# One entry for each word operation, and for checked mul, div and mod, for
-# tests/math.test.js.
+# One entry for each word operation, for checked mul, div and mod, and for
+# the AMM's square root, for tests/math.test.js.
 
 def add(a: Nat, b: Nat) -> Evm.Contract(Nat):
   Evm.unchecked.add(a, b)
@@ -87,3 +88,6 @@ def checked_div(a: Nat, b: Nat) -> Evm.Contract(Nat):
 
 def checked_mod(a: Nat, b: Nat) -> Evm.Contract(Nat):
   Evm.mod(a, b)
+
+def sqrt(a: Nat) -> Evm.Contract(Nat):
+  Math.sqrt(a)

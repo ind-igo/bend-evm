@@ -368,3 +368,153 @@ def div_le(+p: Nat, +q: Nat) -> {True{} == Nat.is_lt(Nat.div(p, 1n+q), 1n+p) : B
   not_false(Nat.is_lt(Nat.div(p, 1n+q), 1n+p),
     Equal.trans(Bool, Bool.not(Nat.is_lt(Nat.div(p, 1n+q), 1n+p)), Nat.is_lt(Nat.mul(1n+q, 1n+p), 1n+p), False{},
       floor(q, 1n+p, p), Equal.sym(Bool, False{}, Nat.is_lt(Nat.mul(1n+q, 1n+p), 1n+p), lt_add_self(1n+p, Nat.mul(q, 1n+p)))))
+
+# ---- Order ----
+#
+# x <= y is written {False{} == Nat.is_lt(y, x)}.
+
+def le_succ(+n: Nat) -> {False{} == Nat.is_lt(1n+n, n) : Bool}:
+  match n:
+    case 0n:
+      {==}
+    case 1n+p:
+      le_succ(p)
+
+def le_trans(+a: Nat, +b: Nat, +c: Nat, +h1: {False{} == Nat.is_lt(b, a) : Bool}, +h2: {False{} == Nat.is_lt(c, b) : Bool}) ->
+  {False{} == Nat.is_lt(c, a) : Bool}:
+  match a b c:
+    case 0n _ _:
+      lt_zero(c)
+    case 1n+x 0n _:
+      absurd({False{} == Nat.is_lt(c, 1n+x) : Bool}, Equal.sym(Bool, False{}, True{}, h1))
+    case 1n+x 1n+y 0n:
+      absurd({False{} == Nat.is_lt(0n, 1n+x) : Bool}, Equal.sym(Bool, False{}, True{}, h2))
+    case 1n+x 1n+y 1n+z:
+      le_trans(x, y, z, h1, h2)
+
+# a - b <= a.
+def sub_le(+a: Nat, +b: Nat) -> {False{} == Nat.is_lt(a, Nat.sub(a, b)) : Bool}:
+  match a b:
+    case 0n _:
+      {==}
+    case 1n+x 0n:
+      lt_irrefl(1n+x)
+    case 1n+x 1n+y:
+      le_trans(Nat.sub(x, y), x, 1n+x, sub_le(x, y), le_succ(x))
+
+# y <= b + y.
+def le_add(+b: Nat, +y: Nat) -> {False{} == Nat.is_lt(Nat.add(b, y), y) : Bool}:
+  match b:
+    case 0n:
+      lt_irrefl(y)
+    case 1n+p:
+      le_trans(y, Nat.add(p, y), 1n+Nat.add(p, y), le_add(p, y), le_succ(Nat.add(p, y)))
+
+def add_mono_left(+c: Nat, +x: Nat, +y: Nat, +h: {False{} == Nat.is_lt(y, x) : Bool}) ->
+  {False{} == Nat.is_lt(Nat.add(c, y), Nat.add(c, x)) : Bool}:
+  match c:
+    case 0n:
+      h
+    case 1n+p:
+      add_mono_left(p, x, y, h)
+
+def add_mono_right(+a: Nat, +b: Nat, +y: Nat, +h: {False{} == Nat.is_lt(b, a) : Bool}) ->
+  {False{} == Nat.is_lt(Nat.add(b, y), Nat.add(a, y)) : Bool}:
+  match a b:
+    case 0n _:
+      le_add(b, y)
+    case 1n+x 0n:
+      absurd({False{} == Nat.is_lt(Nat.add(0n, y), Nat.add(1n+x, y)) : Bool}, Equal.sym(Bool, False{}, True{}, h))
+    case 1n+x 1n+z:
+      add_mono_right(x, z, y, h)
+
+# a <= b gives a * c <= b * c.
+def mul_mono_left(+a: Nat, +b: Nat, +c: Nat, +h: {False{} == Nat.is_lt(b, a) : Bool}) ->
+  {False{} == Nat.is_lt(Nat.mul(b, c), Nat.mul(a, c)) : Bool}:
+  match a b:
+    case 0n _:
+      lt_zero(Nat.mul(b, c))
+    case 1n+x 0n:
+      absurd({False{} == Nat.is_lt(Nat.mul(0n, c), Nat.mul(1n+x, c)) : Bool}, Equal.sym(Bool, False{}, True{}, h))
+    case 1n+x 1n+z:
+      add_mono_left(c, Nat.mul(x, c), Nat.mul(z, c), mul_mono_left(x, z, c, h))
+
+# a <= b gives c * a <= c * b.
+def mul_mono_right(+c: Nat, +a: Nat, +b: Nat, +h: {False{} == Nat.is_lt(b, a) : Bool}) ->
+  {False{} == Nat.is_lt(Nat.mul(c, b), Nat.mul(c, a)) : Bool}:
+  match c:
+    case 0n:
+      {==}
+    case 1n+p:
+      le_trans(Nat.add(a, Nat.mul(p, a)), Nat.add(b, Nat.mul(p, a)), Nat.add(b, Nat.mul(p, b)),
+        add_mono_right(a, b, Nat.mul(p, a), h), add_mono_left(b, Nat.mul(p, a), Nat.mul(p, b), mul_mono_right(p, a, b, h)))
+
+def add_lt_left(+c: Nat, +x: Nat, +y: Nat, +h: {True{} == Nat.is_lt(x, y) : Bool}) ->
+  {True{} == Nat.is_lt(Nat.add(c, x), Nat.add(c, y)) : Bool}:
+  match c:
+    case 0n:
+      h
+    case 1n+p:
+      add_lt_left(p, x, y, h)
+
+# y < x gives y * (c + 1) < x * (c + 1).
+def lt_mul(+x: Nat, +y: Nat, +c: Nat, +h: {True{} == Nat.is_lt(y, x) : Bool}) ->
+  {True{} == Nat.is_lt(Nat.mul(y, 1n+c), Nat.mul(x, 1n+c)) : Bool}:
+  match x y:
+    case 0n _:
+      absurd({True{} == Nat.is_lt(Nat.mul(y, 1n+c), 0n) : Bool}, no_lt_zero(y, h))
+    case 1n+p 0n:
+      {==}
+    case 1n+p 1n+q:
+      add_lt_left(1n+c, Nat.mul(q, 1n+c), Nat.mul(p, 1n+c), lt_mul(p, q, c, h))
+
+def cancel_le.go(+x: Nat, +y: Nat, +c: Nat, b: Bool, +eb: {b == Nat.is_lt(y, x) : Bool},
+  +h: {False{} == Nat.is_lt(Nat.mul(y, 1n+c), Nat.mul(x, 1n+c)) : Bool}) -> {False{} == Nat.is_lt(y, x) : Bool}:
+  match b:
+    case False{}:
+      eb
+    case True{}:
+      absurd({False{} == Nat.is_lt(y, x) : Bool},
+        Equal.trans(Bool, True{}, Nat.is_lt(Nat.mul(y, 1n+c), Nat.mul(x, 1n+c)), False{}, lt_mul(x, y, c, eb),
+          Equal.sym(Bool, False{}, Nat.is_lt(Nat.mul(y, 1n+c), Nat.mul(x, 1n+c)), h)))
+
+# x * (c + 1) <= y * (c + 1) gives x <= y.
+def cancel_le(+x: Nat, +y: Nat, +c: Nat, +h: {False{} == Nat.is_lt(Nat.mul(y, 1n+c), Nat.mul(x, 1n+c)) : Bool}) ->
+  {False{} == Nat.is_lt(y, x) : Bool}:
+  cancel_le.go(x, y, c, Nat.is_lt(y, x), {==}, h)
+
+def not_true(+c: Bool, +e: {True{} == Bool.not(c) : Bool}) -> {False{} == c : Bool}:
+  match c:
+    case False{}:
+      {==}
+    case True{}:
+      absurd({False{} == True{} : Bool}, e)
+
+def mul_comm(+a: Nat, +b: Nat) -> {Nat.mul(a, b) == Nat.mul(b, a) : Nat}:
+  match a:
+    case 0n:
+      mul_zero(b)
+    case 1n+p:
+      %mul_succ(b, p) : {Nat.add(b, Nat.mul(p, b)) == _ : Nat}
+      %mul_comm(p, b) : {Nat.add(b, Nat.mul(p, b)) == Nat.add(b, _) : Nat}
+      {==}
+
+def mul_add(+a: Nat, +b: Nat, +c: Nat) -> {Nat.mul(Nat.add(a, b), c) == Nat.add(Nat.mul(a, c), Nat.mul(b, c)) : Nat}:
+  match a:
+    case 0n:
+      {==}
+    case 1n+p:
+      %Equal.sym(Nat, Nat.add(Nat.add(c, Nat.mul(p, c)), Nat.mul(b, c)), Nat.add(c, Nat.add(Nat.mul(p, c), Nat.mul(b, c))),
+        add_assoc(c, Nat.mul(p, c), Nat.mul(b, c))) : {Nat.add(c, Nat.mul(Nat.add(p, b), c)) == _ : Nat}
+      %mul_add(p, b, c) : {Nat.add(c, Nat.mul(Nat.add(p, b), c)) == Nat.add(c, _) : Nat}
+      {==}
+
+def mul_assoc(+a: Nat, +b: Nat, +c: Nat) -> {Nat.mul(Nat.mul(a, b), c) == Nat.mul(a, Nat.mul(b, c)) : Nat}:
+  match a:
+    case 0n:
+      {==}
+    case 1n+p:
+      %Equal.sym(Nat, Nat.mul(Nat.add(b, Nat.mul(p, b)), c), Nat.add(Nat.mul(b, c), Nat.mul(Nat.mul(p, b), c)),
+        mul_add(b, Nat.mul(p, b), c)) : {_ == Nat.add(Nat.mul(b, c), Nat.mul(p, Nat.mul(b, c))) : Nat}
+      %mul_assoc(p, b, c) : {Nat.add(Nat.mul(b, c), Nat.mul(Nat.mul(p, b), c)) == Nat.add(Nat.mul(b, c), _) : Nat}
+      {==}

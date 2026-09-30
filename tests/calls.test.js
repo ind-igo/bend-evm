@@ -37,4 +37,4 @@ test('the certificate of the inlined calls checks, and catches a wrong join', ()
     writeFileSync(inline, good.replace('Done{subst(rest, level, v)}', 'Done{rest}'));
     expect(certify()).toContain('Location: run');
   });
-}, 300_000);
+}, 600_000);

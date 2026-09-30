@@ -26,10 +26,25 @@ test(`the model's word operations agree with the reference at ${w} bits (SEED=${
   }
 }, 300_000);
 
+// The floor of the square root, by bisection.
+function isqrt(x) {
+  let lo = 0n, hi = 1n << 128n;
+  while (hi - lo > 1n) {
+    const mid = (lo + hi) / 2n;
+    if (mid * mid <= x) lo = mid; else hi = mid;
+  }
+  return lo;
+}
+
+// Words for sqrt: the edge and random words, squares, and the words next to
+// them, where Newton's method ends one above the root.
+const roots = ws => [...ws, ...[0n, 1n, 2n, 3n, 4n, 1n << 128n, (1n << 128n) - 1n, (1n << 64n) + 7n, 1n << 136n, 1n << 72n,
+  1n << 40n, 1n << 24n].flatMap(r => [r * r - 1n, r * r, r * r + 1n].filter(x => x >= 0n && x < 1n << 256n))].map(a => [a]);
+
 // The compiled operations on anvil against the reference at 256 bits. This
 // tests the printer and the Yul fragment's meaning for each operation, which
 // the proofs take as given. Checked mul reverts on overflow, and checked div
-// and mod on zero.
+// and mod on zero. The AMM's sqrt is checked here too.
 test(`the compiled word operations agree with the reference on anvil (SEED=${seed})`, async () => {
   const chain = await deploy({ program: 'tests/fixtures/math/program.bend', functions: entries.math });
   try {
@@ -41,14 +56,15 @@ test(`the compiled word operations agree with the reference on anvil (SEED=${see
     const types = { sdiv: ['int256', 'int256'], smod: ['int256', 'int256'], slt: ['int256', 'int256'],
       sgt: ['int256', 'int256'], sar: ['uint256', 'int256'] };
     const want = (f, args) => {
+      if (f === 'sqrt') return String(isqrt(args[0]));
       if (!checked[f]) return String(evm(f, args));
       const [a, b] = args;
       if (f === 'checked_mul' ? a * b >= 1n << 256n : b === 0n) return 'revert';
       return String(evm(checked[f], args));
     };
     for (const f of entries.math) {
-      const n = arity[f] ?? 2;
-      const cases = n === 1 ? ws.map(a => [a]) : n === 2 ? ws.flatMap(a => ws.map(b => [a, b]))
+      const n = f === 'sqrt' ? 1 : arity[f] ?? 2;
+      const cases = f === 'sqrt' ? roots(ws) : n === 1 ? ws.map(a => [a]) : n === 2 ? ws.flatMap(a => ws.map(b => [a, b]))
         : Array.from({ length: 300 }, () => [pick(ws), pick(ws), pick(ws)]);
       const selector = must(run('cast', 'sig', `${f}(${(types[f] ?? Array(n).fill('uint256')).join(',')})`));
       const body = cases.map((args, id) => ({ jsonrpc: '2.0', id, method: 'eth_call', params: [{ to: chain.address,

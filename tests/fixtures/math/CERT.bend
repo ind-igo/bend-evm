@@ -313,6 +313,63 @@ law checked_mod:
 def checked_mod(p0, p1):
   {==}
 
+def ir.sqrt() -> IR.Cmd:
+  IR.Bind{IR.Math{Evm.Shr{}, [IR.Lit{136n}, IR.Var{0n}]}, 63n,
+    IR.Bind{IR.Math{Evm.Lt{}, [IR.Lit{0n}, IR.Var{63n}]}, 64n,
+    IR.Bind{IR.Math{Evm.Shl{}, [IR.Lit{7n}, IR.Var{64n}]}, 65n,
+    IR.Bind{IR.Math{Evm.Shr{}, [IR.Var{65n}, IR.Var{0n}]}, 66n,
+    IR.Bind{IR.Math{Evm.Shr{}, [IR.Lit{72n}, IR.Var{66n}]}, 67n,
+    IR.Bind{IR.Math{Evm.Lt{}, [IR.Lit{0n}, IR.Var{67n}]}, 68n,
+    IR.Bind{IR.Math{Evm.Shl{}, [IR.Lit{6n}, IR.Var{68n}]}, 69n,
+    IR.Bind{IR.Math{Evm.Or{}, [IR.Var{65n}, IR.Var{69n}]}, 70n,
+    IR.Bind{IR.Math{Evm.Shr{}, [IR.Var{70n}, IR.Var{0n}]}, 71n,
+    IR.Bind{IR.Math{Evm.Shr{}, [IR.Lit{40n}, IR.Var{71n}]}, 72n,
+    IR.Bind{IR.Math{Evm.Lt{}, [IR.Lit{0n}, IR.Var{72n}]}, 73n,
+    IR.Bind{IR.Math{Evm.Shl{}, [IR.Lit{5n}, IR.Var{73n}]}, 74n,
+    IR.Bind{IR.Math{Evm.Or{}, [IR.Var{70n}, IR.Var{74n}]}, 75n,
+    IR.Bind{IR.Math{Evm.Shr{}, [IR.Var{75n}, IR.Var{0n}]}, 76n,
+    IR.Bind{IR.Math{Evm.Shr{}, [IR.Lit{24n}, IR.Var{76n}]}, 77n,
+    IR.Bind{IR.Math{Evm.Lt{}, [IR.Lit{0n}, IR.Var{77n}]}, 78n,
+    IR.Bind{IR.Math{Evm.Shl{}, [IR.Lit{4n}, IR.Var{78n}]}, 79n,
+    IR.Bind{IR.Math{Evm.Or{}, [IR.Var{75n}, IR.Var{79n}]}, 80n,
+    IR.Bind{IR.Math{Evm.Shr{}, [IR.Lit{1n}, IR.Var{80n}]}, 81n,
+    IR.Bind{IR.Math{Evm.Shl{}, [IR.Var{81n}, IR.Lit{181n}]}, 82n,
+    IR.Bind{IR.Math{Evm.Shr{}, [IR.Var{80n}, IR.Var{0n}]}, 83n,
+    IR.Bind{IR.Math{Evm.Add{}, [IR.Var{83n}, IR.Lit{65536n}]}, 84n,
+    IR.Bind{IR.Math{Evm.Mul{}, [IR.Var{82n}, IR.Var{84n}]}, 85n,
+    IR.Bind{IR.Math{Evm.Shr{}, [IR.Lit{18n}, IR.Var{85n}]}, 86n,
+    IR.Bind{IR.Math{Evm.Div{}, [IR.Var{0n}, IR.Var{86n}]}, 122n,
+    IR.Bind{IR.Math{Evm.Add{}, [IR.Var{86n}, IR.Var{122n}]}, 123n,
+    IR.Bind{IR.Math{Evm.Shr{}, [IR.Lit{1n}, IR.Var{123n}]}, 87n,
+    IR.Bind{IR.Math{Evm.Div{}, [IR.Var{0n}, IR.Var{87n}]}, 118n,
+    IR.Bind{IR.Math{Evm.Add{}, [IR.Var{87n}, IR.Var{118n}]}, 119n,
+    IR.Bind{IR.Math{Evm.Shr{}, [IR.Lit{1n}, IR.Var{119n}]}, 88n,
+    IR.Bind{IR.Math{Evm.Div{}, [IR.Var{0n}, IR.Var{88n}]}, 114n,
+    IR.Bind{IR.Math{Evm.Add{}, [IR.Var{88n}, IR.Var{114n}]}, 115n,
+    IR.Bind{IR.Math{Evm.Shr{}, [IR.Lit{1n}, IR.Var{115n}]}, 89n,
+    IR.Bind{IR.Math{Evm.Div{}, [IR.Var{0n}, IR.Var{89n}]}, 110n,
+    IR.Bind{IR.Math{Evm.Add{}, [IR.Var{89n}, IR.Var{110n}]}, 111n,
+    IR.Bind{IR.Math{Evm.Shr{}, [IR.Lit{1n}, IR.Var{111n}]}, 90n,
+    IR.Bind{IR.Math{Evm.Div{}, [IR.Var{0n}, IR.Var{90n}]}, 106n,
+    IR.Bind{IR.Math{Evm.Add{}, [IR.Var{90n}, IR.Var{106n}]}, 107n,
+    IR.Bind{IR.Math{Evm.Shr{}, [IR.Lit{1n}, IR.Var{107n}]}, 91n,
+    IR.Bind{IR.Math{Evm.Div{}, [IR.Var{0n}, IR.Var{91n}]}, 102n,
+    IR.Bind{IR.Math{Evm.Add{}, [IR.Var{91n}, IR.Var{102n}]}, 103n,
+    IR.Bind{IR.Math{Evm.Shr{}, [IR.Lit{1n}, IR.Var{103n}]}, 92n,
+    IR.Bind{IR.Math{Evm.Div{}, [IR.Var{0n}, IR.Var{92n}]}, 98n,
+    IR.Bind{IR.Math{Evm.Add{}, [IR.Var{92n}, IR.Var{98n}]}, 99n,
+    IR.Bind{IR.Math{Evm.Shr{}, [IR.Lit{1n}, IR.Var{99n}]}, 93n,
+    IR.Bind{IR.Math{Evm.Div{}, [IR.Var{0n}, IR.Var{93n}]}, 94n,
+    IR.Bind{IR.Math{Evm.Lt{}, [IR.Var{94n}, IR.Var{93n}]}, 95n,
+    IR.Tail{IR.Math{Evm.Sub{}, [IR.Var{93n}, IR.Var{95n}]}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}
+
+law sqrt:
+  for +p0: Nat
+  {IR.call(ir.sqrt(), IR.Returns{}, [IR.Binding{0n, p0}]) == Program.sqrt(p0) : Evm.Contract(Nat)}
+
+def sqrt(p0):
+  {==}
+
 def entry.table() -> List<&2, Calls.Entry>:
   [Calls.Entry{ir.add(), IR.Returns{}, 2n},
   Calls.Entry{ir.sub(), IR.Returns{}, 2n},
@@ -341,4 +398,5 @@ def entry.table() -> List<&2, Calls.Entry>:
   Calls.Entry{ir.sar(), IR.Returns{}, 2n},
   Calls.Entry{ir.checked_mul(), IR.Returns{}, 2n},
   Calls.Entry{ir.checked_div(), IR.Returns{}, 2n},
-  Calls.Entry{ir.checked_mod(), IR.Returns{}, 2n}]
+  Calls.Entry{ir.checked_mod(), IR.Returns{}, 2n},
+  Calls.Entry{ir.sqrt(), IR.Returns{}, 1n}]
