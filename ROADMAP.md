@@ -274,3 +274,29 @@ The token's laws were only about the example token, so a new token that used the
 - [x] Supply laws for the core's writes (move, mint, burn), and for writes that are not to the supply or a balance: a plain slot other than 0, an entry of another mapping, and an entry of a nested mapping such as an allowance.
 - [x] The example token proves `transferFrom` and `supply_sum` from them. Its proof went from 400 to 305 lines.
 - [x] The core and the token are one example, [examples/erc20](examples/erc20), with one `LAWS.bend` and `PROOF.bend`, where the core's laws are `core.*`. `lib/` and `examples/token` are gone; later examples go beside it in `examples/`.
+
+## M21: all EVM arithmetic
+
+The next examples push the requirements. The first is an AMM (M22), which needs multiplication, division, a square root, packed slots and wrapping arithmetic. So M21 adds all the arithmetic that the EVM has first.
+
+### Done when
+
+- [ ] Every arithmetic, comparison and bitwise opcode, as the EVM computes it (modulo 2^256, no revert): `add`, `sub`, `mul`, `div`, `sdiv`, `mod`, `smod`, `addmod`, `mulmod`, `exp`, `signextend`, `lt`, `gt`, `slt`, `sgt`, `eq`, `iszero`, `and`, `or`, `xor`, `not`, `byte`, `shl`, `shr`, `sar`. In a contract they are `Evm.unchecked.add(a, b)` and so on for the ones that Solidity checks, and `Evm.and(a, b)` and so on for the others. The IR and the Yul model share one meaning for each, so the lowering proof covers them all with one case.
+- [ ] Checked `mul`, `div` and `mod`, as Solidity 0.8 has them for `uint256`: `Evm.mul` reverts on overflow, and `Evm.div` and `Evm.mod` revert on zero. The lowering proof shows that the Yul check reverts exactly when the model does, for any limit.
+- [ ] `nat.bend` has the facts about multiplication and division that the checks and later laws need.
+- [ ] `Evm.Int` is `int256` in the ABI.
+- [ ] A differential test on `anvil` runs every operation on edge values and random 256-bit words (zero, one, the largest word, 2^255, negative numbers, shifts past 256, division by zero) and compares each result with the same operation in Solidity.
+
+Not in M21: checked `**` (Solidity checks it with a loop, and the Yul fragment has none) and checked signed arithmetic for `int256`. Both are Solidity checks on top of the opcodes; add them when a contract needs one.
+
+## M22: an AMM
+
+A constant-product pair, after Uniswap V2, as `examples/amm`. It pushes laws about products (x·y does not go down after a swap with a fee), rounding, and reentrancy from two untrusted tokens.
+
+### Done when
+
+- [ ] A pair with fixed `token0` and `token1` does `mint`, `burn` and `swap` with the 0.3% fee. Its LP token is the ERC-20 core.
+- [ ] Laws for each function, and the law that x·y does not go down.
+- [ ] The x·y law holds across every callback from the two tokens, with no lock. If it cannot hold, the failure shows why, and a transient-storage guard follows.
+
+Not in M22: the price oracle (packed reserves and wrapping time accumulators), flash swaps (`bytes` data) and the factory (`CREATE2`).
