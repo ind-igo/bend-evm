@@ -281,11 +281,11 @@ The next examples push the requirements. The first is an AMM (M22), which needs 
 
 ### Done when
 
-- [ ] Every arithmetic, comparison and bitwise opcode, as the EVM computes it (modulo 2^256, no revert): `add`, `sub`, `mul`, `div`, `sdiv`, `mod`, `smod`, `addmod`, `mulmod`, `exp`, `signextend`, `lt`, `gt`, `slt`, `sgt`, `eq`, `iszero`, `and`, `or`, `xor`, `not`, `byte`, `shl`, `shr`, `sar`. In a contract they are `Evm.unchecked.add(a, b)` and so on for the ones that Solidity checks, and `Evm.and(a, b)` and so on for the others. The IR and the Yul model share one meaning for each, so the lowering proof covers them all with one case.
-- [ ] Checked `mul`, `div` and `mod`, as Solidity 0.8 has them for `uint256`: `Evm.mul` reverts on overflow, and `Evm.div` and `Evm.mod` revert on zero. The lowering proof shows that the Yul check reverts exactly when the model does, for any limit.
-- [ ] `nat.bend` has the facts about multiplication and division that the checks and later laws need.
-- [ ] `Evm.Int` is `int256` in the ABI.
-- [ ] A differential test on `anvil` runs every operation on edge values and random 256-bit words (zero, one, the largest word, 2^255, negative numbers, shifts past 256, division by zero) and compares each result with the same operation in Solidity.
+- [x] Every arithmetic, comparison and bitwise opcode, as the EVM computes it (modulo 2^256, no revert): `add`, `sub`, `mul`, `div`, `sdiv`, `mod`, `smod`, `addmod`, `mulmod`, `exp`, `signextend`, `lt`, `gt`, `slt`, `sgt`, `eq`, `iszero`, `and`, `or`, `xor`, `not`, `byte`, `shl`, `shr`, `sar`. In a contract they are `Evm.unchecked.add(a, b)` and so on for the ones that Solidity checks, and `Evm.and(a, b)` and so on for the others. The IR and the Yul model share one meaning for each, so the lowering proof covers them all with one case. That meaning takes the word's width from the limit.
+- [x] Checked `mul`, `div` and `mod`, as Solidity 0.8 has them for `uint256`: `Evm.mul` reverts on overflow, and `Evm.div` and `Evm.mod` revert on zero. The lowering proof shows that the Yul check reverts exactly when the model does, for any limit.
+- [x] `nat.bend` has the facts about multiplication and division that the checks need: how `Nat.divmod` steps, `mod_small`, `div_le`, and the floor lemma, `b ≤ p / a` exactly when `a * b ≤ p`.
+- [x] `Evm.Int` is `int256` in the ABI.
+- [x] A differential test on `anvil` runs every operation on edge values and random 256-bit words (zero, one, the largest word, 2^255, negative numbers, shifts past 256, division by zero) and compares each result with a reference written from the Yellow Paper ([tests/evm.js](tests/evm.js)). The same reference checks the model's meanings at 24 bits, as the Bend runtime holds only words below 2^48.
 
 Not in M21: checked `**` (Solidity checks it with a loop, and the Yul fragment has none) and checked signed arithmetic for `int256`. Both are Solidity checks on top of the opcodes; add them when a contract needs one.
 

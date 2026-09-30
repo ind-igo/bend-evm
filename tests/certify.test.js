@@ -10,6 +10,7 @@ for (const [program, functions] of [
   ['tests/fixtures/emit', entries.emit],
   ['tests/fixtures/view', entries.view],
   ['tests/fixtures/vault', entries.vault],
+  ['tests/fixtures/math', entries.math],
 ]) {
   test(`the committed ${program} certificate is current`, () => {
     const generated = bend('src/certify.bend', `${program}/program.bend`, ...functions);
@@ -69,6 +70,14 @@ test('a certificate for the wrong call does not check', () => {
   mutated('tests/fixtures/vault', [
     ['"transfer(address,uint256)", [IR.Var{1n}, IR.Var{0n}]', '"transfer(address,uint256)", [IR.Var{0n}, IR.Var{1n}]', 'withdraw'],
     ['IR.Call{IR.Var{6n}, "transferFrom', 'IR.View{IR.Var{6n}, "transferFrom', 'deposit'],
+  ]);
+}, 120_000);
+
+test('a certificate for the wrong word operation does not check', () => {
+  mutated('tests/fixtures/math', [
+    ['IR.Math{Evm.Shl{}, [IR.Var{0n}, IR.Var{1n}]}', 'IR.Math{Evm.Shr{}, [IR.Var{0n}, IR.Var{1n}]}', 'shl'],
+    ['IR.Math{Evm.SLt{}, [IR.Var{0n}, IR.Var{1n}]}', 'IR.Math{Evm.SLt{}, [IR.Var{1n}, IR.Var{0n}]}', 'slt'],
+    ['IR.Tail{IR.Mul{IR.Var{0n}, IR.Var{1n}}}', 'IR.Tail{IR.Math{Evm.Mul{}, [IR.Var{0n}, IR.Var{1n}]}}', 'checked_mul'],
   ]);
 }, 120_000);
 

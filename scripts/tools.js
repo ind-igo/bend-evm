@@ -61,6 +61,8 @@ export const entries = {
   emit: ['moved', 'take'],
   view: ['mint', 'balanceOf', 'totalSupply', 'holding', 'others'],
   vault: ['init', 'token', 'sharesOf', 'totalShares', 'deposit', 'withdraw', 'ping', 'touch'],
+  math: ['add', 'sub', 'mul', 'div', 'sdiv', 'mod', 'smod', 'addmod', 'mulmod', 'exp', 'signextend', 'lt', 'gt', 'slt',
+    'sgt', 'eq', 'iszero', 'and', 'or', 'xor', 'not', 'byte', 'shl', 'shr', 'sar', 'checked_mul', 'checked_div', 'checked_mod'],
 };
 
 // The largest word, 2^256 - 1.

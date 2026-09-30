@@ -213,3 +213,158 @@ def and_right(+x: Bool, +y: Bool, +e: {True{} == Bool.and(x, y) : Bool}) -> {Tru
       e
     case False{}:
       absurd({True{} == y : Bool}, e)
+
+# Multiplication and division facts.
+
+def mul_zero(+a: Nat) -> {0n == Nat.mul(a, 0n) : Nat}:
+  match a:
+    case 0n:
+      {==}
+    case 1n+(+p):
+      mul_zero(p)
+
+# p + (b + x) = b + (p + x).
+def add_swap(+p: Nat, +b: Nat, +x: Nat) -> {Nat.add(p, Nat.add(b, x)) == Nat.add(b, Nat.add(p, x)) : Nat}:
+  %add_assoc(p, b, x) : {_ == Nat.add(b, Nat.add(p, x)) : Nat}
+  %add_assoc(b, p, x) : {Nat.add(Nat.add(p, b), x) == _ : Nat}
+  %add_comm(b, p) : {Nat.add(_, x) == Nat.add(Nat.add(b, p), x) : Nat}
+  {==}
+
+def mul_succ(+a: Nat, +b: Nat) -> {Nat.add(a, Nat.mul(a, b)) == Nat.mul(a, 1n+b) : Nat}:
+  match a:
+    case 0n:
+      {==}
+    case 1n+(+p):
+      %mul_succ(p, b) : {1n+Nat.add(p, Nat.add(b, Nat.mul(p, b))) == 1n+Nat.add(b, _) : Nat}
+      %add_swap(p, b, Nat.mul(p, b)) : {1n+Nat.add(p, Nat.add(b, Nat.mul(p, b))) == 1n+_ : Nat}
+      {==}
+
+# Nat.div(p, 1 + q) runs Nat.divmod.go(p, q, 0, 0). It takes p one at a
+# time: m counts what the current block of 1 + q still needs, r what it
+# has, and d the full blocks.
+
+# go takes k at a time into a block that needs k more.
+def go_take(+k: Nat, +n: Nat, +m: Nat, +d: Nat, +r: Nat) ->
+  {Nat.divmod.go(n, m, d, Nat.add(k, r)) == Nat.divmod.go(Nat.add(k, n), Nat.add(k, m), d, r) : Nat & Nat}:
+  match k:
+    case 0n:
+      {==}
+    case 1n+(+j):
+      %add_succ(j, r) : {Nat.divmod.go(n, m, d, _) == Nat.divmod.go(Nat.add(j, n), Nat.add(j, m), d, 1n+r) : Nat & Nat}
+      go_take(j, n, m, d, 1n+r)
+
+# One more full block before gives one more in the quotient.
+def go_more(n: Nat, +m: Nat, +d: Nat, +r: Nat) ->
+  {1n+Pair.fst(Nat, Nat, Nat.divmod.go(n, m, d, r)) == Pair.fst(Nat, Nat, Nat.divmod.go(n, m, 1n+d, r)) : Nat}:
+  match n m:
+    case 0n _:
+      {==}
+    case 1n+np 0n:
+      go_more(np, r, 1n+d, 0n)
+    case 1n+np 1n+mp:
+      go_more(np, mp, d, 1n+r)
+
+# p < 1 + q, so q < p is false.
+def lt_succ_flip(+p: Nat, +q: Nat, +e: {True{} == Nat.is_lt(p, 1n+q) : Bool}) -> {False{} == Nat.is_lt(q, p) : Bool}:
+  %lt_flip(q, p) : {False{} == _ : Bool}
+  %e : {False{} == Bool.not(_) : Bool}
+  {==}
+
+# p < 1 + q: the quotient is 0 and the remainder p.
+def divmod_small(+p: Nat, +q: Nat, +e: {True{} == Nat.is_lt(p, 1n+q) : Bool}) -> {(0n, p) == Nat.divmod(p, 1n+q) : Nat & Nat}:
+  +t = Nat.sub(q, p)
+  %sub_add(q, p, lt_succ_flip(p, q, e)) : {(0n, p) == Nat.divmod.go(p, _, 0n, 0n) : Nat & Nat}
+  %add_comm(p, t) : {(0n, p) == Nat.divmod.go(p, _, 0n, 0n) : Nat & Nat}
+  %add_zero(p) : {(0n, _) == Nat.divmod.go(_, Nat.add(p, t), 0n, 0n) : Nat & Nat}
+  go_take(p, 0n, t, 0n, 0n)
+
+def div_small(+p: Nat, +q: Nat, +e: {True{} == Nat.is_lt(p, 1n+q) : Bool}) -> {0n == Nat.div(p, 1n+q) : Nat}:
+  %divmod_small(p, q, e) : {0n == Pair.fst(Nat, Nat, _) : Nat}
+  {==}
+
+def mod_small(+p: Nat, +q: Nat, +e: {True{} == Nat.is_lt(p, 1n+q) : Bool}) -> {p == Nat.mod(p, 1n+q) : Nat}:
+  %divmod_small(p, q, e) : {p == Pair.snd(Nat, Nat, _) : Nat}
+  {==}
+
+# p >= 1 + q: one block of 1 + q, then the rest.
+def div_big(+p: Nat, +q: Nat, +e: {False{} == Nat.is_lt(p, 1n+q) : Bool}) ->
+  {1n+Nat.div(Nat.sub(p, 1n+q), 1n+q) == Nat.div(p, 1n+q) : Nat}:
+  +t = Nat.sub(p, 1n+q)
+  %sub_add(p, 1n+q, e) : {1n+Nat.div(t, 1n+q) == Pair.fst(Nat, Nat, Nat.divmod.go(_, q, 0n, 0n)) : Nat}
+  %Equal.sym(Nat, Nat.add(t, 1n+q), 1n+Nat.add(t, q), add_succ(t, q)) :
+    {1n+Nat.div(t, 1n+q) == Pair.fst(Nat, Nat, Nat.divmod.go(_, q, 0n, 0n)) : Nat}
+  %add_comm(q, t) : {1n+Nat.div(t, 1n+q) == Pair.fst(Nat, Nat, Nat.divmod.go(1n+_, q, 0n, 0n)) : Nat}
+  %add_succ(q, t) : {1n+Nat.div(t, 1n+q) == Pair.fst(Nat, Nat, Nat.divmod.go(_, q, 0n, 0n)) : Nat}
+  %add_zero(q) : {1n+Nat.div(t, 1n+q) == Pair.fst(Nat, Nat, Nat.divmod.go(Nat.add(q, 1n+t), _, 0n, 0n)) : Nat}
+  %go_take(q, 1n+t, 0n, 0n, 0n) : {1n+Nat.div(t, 1n+q) == Pair.fst(Nat, Nat, _) : Nat}
+  %Equal.sym(Nat, Nat.add(q, 0n), q, add_zero(q)) :
+    {1n+Nat.div(t, 1n+q) == Pair.fst(Nat, Nat, Nat.divmod.go(t, _, 1n, 0n)) : Nat}
+  go_more(t, q, 0n, 0n)
+
+# p < a, so a + m > p.
+def lt_add_small(+p: Nat, +a: Nat, +m: Nat, +e: {True{} == Nat.is_lt(p, a) : Bool}) ->
+  {False{} == Nat.is_lt(Nat.add(a, m), 1n+p) : Bool}:
+  match p a:
+    case +x 0n:
+      absurd({False{} == Nat.is_lt(m, 1n+x) : Bool}, no_lt_zero(x, e))
+    case 0n 1n+(+b):
+      lt_zero(Nat.add(b, m))
+    case 1n+(+c) 1n+(+b):
+      lt_add_small(c, b, m, e)
+
+# a <= p, so a + m <= p exactly when m <= p - a.
+def lt_add_shift(+p: Nat, +a: Nat, +m: Nat, +e: {False{} == Nat.is_lt(p, a) : Bool}) ->
+  {Nat.is_lt(m, 1n+Nat.sub(p, a)) == Nat.is_lt(Nat.add(a, m), 1n+p) : Bool}:
+  match p a:
+    case +x 0n:
+      %sub_zero(x) : {Nat.is_lt(m, 1n+_) == Nat.is_lt(m, 1n+x) : Bool}
+      {==}
+    case 0n 1n+(+b):
+      absurd({Nat.is_lt(m, 1n+Nat.sub(0n, 1n+b)) == Nat.is_lt(Nat.add(1n+b, m), 1n) : Bool}, Equal.sym(Bool, False{}, True{}, e))
+    case 1n+(+c) 1n+(+b):
+      lt_add_shift(c, b, m, e)
+
+def floor.step(+q: Nat, +c: Nat, +p: Nat, +t: Bool, +et: {t == Nat.is_lt(p, 1n+q) : Bool},
+  +ih: {Bool.not(Nat.is_lt(Nat.div(Nat.sub(p, 1n+q), 1n+q), c)) == Nat.is_lt(Nat.mul(1n+q, c), 1n+Nat.sub(p, 1n+q)) : Bool}) ->
+  {Bool.not(Nat.is_lt(Nat.div(p, 1n+q), 1n+c)) == Nat.is_lt(Nat.mul(1n+q, 1n+c), 1n+p) : Bool}:
+  match t:
+    case True{}:
+      %div_small(p, q, et) : {Bool.not(Nat.is_lt(_, 1n+c)) == Nat.is_lt(Nat.mul(1n+q, 1n+c), 1n+p) : Bool}
+      %mul_succ(1n+q, c) : {False{} == Nat.is_lt(_, 1n+p) : Bool}
+      lt_add_small(p, 1n+q, Nat.mul(1n+q, c), et)
+    case False{}:
+      +d = Nat.div(Nat.sub(p, 1n+q), 1n+q)
+      %div_big(p, q, et) : {Bool.not(Nat.is_lt(_, 1n+c)) == Nat.is_lt(Nat.mul(1n+q, 1n+c), 1n+p) : Bool}
+      %mul_succ(1n+q, c) : {Bool.not(Nat.is_lt(d, c)) == Nat.is_lt(_, 1n+p) : Bool}
+      %lt_add_shift(p, 1n+q, Nat.mul(1n+q, c), et) : {Bool.not(Nat.is_lt(d, c)) == _ : Bool}
+      ih
+
+# Floor division: b <= p / a exactly when a * b <= p, for a = 1 + q.
+def floor(+q: Nat, b: Nat, +p: Nat) -> {Bool.not(Nat.is_lt(Nat.div(p, 1n+q), b)) == Nat.is_lt(Nat.mul(1n+q, b), 1n+p) : Bool}:
+  match b:
+    case 0n:
+      %mul_zero(q) : {Bool.not(Nat.is_lt(Nat.div(p, 1n+q), 0n)) == Nat.is_lt(_, 1n+p) : Bool}
+      %lt_zero(Nat.div(p, 1n+q)) : {Bool.not(_) == Nat.is_lt(0n, 1n+p) : Bool}
+      {==}
+    case 1n+(+c):
+      floor.step(q, c, p, Nat.is_lt(p, 1n+q), {==}, floor(q, c, Nat.sub(p, 1n+q)))
+
+def lt_add_self(+n: Nat, +x: Nat) -> {False{} == Nat.is_lt(Nat.add(n, x), n) : Bool}:
+  match n:
+    case 0n:
+      lt_zero(x)
+    case 1n+(+k):
+      lt_add_self(k, x)
+
+def not_false(+c: Bool, +e: {Bool.not(c) == False{} : Bool}) -> {True{} == c : Bool}:
+  match c:
+    case True{}:
+      {==}
+    case False{}:
+      absurd({True{} == False{} : Bool}, e)
+
+# p / a <= p.
+def div_le(+p: Nat, +q: Nat) -> {True{} == Nat.is_lt(Nat.div(p, 1n+q), 1n+p) : Bool}:
+  not_false(Nat.is_lt(Nat.div(p, 1n+q), 1n+p),
+    Equal.trans(Bool, Bool.not(Nat.is_lt(Nat.div(p, 1n+q), 1n+p)), Nat.is_lt(Nat.mul(1n+q, 1n+p), 1n+p), False{},
+      floor(q, 1n+p, p), Equal.sym(Bool, False{}, Nat.is_lt(Nat.mul(1n+q, 1n+p), 1n+p), lt_add_self(1n+p, Nat.mul(q, 1n+p)))))

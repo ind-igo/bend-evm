@@ -1,5 +1,6 @@
 import Base
 import ../vendor/bend-frontend/src/core.bend as Core
+import ./Evm.bend as Evm
 import ./ir.bend as IR
 import ./inline.bend as Inline
 import ./keccak.bend as Keccak
@@ -95,6 +96,10 @@ type Tag is Data:
   Select{}
   Add{}
   Sub{}
+  Mul{}
+  Div{}
+  Mod{}
+  MathOp{op: Evm.Op}
   Sstore{}
   Store{}
   Store2{}
@@ -120,8 +125,25 @@ type Tag is Data:
 type Named is Data:
   Named{name: String, tag: Tag}
 
+def op.name(i: Evm.Info) -> String:
+  match i:
+    case Evm.Info{_, _, n, _}:
+      n
+
+def op.arity(i: Evm.Info) -> Nat:
+  match i:
+    case Evm.Info{_, _, _, a}:
+      a
+
+def math.tags(ops: List<&2, Evm.Op>) -> List<&2, Named>:
+  match ops:
+    case Nil{}:
+      Nil{}
+    case +o <> rest:
+      Named{"Evm." ++ op.name(Evm.info(o)), MathOp{o}} <> math.tags(rest)
+
 def tags() -> List<&2, Named>:
-  [Named{"Evm.sload", Sload{}},
+  List.append(&2, Named, math.tags(Evm.ops()), [Named{"Evm.sload", Sload{}},
   Named{"Evm.load", Load{}},
   Named{"Evm.load2", Load2{}},
   Named{"Evm.caller", Caller{}},
@@ -136,6 +158,9 @@ def tags() -> List<&2, Named>:
   Named{"Evm.select", Select{}},
   Named{"Evm.add", Add{}},
   Named{"Evm.sub", Sub{}},
+  Named{"Evm.mul", Mul{}},
+  Named{"Evm.div", Div{}},
+  Named{"Evm.mod", Mod{}},
   Named{"Evm.sstore", Sstore{}},
   Named{"Evm.store", Store{}},
   Named{"Evm.store2", Store2{}},
@@ -155,7 +180,7 @@ def tags() -> List<&2, Named>:
   Named{"Evm.Indexed", Indexed{}},
   Named{"Evm.Log", EventType{}},
   Named{"Evm.Error", ErrorType{}},
-  Named{"Evm.Call", CallType{}}]
+  Named{"Evm.Call", CallType{}}])
 
 def tag.go(table: List<&2, Named>, +name: String) -> Tag:
   match table:
@@ -257,7 +282,7 @@ def abi.go(table: List<&2, Abi>, +name: String) -> Result<&2, &2, String, String
 # The ABI type of a word: Nat is uint256, Evm.Address is address, and so on.
 def abi(+name: String) -> Result<&2, &2, String, String>:
   abi.go([Abi{"Nat", "uint256"}, Abi{"Evm.Address", "address"}, Abi{"Evm.Uint8", "uint8"},
-    Abi{"Evm.Boolean", "bool"}, Abi{"Evm.Bytes32", "bytes32"}], name)
+    Abi{"Evm.Boolean", "bool"}, Abi{"Evm.Bytes32", "bytes32"}, Abi{"Evm.Int", "int256"}], name)
 
 def abi.term(+evm: String, typ: Core.Term) -> Result<&2, &2, String, String>:
   match typ:
@@ -721,6 +746,24 @@ def view(+writes: Bool, c: Call, +evm: String, +decls: List<&2, Core.Declaration
     case _:
       Fail{wanted(CallDef{})}
 
+def operands(terms: List<&2, Core.Term>, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, List<&2, IR.Expr>>:
+  match terms:
+    case Nil{}:
+      Done{Nil{}}
+    case t <> rest:
+      do Result<&2, &2, String, List<&2, IR.Expr>>:
+        e : IR.Expr <- expr(t, decls)
+        es : List<&2, IR.Expr> <- operands(rest, decls)
+        return e <> es
+
+# A word operation, such as Evm.shl(8n, x), with its number of words.
+def math(+op: Evm.Op, +args: List<&2, Core.Term>, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Action>:
+  Bool.pick(Result<&2, &2, String, IR.Action>, Nat.is_eq(List.length(&2, Core.Term, args), op.arity(Evm.info(op))),
+    do Result<&2, &2, String, IR.Action>:
+      es : List<&2, IR.Expr> <- operands(args, decls)
+      return IR.Math{op, es},
+    Fail{"Evm." ++ op.name(Evm.info(op)) ++ " takes " ++ Nat.show(op.arity(Evm.info(op))) ++ " words"})
+
 def word(c: Call, +evm: String, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Action>:
   match c:
     case Call{Sload{}, _, slot <> Nil{}}:
@@ -781,6 +824,23 @@ def word(c: Call, +evm: String, +decls: List<&2, Core.Declaration>) -> Result<&2
         l : IR.Expr <- expr(left, decls)
         r : IR.Expr <- expr(right, decls)
         return IR.Sub{l, r}
+    case Call{Mul{}, _, left <> right <> Nil{}}:
+      do Result<&2, &2, String, IR.Action>:
+        l : IR.Expr <- expr(left, decls)
+        r : IR.Expr <- expr(right, decls)
+        return IR.Mul{l, r}
+    case Call{Div{}, _, left <> right <> Nil{}}:
+      do Result<&2, &2, String, IR.Action>:
+        l : IR.Expr <- expr(left, decls)
+        r : IR.Expr <- expr(right, decls)
+        return IR.Div{l, r}
+    case Call{Mod{}, _, left <> right <> Nil{}}:
+      do Result<&2, &2, String, IR.Action>:
+        l : IR.Expr <- expr(left, decls)
+        r : IR.Expr <- expr(right, decls)
+        return IR.Mod{l, r}
+    case Call{MathOp{op}, _, args}:
+      math(op, args, decls)
     case Call{View{}, _, called <> Nil{}}:
       view(False{}, call(called, Nil{}), evm, decls)
     case Call{CallOut{}, _, called <> Nil{}}:

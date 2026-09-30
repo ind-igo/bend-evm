@@ -58,6 +58,14 @@ def top.word(w: IR.Action) -> Nat:
       top.two(left, right)
     case IR.Sub{left, right}:
       top.two(left, right)
+    case IR.Mul{left, right}:
+      top.two(left, right)
+    case IR.Div{left, right}:
+      top.two(left, right)
+    case IR.Mod{left, right}:
+      top.two(left, right)
+    case IR.Math{_, words}:
+      top.list(words)
     case IR.Select{c, yes, no}:
       max(top.cond(c), top.two(yes, no))
     case IR.Keccak{words}:
@@ -159,6 +167,14 @@ def rename.word(w: IR.Action, +parameters: List<&2, Nat>, +args: List<&2, IR.Exp
       IR.Add{rename.expr(left, parameters, args, offset), rename.expr(right, parameters, args, offset)}
     case IR.Sub{left, right}:
       IR.Sub{rename.expr(left, parameters, args, offset), rename.expr(right, parameters, args, offset)}
+    case IR.Mul{left, right}:
+      IR.Mul{rename.expr(left, parameters, args, offset), rename.expr(right, parameters, args, offset)}
+    case IR.Div{left, right}:
+      IR.Div{rename.expr(left, parameters, args, offset), rename.expr(right, parameters, args, offset)}
+    case IR.Mod{left, right}:
+      IR.Mod{rename.expr(left, parameters, args, offset), rename.expr(right, parameters, args, offset)}
+    case IR.Math{op, words}:
+      IR.Math{op, rename.list(words, parameters, args, offset)}
     case IR.Select{c, yes, no}:
       IR.Select{rename.cond(c, parameters, args, offset), rename.expr(yes, parameters, args, offset),
         rename.expr(no, parameters, args, offset)}

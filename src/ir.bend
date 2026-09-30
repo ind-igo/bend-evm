@@ -23,6 +23,10 @@ type Action is Data:
   Caller{}
   Add{left: Expr, right: Expr}
   Sub{left: Expr, right: Expr}
+  Mul{left: Expr, right: Expr}
+  Div{left: Expr, right: Expr}
+  Mod{left: Expr, right: Expr}
+  Math{op: Evm.Op, args: List<&2, Expr>}
   Select{cond: Cond, yes: Expr, no: Expr}
   Max{}
   Timestamp{}
@@ -122,6 +126,14 @@ def word(w: Action, +env: List<&2, Binding>) -> Evm.Contract(Nat):
       Evm.add(eval(left, env), eval(right, env))
     case Sub{left, right}:
       Evm.sub(eval(left, env), eval(right, env))
+    case Mul{left, right}:
+      Evm.mul(eval(left, env), eval(right, env))
+    case Div{left, right}:
+      Evm.div(eval(left, env), eval(right, env))
+    case Mod{left, right}:
+      Evm.mod(eval(left, env), eval(right, env))
+    case Math{op, args}:
+      Evm.math(op, evals(args, env))
     case Select{c, yes, no}:
       Evm.select(cond(c, env), eval(yes, env), eval(no, env))
     case Max{}:
@@ -231,6 +243,14 @@ def closed.word(w: Action, +scope: List<&2, Nat>) -> Bool:
       closed.two(left, right, scope)
     case Sub{left, right}:
       closed.two(left, right, scope)
+    case Mul{left, right}:
+      closed.two(left, right, scope)
+    case Div{left, right}:
+      closed.two(left, right, scope)
+    case Mod{left, right}:
+      closed.two(left, right, scope)
+    case Math{_, args}:
+      closed.list(args, scope)
     case Select{c, yes, no}:
       Bool.and(closed.cond(c, scope), closed.two(yes, no, scope))
     case Max{}:

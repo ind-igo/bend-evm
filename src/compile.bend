@@ -1,4 +1,5 @@
 import Base
+import ./Evm.bend as Evm
 import ./ir.bend as IR
 import ./read.bend as Read
 import ./yul.bend as Yul
@@ -33,6 +34,18 @@ def loc(l: IR.Loc) -> String:
       atom(slot)
     case IR.Mapped{base, key}:
       call("mapped", [loc(base), atom(key)])
+
+def atoms(exprs: List<&2, IR.Expr>) -> List<&2, String>:
+  match exprs:
+    case Nil{}:
+      Nil{}
+    case e <> rest:
+      atom(e) <> atoms(rest)
+
+def yul(i: Evm.Info) -> String:
+  match i:
+    case Evm.Info{_, y, _, _}:
+      y
 
 def exp(e: Yul.Exp) -> String:
   match e:
@@ -78,13 +91,14 @@ def exp(e: Yul.Exp) -> String:
       Keccak.digest(text)
     case Yul.Recover{digest, v, r, sig}:
       call("recover", [atom(digest), atom(v), atom(r), atom(sig)])
-
-def atoms(exprs: List<&2, IR.Expr>) -> List<&2, String>:
-  match exprs:
-    case Nil{}:
-      Nil{}
-    case e <> rest:
-      atom(e) <> atoms(rest)
+    case Yul.Op{op, args}:
+      call(yul(Evm.info(op)), atoms(args))
+    case Yul.Div{left, right}:
+      a b = exp(left) exp(right)
+      call("div", [a, b])
+    case Yul.And{left, right}:
+      a b = exp(left) exp(right)
+      call("and", [a, b])
 
 def revert() -> String:
   "revert(0, 0)"

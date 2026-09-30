@@ -89,6 +89,64 @@ def guard(+a: Nat, +b: Nat, +l: Nat) -> {Nat.is_lt(Nat.add(a, b), l) == Nat.is_e
       %not_zero(p) : {Nat.is_lt(Nat.add(a, b), 1n+p) == Nat.is_eq(Yul.gt(b, Yul.sub(_, a, 1n+p), 1n+p), 0n) : Bool}
       guard.succ(a, b, p, Nat.is_lt(a, 1n+p), {==})
 
+# The overflow check of checked mul, as the Yul model computes it.
+def mul.check(+a: Nat, +b: Nat, +l: Nat) -> Nat:
+  Bool.pick(Nat, Nat.is_eq(l, 0n), 1n, Evm.bitwise(Evm.And{}, Yul.bit(Nat.is_eq(Yul.bit(Nat.is_eq(a, 0n)), 0n)),
+    Yul.gt(b, Bool.pick(Nat, Nat.is_eq(a, 0n), 0n, Nat.div(Yul.not(0n, l), a)), l)))
+
+def and_bit(+c: Bool) -> {Bool.not(c) == Nat.is_eq(Evm.bitwise(Evm.And{}, 1n, Yul.bit(c)), 0n) : Bool}:
+  match c:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def mul_guard.at(a: Nat, +b: Nat, +p: Nat) -> {Nat.is_lt(Nat.mul(a, b), 1n+p) == Nat.is_eq(mul.check(a, b, 1n+p), 0n) : Bool}:
+  match a b:
+    case 0n 0n:
+      {==}
+    case 0n 1n+_:
+      {==}
+    case 1n+(+q) +c:
+      +d = Nat.div(p, 1n+q)
+      %N.floor(q, c, p) : {_ == Nat.is_eq(mul.check(1n+q, c, 1n+p), 0n) : Bool}
+      %not_zero(p) : {Bool.not(Nat.is_lt(d, c)) == Nat.is_eq(Evm.bitwise(Evm.And{}, 1n, Yul.gt(c, Nat.div(_, 1n+q), 1n+p)), 0n) : Bool}
+      %N.div_le(p, q) : {Bool.not(Nat.is_lt(d, c)) ==
+        Nat.is_eq(Evm.bitwise(Evm.And{}, 1n, Bool.pick(Nat, _, Yul.bit(Nat.is_lt(d, c)), 1n)), 0n) : Bool}
+      and_bit(Nat.is_lt(d, c))
+
+# The check `and(iszero(iszero(a)), gt(b, div(not(0), a)))` is zero exactly
+# when a * b < limit.
+def mul_guard(+a: Nat, +b: Nat, +l: Nat) -> {Nat.is_lt(Nat.mul(a, b), l) == Nat.is_eq(mul.check(a, b, l), 0n) : Bool}:
+  match l:
+    case 0n:
+      %N.lt_zero(Nat.mul(a, b)) : {_ == False{} : Bool}
+      {==}
+    case 1n+(+p):
+      mul_guard.at(a, b, p)
+
+def mod_in(+x: Nat, +l: Nat, +e: {True{} == Nat.is_lt(x, l) : Bool}) -> {x == Nat.mod(x, l) : Nat}:
+  match l:
+    case 0n:
+      N.absurd({x == Nat.mod(x, 0n) : Nat}, N.no_lt_zero(x, e))
+    case 1n+(+q):
+      N.mod_small(x, q, e)
+
+# Checked mul: the check passes exactly when Evm.mul does, and then the
+# wrapping product is the product.
+def mul_step(+prod: Nat, +l: Nat, c: Bool, v: Bool, g: {c == v : Bool}, +ec: {c == Nat.is_lt(prod, l) : Bool}, -R: Data,
+  -y: Nat -> Evm.Outcome<R>, -f: Nat -> Evm.Outcome<R>, -d: Evm.Outcome<R> -> Evm.Outcome<R>,
+  h: {d(y(prod)) == d(f(prod)) : Evm.Outcome<R>}) ->
+  {d(Bool.pick(Evm.Outcome<R>, v, y(Nat.mod(prod, l)), Evm.Revert{})) == d(Bool.pick(Evm.Outcome<R>, c, f(prod), Evm.Revert{})) : Evm.Outcome<R>}:
+  match c:
+    case True{}:
+      %g : {d(Bool.pick(Evm.Outcome<R>, _, y(Nat.mod(prod, l)), Evm.Revert{})) == d(f(prod)) : Evm.Outcome<R>}
+      %mod_in(prod, l, ec) : {d(y(_)) == d(f(prod)) : Evm.Outcome<R>}
+      h
+    case False{}:
+      %g : {d(Bool.pick(Evm.Outcome<R>, _, y(Nat.mod(prod, l)), Evm.Revert{})) == d(Evm.Revert{}) : Evm.Outcome<R>}
+      {==}
+
 # The lemmas compare two outcomes as d sees them, where d runs an outcome
 # with the answers and callbacks of calls.bend. d is the same on both sides,
 # so a revert on both sides agrees.
@@ -273,6 +331,31 @@ def sim(+cmd: IR.Cmd, +out: IR.Output, +env: List<&2, IR.Binding>, -R: Data,
         x => Yul.exec(Yul.lower(body, o), o, IR.Binding{level, x} <> env, R, k, s),
         x => IR.run(body, o, IR.Binding{level, x} <> env, R, k, s), obs(entries, steps, R, open),
         sim(body, o, IR.Binding{level, Yul.sub(a, b, l)} <> env, R, k, s, entries, steps, open))
+    case IR.Bind{IR.Mul{+left, +right}, level, body} o:
+      +a = IR.eval(left, env)
+      +b = IR.eval(right, env)
+      +l = Evm.limit.of(s)
+      +prod = Nat.mul(a, b)
+      mul_step(prod, l, Nat.is_lt(prod, l), Nat.is_eq(mul.check(a, b, l), 0n), mul_guard(a, b, l), {==}, R,
+        x => Yul.exec(Yul.lower(body, o), o, IR.Binding{level, x} <> env, R, k, s),
+        x => IR.run(body, o, IR.Binding{level, x} <> env, R, k, s), obs(entries, steps, R, open),
+        sim(body, o, IR.Binding{level, prod} <> env, R, k, s, entries, steps, open))
+    case IR.Bind{IR.Div{+left, +right}, level, body} o:
+      +a = IR.eval(left, env)
+      +b = IR.eval(right, env)
+      sub_step(Nat.is_eq(b, 0n), 0n, Nat.div(a, b), R,
+        x => Yul.exec(Yul.lower(body, o), o, IR.Binding{level, x} <> env, R, k, s),
+        x => IR.run(body, o, IR.Binding{level, x} <> env, R, k, s), obs(entries, steps, R, open),
+        sim(body, o, IR.Binding{level, Bool.pick(Nat, Nat.is_eq(b, 0n), 0n, Nat.div(a, b))} <> env, R, k, s, entries, steps, open))
+    case IR.Bind{IR.Mod{+left, +right}, level, body} o:
+      +a = IR.eval(left, env)
+      +b = IR.eval(right, env)
+      sub_step(Nat.is_eq(b, 0n), 0n, Nat.mod(a, b), R,
+        x => Yul.exec(Yul.lower(body, o), o, IR.Binding{level, x} <> env, R, k, s),
+        x => IR.run(body, o, IR.Binding{level, x} <> env, R, k, s), obs(entries, steps, R, open),
+        sim(body, o, IR.Binding{level, Bool.pick(Nat, Nat.is_eq(b, 0n), 0n, Nat.mod(a, b))} <> env, R, k, s, entries, steps, open))
+    case IR.Bind{IR.Math{+op, +args}, level, body} o:
+      sim(body, o, IR.Binding{level, Evm.op(op, IR.evals(args, env), Evm.limit.of(s))} <> env, R, k, s, entries, steps, open)
     case IR.Bind{IR.Select{+c, +yes, +no}, level, body} o:
       +v = Bool.pick(Nat, IR.cond(c, env), IR.eval(yes, env), IR.eval(no, env))
       %test_bit(c, env, s) : {obs(entries, steps, R, open)(Yul.exec(Yul.lower(body, o), o,
@@ -346,6 +429,22 @@ def sim(+cmd: IR.Cmd, +out: IR.Output, +env: List<&2, IR.Binding>, -R: Data,
       +l = Evm.limit.of(s)
       sub_step(Nat.is_lt(a, b), Bool.pick(Nat, Nat.is_lt(b, l), Nat.sub(l, Nat.sub(b, a)), l), Nat.sub(a, b), R,
         x => k(x, s), x => k(x, s), obs(entries, steps, R, open), {==})
+    case IR.Tail{IR.Mul{+left, +right}} IR.Returns{}:
+      +a = IR.eval(left, env)
+      +b = IR.eval(right, env)
+      +l = Evm.limit.of(s)
+      mul_step(Nat.mul(a, b), l, Nat.is_lt(Nat.mul(a, b), l), Nat.is_eq(mul.check(a, b, l), 0n), mul_guard(a, b, l), {==}, R,
+        x => k(x, s), x => k(x, s), obs(entries, steps, R, open), {==})
+    case IR.Tail{IR.Div{+left, +right}} IR.Returns{}:
+      +a = IR.eval(left, env)
+      +b = IR.eval(right, env)
+      sub_step(Nat.is_eq(b, 0n), 0n, Nat.div(a, b), R, x => k(x, s), x => k(x, s), obs(entries, steps, R, open), {==})
+    case IR.Tail{IR.Mod{+left, +right}} IR.Returns{}:
+      +a = IR.eval(left, env)
+      +b = IR.eval(right, env)
+      sub_step(Nat.is_eq(b, 0n), 0n, Nat.mod(a, b), R, x => k(x, s), x => k(x, s), obs(entries, steps, R, open), {==})
+    case IR.Tail{IR.Math{_, _}} IR.Returns{}:
+      {==}
     case IR.Tail{IR.Select{+c, +yes, +no}} IR.Returns{}:
       %test_bit(c, env, s) : {obs(entries, steps, R, open)(k(Bool.pick(Nat, Nat.is_eq(_, 0n), IR.eval(no, env), IR.eval(yes, env)), s))
         == obs(entries, steps, R, open)(k(Bool.pick(Nat, IR.cond(c, env), IR.eval(yes, env), IR.eval(no, env)), s)) : Evm.Outcome<R>}
@@ -380,6 +479,14 @@ def sim(+cmd: IR.Cmd, +out: IR.Output, +env: List<&2, IR.Binding>, -R: Data,
     case IR.Tail{IR.Add{_, _}} IR.Stops{}:
       {==}
     case IR.Tail{IR.Sub{_, _}} IR.Stops{}:
+      {==}
+    case IR.Tail{IR.Mul{_, _}} IR.Stops{}:
+      {==}
+    case IR.Tail{IR.Div{_, _}} IR.Stops{}:
+      {==}
+    case IR.Tail{IR.Mod{_, _}} IR.Stops{}:
+      {==}
+    case IR.Tail{IR.Math{_, _}} IR.Stops{}:
       {==}
     case IR.Tail{IR.Select{_, _, _}} IR.Stops{}:
       {==}

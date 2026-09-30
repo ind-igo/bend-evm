@@ -66,7 +66,7 @@ export async function deploy({ program, functions, bytecode: given, deployer, ar
       '0x' + deployed + words)));
     const address = receipt.contractAddress;
     return {
-      cast, sender, address, fund, receipt, bytecode: deployed, stop,
+      rpc, cast, sender, address, fund, receipt, bytecode: deployed, stop,
       send: (from, ...rest) => cast('send', '--unlocked', '--from', from, address, ...rest),
       word: (...rest) => BigInt(must(cast('call', address, ...rest)).split(' ')[0]),
     };

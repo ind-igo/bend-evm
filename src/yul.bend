@@ -25,6 +25,9 @@ type Exp is Data:
   Typed{domain: IR.Expr, message: IR.Expr}
   Id{text: String}
   Recover{digest: IR.Expr, v: IR.Expr, r: IR.Expr, sig: IR.Expr}
+  Op{op: Evm.Op, args: List<&2, IR.Expr>}
+  Div{left: Exp, right: Exp}
+  And{left: Exp, right: Exp}
 
 # Each statement holds the rest of its block, so a block is one Stmt.
 type Stmt is Data:
@@ -107,6 +110,15 @@ def eval(e: Exp, +env: List<&2, IR.Binding>, +s: Evm.State) -> Nat:
       Evm.hash.of(Evm.hashes.of(Evm.world.of(s)), Evm.Text{text})
     case Recover{digest, v, r, sig}:
       Evm.signer.of(Evm.signers.of(Evm.world.of(s)), IR.eval(digest, env), IR.eval(v, env), IR.eval(r, env), IR.eval(sig, env))
+    case Op{op, args}:
+      Evm.op(op, IR.evals(args, env), Evm.limit.of(s))
+    case Div{left, right}:
+      +b = eval(right, env, s)
+      Bool.pick(Nat, Nat.is_eq(b, 0n), 0n, Nat.div(eval(left, env, s), b))
+    case And{left, right}:
+      a b = eval(left, env, s) eval(right, env, s)
+      +l = Evm.limit.of(s)
+      Bool.pick(Nat, Nat.is_eq(l, 0n), 1n, Evm.bitwise(Evm.And{}, a, b))
 
 # `if cond { revert(0, 0) }` reverts when cond is not zero, and a Guard
 # reverts with its error's data. A View binds a staticcall's word, and an
@@ -167,6 +179,12 @@ def max() -> Exp:
 def overflow(+left: IR.Expr, +right: IR.Expr) -> Exp:
   Gt{Atom{right}, Sub{max(), Atom{left}}}
 
+# Checked mul reverts when a is not zero and b > not(0) / a, as in Solidity.
+# At the limit 0 there are no words and every check reverts, so there the
+# model's `and` gives 1.
+def mul.overflow(+left: IR.Expr, +right: IR.Expr) -> Exp:
+  And{IsZero{IsZero{Atom{left}}}, Gt{Atom{right}, Div{max(), Atom{left}}}}
+
 # A word as a Yul expression. Checked add and sub also need a check, which
 # lower adds before them.
 def lower.word(w: IR.Action) -> Exp:
@@ -179,6 +197,14 @@ def lower.word(w: IR.Action) -> Exp:
       Add{Atom{left}, Atom{right}}
     case IR.Sub{left, right}:
       Sub{Atom{left}, Atom{right}}
+    case IR.Mul{left, right}:
+      Op{Evm.Mul{}, [left, right]}
+    case IR.Div{left, right}:
+      Op{Evm.Div{}, [left, right]}
+    case IR.Mod{left, right}:
+      Op{Evm.Mod{}, [left, right]}
+    case IR.Math{op, args}:
+      Op{op, args}
     case IR.Select{c, yes, no}:
       lower.select(c, yes, no)
     case IR.Max{}:
@@ -211,6 +237,12 @@ def lower(cmd: IR.Cmd, +out: IR.Output) -> Stmt:
       Check{overflow(left, right), Let{level, Add{Atom{left}, Atom{right}}, lower(body, o)}}
     case IR.Bind{IR.Sub{+left, +right}, level, body} o:
       Check{Lt{Atom{left}, Atom{right}}, Let{level, Sub{Atom{left}, Atom{right}}, lower(body, o)}}
+    case IR.Bind{IR.Mul{+left, +right}, level, body} o:
+      Check{mul.overflow(left, right), Let{level, Op{Evm.Mul{}, [left, right]}, lower(body, o)}}
+    case IR.Bind{IR.Div{left, +right}, level, body} o:
+      Check{IsZero{Atom{right}}, Let{level, Op{Evm.Div{}, [left, right]}, lower(body, o)}}
+    case IR.Bind{IR.Mod{left, +right}, level, body} o:
+      Check{IsZero{Atom{right}}, Let{level, Op{Evm.Mod{}, [left, right]}, lower(body, o)}}
     case IR.Bind{IR.View{target, signature, args}, level, body} o:
       View{level, target, signature, args, lower(body, o)}
     case IR.Bind{IR.Call{target, signature, args}, level, body} o:
@@ -231,6 +263,12 @@ def lower(cmd: IR.Cmd, +out: IR.Output) -> Stmt:
       Check{overflow(left, right), Result{Add{Atom{left}, Atom{right}}}}
     case IR.Tail{IR.Sub{+left, +right}} IR.Returns{}:
       Check{Lt{Atom{left}, Atom{right}}, Result{Sub{Atom{left}, Atom{right}}}}
+    case IR.Tail{IR.Mul{+left, +right}} IR.Returns{}:
+      Check{mul.overflow(left, right), Result{Op{Evm.Mul{}, [left, right]}}}
+    case IR.Tail{IR.Div{left, +right}} IR.Returns{}:
+      Check{IsZero{Atom{right}}, Result{Op{Evm.Div{}, [left, right]}}}
+    case IR.Tail{IR.Mod{left, +right}} IR.Returns{}:
+      Check{IsZero{Atom{right}}, Result{Op{Evm.Mod{}, [left, right]}}}
     case IR.Tail{IR.View{target, signature, args}} IR.Returns{}:
       Answer{target, signature, args}
     case IR.Tail{IR.Call{target, signature, args}} IR.Returns{}:

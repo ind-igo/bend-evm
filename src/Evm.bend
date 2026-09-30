@@ -33,6 +33,12 @@ def Address() -> Data:
 def Uint8() -> Data:
   Nat
 
+# An int256 word, in two's complement: a word from 2^255 up is negative.
+# Every word is one. Evm.slt, Evm.sgt, Evm.sdiv, Evm.smod and Evm.sar read
+# it as signed.
+def Int() -> Data:
+  Nat
+
 # A bytes32 word, such as a signature's r and s. Every word is one.
 def Bytes32() -> Data:
   Nat
@@ -383,3 +389,399 @@ def add(+a: Nat, +b: Nat) -> Contract(Nat):
 # Checked subtraction: reverts when a < b, like Solidity 0.8.
 def sub(+a: Nat, +b: Nat) -> Contract(Nat):
   R => k => s => Bool.pick(Outcome<R>, Nat.is_lt(a, b), Revert{}, k(Nat.sub(a, b), s))
+
+# Checked multiplication: reverts on overflow, like Solidity 0.8.
+def mul(+a: Nat, +b: Nat) -> Contract(Nat):
+  R => k => +s => Bool.pick(Outcome<R>, Nat.is_lt(Nat.mul(a, b), limit.of(s)), k(Nat.mul(a, b), s), Revert{})
+
+# Checked division and remainder: revert when b is zero, like Solidity 0.8.
+def div(+a: Nat, +b: Nat) -> Contract(Nat):
+  R => k => s => Bool.pick(Outcome<R>, Nat.is_eq(b, 0n), Revert{}, k(Nat.div(a, b), s))
+
+def mod(+a: Nat, +b: Nat) -> Contract(Nat):
+  R => k => s => Bool.pick(Outcome<R>, Nat.is_eq(b, 0n), Revert{}, k(Nat.mod(a, b), s))
+
+# Word operations, as the EVM's opcodes compute them: modulo the limit, and
+# never a revert. A word's width in bits and bytes comes from the limit, so
+# they are the EVM's opcodes at the limit 2^256, and a model with a smaller
+# limit has smaller words. The IR and the Yul model share these meanings.
+type Op is Data:
+  Add{}
+  Sub{}
+  Mul{}
+  Div{}
+  SDiv{}
+  Mod{}
+  SMod{}
+  AddMod{}
+  MulMod{}
+  Exp{}
+  SignExtend{}
+  Lt{}
+  Gt{}
+  SLt{}
+  SGt{}
+  Eq{}
+  IsZero{}
+  And{}
+  Or{}
+  Xor{}
+  Not{}
+  Byte{}
+  Shl{}
+  Shr{}
+  Sar{}
+
+def bit(c: Bool) -> Nat:
+  Bool.pick(Nat, c, 1n, 0n)
+
+# Each recursive helper takes its fuel from its words and a flag that says
+# it is done, so a proof about symbolic words does not unfold it, and a run
+# stops as soon as it is done.
+
+# The number of bits below n's highest bit: 256 at 2^256.
+def width.go(fuel: Nat, small: Bool, +n: Nat) -> Nat:
+  match fuel small:
+    case 0n _:
+      0n
+    case 1n+_ True{}:
+      0n
+    case 1n+f False{}:
+      +h = Nat.div(n, 2n)
+      1n+width.go(f, Nat.is_lt(h, 2n), h)
+
+def width(+l: Nat) -> Nat:
+  width.go(l, Nat.is_lt(l, 2n), l)
+
+# One bit of and, or or xor.
+def gate(op: Op, +x: Nat, +y: Nat) -> Nat:
+  match op:
+    case And{}:
+      Nat.mul(x, y)
+    case Or{}:
+      Nat.sub(Nat.add(x, y), Nat.mul(x, y))
+    case _:
+      Nat.mod(Nat.add(x, y), 2n)
+
+def bitwise.go(fuel: Nat, zero: Bool, +op: Op, +a: Nat, +b: Nat) -> Nat:
+  match fuel zero:
+    case 0n _:
+      0n
+    case 1n+_ True{}:
+      0n
+    case 1n+f False{}:
+      +x = Nat.div(a, 2n)
+      +y = Nat.div(b, 2n)
+      Nat.add(gate(op, Nat.mod(a, 2n), Nat.mod(b, 2n)), Nat.mul(2n, bitwise.go(f, Nat.is_eq(Nat.add(x, y), 0n), op, x, y)))
+
+# a and b bit by bit; a + b is more than the bits it needs.
+def bitwise(+op: Op, +a: Nat, +b: Nat) -> Nat:
+  bitwise.go(Nat.add(a, b), Nat.is_eq(Nat.add(a, b), 0n), op, a, b)
+
+# base^e modulo l, by squaring, one bit of e at a time.
+def power.go(fuel: Nat, zero: Bool, +base: Nat, +e: Nat, +l: Nat) -> Nat:
+  match fuel zero:
+    case 0n _:
+      1n
+    case 1n+_ True{}:
+      1n
+    case 1n+f False{}:
+      +h = Nat.div(e, 2n)
+      +rest = power.go(f, Nat.is_eq(h, 0n), Nat.mod(Nat.mul(base, base), l), h, l)
+      Bool.pick(Nat, Nat.is_eq(Nat.mod(e, 2n), 1n), Nat.mod(Nat.mul(base, rest), l), rest)
+
+def power(+base: Nat, +e: Nat, +l: Nat) -> Nat:
+  Nat.mod(power.go(e, Nat.is_eq(e, 0n), Nat.mod(base, l), e, l), l)
+
+# Shifts and signextend match on the range check, so a run computes a
+# power of two only when it is below the limit.
+def shifted(c: Bool, +n: Nat, +x: Nat) -> Nat:
+  match c:
+    case True{}:
+      Nat.div(x, Nat.pow(2n, n))
+    case False{}:
+      0n
+
+def lifted(c: Bool, +n: Nat, +x: Nat, +l: Nat) -> Nat:
+  match c:
+    case True{}:
+      Nat.mod(Nat.mul(x, Nat.pow(2n, n)), l)
+    case False{}:
+      0n
+
+# The low b + 1 bytes of x, with the top one's high bit copied up.
+def extended(c: Bool, +b: Nat, +x: Nat, +l: Nat) -> Nat:
+  match c:
+    case True{}:
+      +m = Nat.pow(2n, Nat.mul(8n, 1n+b))
+      +low = Nat.mod(x, m)
+      Bool.pick(Nat, Nat.is_lt(low, Nat.div(m, 2n)), low, Nat.add(Nat.sub(l, m), low))
+    case False{}:
+      x
+
+def word.shr(+n: Nat, +x: Nat, +l: Nat) -> Nat:
+  shifted(Nat.is_lt(n, width(l)), n, x)
+
+def word.not(+x: Nat, +l: Nat) -> Nat:
+  Nat.sub(Nat.sub(l, 1n), x)
+
+# Two's complement: a word from limit / 2 up is negative.
+def negative(+x: Nat, +l: Nat) -> Bool:
+  Bool.not(Nat.is_lt(x, Nat.div(l, 2n)))
+
+def magnitude(+x: Nat, +l: Nat) -> Nat:
+  Bool.pick(Nat, negative(x, l), Nat.sub(l, x), x)
+
+def negate(+x: Nat, +l: Nat) -> Nat:
+  Nat.mod(Nat.sub(l, x), l)
+
+def differ(+a: Bool, +b: Bool) -> Bool:
+  Bool.pick(Bool, a, Bool.not(b), b)
+
+def op1(op: Op, +a: Nat, +l: Nat) -> Nat:
+  match op:
+    case IsZero{}:
+      bit(Nat.is_eq(a, 0n))
+    case Not{}:
+      word.not(a, l)
+    case _:
+      0n
+
+def op2(op: Op, +a: Nat, +b: Nat, +l: Nat) -> Nat:
+  match op:
+    case Add{}:
+      Nat.mod(Nat.add(a, b), l)
+    case Sub{}:
+      Bool.pick(Nat, Nat.is_lt(a, b), Nat.sub(l, Nat.sub(b, a)), Nat.sub(a, b))
+    case Mul{}:
+      Nat.mod(Nat.mul(a, b), l)
+    case Div{}:
+      Bool.pick(Nat, Nat.is_eq(b, 0n), 0n, Nat.div(a, b))
+    case SDiv{}:
+      +q = Nat.div(magnitude(a, l), magnitude(b, l))
+      Bool.pick(Nat, Nat.is_eq(b, 0n), 0n, Bool.pick(Nat, differ(negative(a, l), negative(b, l)), negate(q, l), q))
+    case Mod{}:
+      Bool.pick(Nat, Nat.is_eq(b, 0n), 0n, Nat.mod(a, b))
+    case SMod{}:
+      +r = Nat.mod(magnitude(a, l), magnitude(b, l))
+      Bool.pick(Nat, Nat.is_eq(b, 0n), 0n, Bool.pick(Nat, negative(a, l), negate(r, l), r))
+    case Exp{}:
+      power(a, b, l)
+    case SignExtend{}:
+      extended(Nat.is_lt(a, Nat.sub(Nat.div(width(l), 8n), 1n)), a, b, l)
+    case Lt{}:
+      bit(Nat.is_lt(a, b))
+    case Gt{}:
+      bit(Nat.is_lt(b, a))
+    case SLt{}:
+      +na = negative(a, l)
+      Bool.pick(Nat, differ(na, negative(b, l)), bit(na), bit(Nat.is_lt(a, b)))
+    case SGt{}:
+      +nb = negative(b, l)
+      Bool.pick(Nat, differ(negative(a, l), nb), bit(nb), bit(Nat.is_lt(b, a)))
+    case Eq{}:
+      bit(Nat.is_eq(a, b))
+    case And{}:
+      bitwise(And{}, a, b)
+    case Or{}:
+      bitwise(Or{}, a, b)
+    case Xor{}:
+      bitwise(Xor{}, a, b)
+    case Byte{}:
+      +bytes = Nat.div(width(l), 8n)
+      Bool.pick(Nat, Nat.is_lt(a, bytes), Nat.mod(Nat.div(b, Nat.pow(2n, Nat.mul(8n, Nat.sub(Nat.sub(bytes, 1n), a)))), 256n), 0n)
+    case Shl{}:
+      lifted(Nat.is_lt(a, width(l)), a, b, l)
+    case Shr{}:
+      word.shr(a, b, l)
+    case Sar{}:
+      Bool.pick(Nat, negative(b, l), word.not(word.shr(a, word.not(b, l), l), l), word.shr(a, b, l))
+    case _:
+      0n
+
+def op3(op: Op, +a: Nat, +b: Nat, +n: Nat) -> Nat:
+  match op:
+    case AddMod{}:
+      Bool.pick(Nat, Nat.is_eq(n, 0n), 0n, Nat.mod(Nat.add(a, b), n))
+    case MulMod{}:
+      Bool.pick(Nat, Nat.is_eq(n, 0n), 0n, Nat.mod(Nat.mul(a, b), n))
+    case _:
+      0n
+
+# An operation on its words at the limit l. The reader gives each its
+# number of words; any other number gives 0.
+def op(+o: Op, args: List<&2, Nat>, +l: Nat) -> Nat:
+  match args:
+    case a <> Nil{}:
+      op1(o, a, l)
+    case a <> b <> Nil{}:
+      op2(o, a, b, l)
+    case a <> b <> c <> Nil{}:
+      op3(o, a, b, c)
+    case _:
+      0n
+
+# Each operation's constructor, Yul name, name in a contract, and number of
+# words. Solidity checks add, sub, mul, div, mod and **, so a contract
+# names their word operations Evm.unchecked.add and so on.
+type Info is Data:
+  Info{con: String, yul: String, name: String, arity: Nat}
+
+def info(op: Op) -> Info:
+  match op:
+    case Add{}:
+      Info{"Add", "add", "unchecked.add", 2n}
+    case Sub{}:
+      Info{"Sub", "sub", "unchecked.sub", 2n}
+    case Mul{}:
+      Info{"Mul", "mul", "unchecked.mul", 2n}
+    case Div{}:
+      Info{"Div", "div", "unchecked.div", 2n}
+    case SDiv{}:
+      Info{"SDiv", "sdiv", "sdiv", 2n}
+    case Mod{}:
+      Info{"Mod", "mod", "unchecked.mod", 2n}
+    case SMod{}:
+      Info{"SMod", "smod", "smod", 2n}
+    case AddMod{}:
+      Info{"AddMod", "addmod", "addmod", 3n}
+    case MulMod{}:
+      Info{"MulMod", "mulmod", "mulmod", 3n}
+    case Exp{}:
+      Info{"Exp", "exp", "unchecked.exp", 2n}
+    case SignExtend{}:
+      Info{"SignExtend", "signextend", "signextend", 2n}
+    case Lt{}:
+      Info{"Lt", "lt", "lt", 2n}
+    case Gt{}:
+      Info{"Gt", "gt", "gt", 2n}
+    case SLt{}:
+      Info{"SLt", "slt", "slt", 2n}
+    case SGt{}:
+      Info{"SGt", "sgt", "sgt", 2n}
+    case Eq{}:
+      Info{"Eq", "eq", "eq", 2n}
+    case IsZero{}:
+      Info{"IsZero", "iszero", "iszero", 1n}
+    case And{}:
+      Info{"And", "and", "and", 2n}
+    case Or{}:
+      Info{"Or", "or", "or", 2n}
+    case Xor{}:
+      Info{"Xor", "xor", "xor", 2n}
+    case Not{}:
+      Info{"Not", "not", "not", 1n}
+    case Byte{}:
+      Info{"Byte", "byte", "byte", 2n}
+    case Shl{}:
+      Info{"Shl", "shl", "shl", 2n}
+    case Shr{}:
+      Info{"Shr", "shr", "shr", 2n}
+    case Sar{}:
+      Info{"Sar", "sar", "sar", 2n}
+
+def ops() -> List<&2, Op>:
+  [Add{},
+  Sub{},
+  Mul{},
+  Div{},
+  SDiv{},
+  Mod{},
+  SMod{},
+  AddMod{},
+  MulMod{},
+  Exp{},
+  SignExtend{},
+  Lt{},
+  Gt{},
+  SLt{},
+  SGt{},
+  Eq{},
+  IsZero{},
+  And{},
+  Or{},
+  Xor{},
+  Not{},
+  Byte{},
+  Shl{},
+  Shr{},
+  Sar{}]
+
+# The word operations in a contract, such as x : Nat <- Evm.shl(8n, y).
+def math(+o: Op, args: List<&2, Nat>) -> Contract(Nat):
+  R => k => +s => k(op(o, args, limit.of(s)), s)
+
+def unchecked.add(a: Nat, b: Nat) -> Contract(Nat):
+  math(Add{}, [a, b])
+
+def unchecked.sub(a: Nat, b: Nat) -> Contract(Nat):
+  math(Sub{}, [a, b])
+
+def unchecked.mul(a: Nat, b: Nat) -> Contract(Nat):
+  math(Mul{}, [a, b])
+
+def unchecked.div(a: Nat, b: Nat) -> Contract(Nat):
+  math(Div{}, [a, b])
+
+def sdiv(a: Nat, b: Nat) -> Contract(Nat):
+  math(SDiv{}, [a, b])
+
+def unchecked.mod(a: Nat, b: Nat) -> Contract(Nat):
+  math(Mod{}, [a, b])
+
+def smod(a: Nat, b: Nat) -> Contract(Nat):
+  math(SMod{}, [a, b])
+
+def addmod(a: Nat, b: Nat, n: Nat) -> Contract(Nat):
+  math(AddMod{}, [a, b, n])
+
+def mulmod(a: Nat, b: Nat, n: Nat) -> Contract(Nat):
+  math(MulMod{}, [a, b, n])
+
+def unchecked.exp(base: Nat, e: Nat) -> Contract(Nat):
+  math(Exp{}, [base, e])
+
+def signextend(b: Nat, x: Nat) -> Contract(Nat):
+  math(SignExtend{}, [b, x])
+
+def lt(a: Nat, b: Nat) -> Contract(Nat):
+  math(Lt{}, [a, b])
+
+def gt(a: Nat, b: Nat) -> Contract(Nat):
+  math(Gt{}, [a, b])
+
+def slt(a: Nat, b: Nat) -> Contract(Nat):
+  math(SLt{}, [a, b])
+
+def sgt(a: Nat, b: Nat) -> Contract(Nat):
+  math(SGt{}, [a, b])
+
+def eq(a: Nat, b: Nat) -> Contract(Nat):
+  math(Eq{}, [a, b])
+
+def iszero(a: Nat) -> Contract(Nat):
+  math(IsZero{}, [a])
+
+def and(a: Nat, b: Nat) -> Contract(Nat):
+  math(And{}, [a, b])
+
+def or(a: Nat, b: Nat) -> Contract(Nat):
+  math(Or{}, [a, b])
+
+def xor(a: Nat, b: Nat) -> Contract(Nat):
+  math(Xor{}, [a, b])
+
+def not(a: Nat) -> Contract(Nat):
+  math(Not{}, [a])
+
+def byte(i: Nat, x: Nat) -> Contract(Nat):
+  math(Byte{}, [i, x])
+
+def shl(shift: Nat, x: Nat) -> Contract(Nat):
+  math(Shl{}, [shift, x])
+
+def shr(shift: Nat, x: Nat) -> Contract(Nat):
+  math(Shr{}, [shift, x])
+
+def sar(shift: Nat, x: Nat) -> Contract(Nat):
+  math(Sar{}, [shift, x])

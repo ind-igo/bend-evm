@@ -1,4 +1,5 @@
 import Base
+import ./Evm.bend as Evm
 import ./ir.bend as IR
 import ./read.bend as Read
 import ./tool.bend as Tool
@@ -43,6 +44,11 @@ def show.list(exprs: List<&2, IR.Expr>) -> List<&2, String>:
     case e <> rest:
       show.expr(e) <> show.list(rest)
 
+def con(i: Evm.Info) -> String:
+  match i:
+    case Evm.Info{c, _, _, _}:
+      c
+
 def show.word(w: IR.Action) -> String:
   match w:
     case IR.SLoad{l}:
@@ -53,6 +59,14 @@ def show.word(w: IR.Action) -> String:
       show.two("IR.Add", left, right)
     case IR.Sub{left, right}:
       show.two("IR.Sub", left, right)
+    case IR.Mul{left, right}:
+      show.two("IR.Mul", left, right)
+    case IR.Div{left, right}:
+      show.two("IR.Div", left, right)
+    case IR.Mod{left, right}:
+      show.two("IR.Mod", left, right)
+    case IR.Math{op, args}:
+      "IR.Math{Evm." ++ con(Evm.info(op)) ++ "{}, [" ++ String.join(show.list(args), ", ") ++ "]}"
     case IR.Select{c, yes, no}:
       "IR.Select{" ++ show.cond(c) ++ ", " ++ show.expr(yes) ++ ", " ++ show.expr(no) ++ "}"
     case IR.Max{}:
