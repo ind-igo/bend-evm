@@ -4,10 +4,13 @@ import Base
 # Storage is an association list: the newest slot wins, missing slots are zero.
 # A key is a plain slot or an entry of the mapping at base, which may itself
 # be an entry. On the EVM an entry lives at keccak256(key . base), as in
-# Solidity; the model assumes no collisions.
+# Solidity; the model assumes no collisions. A transient slot is in the
+# EVM's transient storage (EIP-1153), which is apart from storage and which
+# the EVM clears at the end of each transaction.
 type Key is Data:
   Plain{slot: Nat}
   Mapped{base: Key, key: Nat}
+  Transient{slot: Nat}
 
 def same(a: Key, b: Key) -> Bool:
   match a b:
@@ -15,9 +18,9 @@ def same(a: Key, b: Key) -> Bool:
       Nat.is_eq(x, y)
     case Mapped{x, k} Mapped{y, j}:
       Bool.and(same(x, y), Nat.is_eq(k, j))
-    case Plain{_} Mapped{_, _}:
-      False{}
-    case Mapped{_, _} Plain{_}:
+    case Transient{x} Transient{y}:
+      Nat.is_eq(x, y)
+    case _ _:
       False{}
 
 type Slot is Data:
@@ -404,6 +407,14 @@ def store(slot: Nat, key: Nat, value: Nat) -> Contract(Unit):
 
 def store2(slot: Nat, outer: Nat, inner: Nat, value: Nat) -> Contract(Unit):
   write(Mapped{Mapped{Plain{slot}, outer}, inner}, value)
+
+# Transient storage, as Solidity's transient variables: tload(slot) and
+# tstore(slot, value).
+def tload(slot: Nat) -> Contract(Nat):
+  read(Transient{slot})
+
+def tstore(slot: Nat, value: Nat) -> Contract(Unit):
+  write(Transient{slot}, value)
 
 def caller() -> Contract(Nat):
   R => k => +s => k(caller.of(s), s)

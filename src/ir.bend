@@ -12,10 +12,12 @@ type Cond is Data:
   Lt{left: Expr, right: Expr}
   Not{cond: Cond}
 
-# A storage location: a plain slot or an entry of the mapping at base.
+# A storage location: a plain slot, an entry of the mapping at base, or a
+# slot of transient storage.
 type Loc is Data:
   Plain{slot: Expr}
   Mapped{base: Loc, key: Expr}
+  Temp{slot: Expr}
 
 # Actions return a word; effects return Unit.
 type Action is Data:
@@ -96,6 +98,8 @@ def loc(l: Loc, +env: List<&2, Binding>) -> Evm.Key:
       Evm.Plain{eval(slot, env)}
     case Mapped{base, key}:
       Evm.Mapped{loc(base, env), eval(key, env)}
+    case Temp{slot}:
+      Evm.Transient{eval(slot, env)}
 
 def cond(c: Cond, +env: List<&2, Binding>) -> Bool:
   match c:
@@ -232,6 +236,8 @@ def closed.loc(l: Loc, +scope: List<&2, Nat>) -> Bool:
       closed.expr(slot, scope)
     case Mapped{base, key}:
       Bool.and(closed.loc(base, scope), closed.expr(key, scope))
+    case Temp{slot}:
+      closed.expr(slot, scope)
 
 def closed.word(w: Action, +scope: List<&2, Nat>) -> Bool:
   match w:

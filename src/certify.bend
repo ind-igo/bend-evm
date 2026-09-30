@@ -36,6 +36,8 @@ def show.loc(l: IR.Loc) -> String:
       "IR.Plain{" ++ show.expr(slot) ++ "}"
     case IR.Mapped{base, key}:
       "IR.Mapped{" ++ show.loc(base) ++ ", " ++ show.expr(key) ++ "}"
+    case IR.Temp{slot}:
+      "IR.Temp{" ++ show.expr(slot) ++ "}"
 
 def show.list(exprs: List<&2, IR.Expr>) -> List<&2, String>:
   match exprs:

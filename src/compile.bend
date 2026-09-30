@@ -34,6 +34,21 @@ def loc(l: IR.Loc) -> String:
       atom(slot)
     case IR.Mapped{base, key}:
       call("mapped", [loc(base), atom(key)])
+    case IR.Temp{slot}:
+      atom(slot)
+
+# A transient location is read with tload and written with tstore.
+def transient(l: IR.Loc) -> Bool:
+  match l:
+    case IR.Plain{_}:
+      False{}
+    case IR.Mapped{base, _}:
+      transient(base)
+    case IR.Temp{_}:
+      True{}
+
+def load(+l: IR.Loc) -> String:
+  call(Bool.pick(String, transient(l), "tload", "sload"), [loc(l)])
 
 def atoms(exprs: List<&2, IR.Expr>) -> List<&2, String>:
   match exprs:
@@ -51,8 +66,8 @@ def exp(e: Yul.Exp) -> String:
   match e:
     case Yul.Atom{value}:
       atom(value)
-    case Yul.SLoad{l}:
-      call("sload", [loc(l)])
+    case Yul.SLoad{+l}:
+      load(l)
     case Yul.Caller{}:
       "caller()"
     case Yul.Add{left, right}:
@@ -140,8 +155,8 @@ def stmt(+pad: String, +halt: String, s: Yul.Stmt) -> String:
   match s:
     case Yul.Let{level, +value, body}:
       prelude(pad, value) ++ pad ++ "let " ++ var(level) ++ " := " ++ exp(value) ++ "\n" ++ stmt(pad, halt, body)
-    case Yul.SStore{l, value, body}:
-      pad ++ call("sstore", [loc(l), exp(value)]) ++ "\n" ++ stmt(pad, halt, body)
+    case Yul.SStore{+l, value, body}:
+      pad ++ call(Bool.pick(String, transient(l), "tstore", "sstore"), [loc(l), exp(value)]) ++ "\n" ++ stmt(pad, halt, body)
     case Yul.Log{event, +topics, +data, body}:
       +n = Nat.add(1n, List.length(&2, IR.Expr, topics))
       +size = Nat.mul(32n, List.length(&2, IR.Expr, data))
@@ -224,6 +239,10 @@ def fixed.loc(l: IR.Loc) -> Bool:
       False{}
     case IR.Mapped{base, _}:
       fixed.loc(base)
+    case IR.Temp{IR.Lit{_}}:
+      True{}
+    case IR.Temp{IR.Var{_}}:
+      False{}
 
 def fixed(cmd: IR.Cmd) -> Bool:
   match cmd:

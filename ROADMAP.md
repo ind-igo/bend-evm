@@ -335,3 +335,12 @@ Not in M23: `callvalue`, which M24 adds with payable functions; every function n
 - [x] An example, [examples/weth](examples/weth): wrapped ether after solmate's WETH, with laws for `deposit`, `receive` and `withdraw` ([LAWS.bend](examples/weth/LAWS.bend)), and a differential test against solmate's WETH on anvil with a holder that calls back ([tests/weth.test.js](tests/weth.test.js)).
 
 Not in M24: calls to a function with ether (`token.deposit{value: x}()`), which M30 adds with low-level calls, and `fallback`. The model has no ether balances, so no law can say that WETH holds as much ether as its supply.
+
+## M25: transient storage
+
+### Done when
+
+- [x] `Evm.tload(slot)` and `Evm.tstore(slot, value)` read and write transient storage (EIP-1153). The model keeps a transient slot in storage under a key, `Evm.Transient{slot}`, that never equals a storage key, and the IR has a location for it, `IR.Temp{slot}`. The Yul model and the lowering proof take locations from the IR, so they need no change; the printer prints `tload` and `tstore`.
+- [x] A reentrancy guard after solady's `ReentrancyGuardTransient` ([tests/fixtures/transient](tests/fixtures/transient)), with two laws: a guarded function with the lock clear makes its call with the lock set and clears it after, and one with the lock set raises `Reentrancy()`. So a callback into it while the call runs reverts. A test on `anvil` shows the callback's revert and that the lock is gone in the next transaction.
+
+Not in M25: a model of the end of a transaction. A law about one call holds for any transient values at its start; a law about a sequence of transactions must clear them itself. Transient mappings, which Solidity does not have either.

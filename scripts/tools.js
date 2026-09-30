@@ -61,6 +61,7 @@ export const entries = {
   emit: ['moved', 'take'],
   env: ['timestamp', 'chainid', 'origin', 'gasprice', 'coinbase', 'number', 'prevrandao', 'gaslimit', 'basefee',
     'blobbasefee', 'codesize', 'gas', 'selfbalance', 'blockhash', 'blobhash', 'balance', 'extcodesize', 'extcodehash', 'block'],
+  transient: ['poke', 'count', 'locked'],
   view: ['mint', 'balanceOf', 'totalSupply', 'holding', 'others'],
   vault: ['init', 'token', 'sharesOf', 'totalShares', 'deposit', 'withdraw', 'ping', 'touch'],
   amm: ['name', 'symbol', 'decimals', 'init', 'token0', 'token1', 'reserve0', 'reserve1', 'totalSupply', 'balanceOf',

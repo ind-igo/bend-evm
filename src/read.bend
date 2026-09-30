@@ -100,6 +100,8 @@ type Tag is Data:
   MathOp{op: Evm.Op}
   EnvOp{env: Evm.Env}
   Sstore{}
+  Tload{}
+  Tstore{}
   Store{}
   Store2{}
   Require{}
@@ -167,6 +169,8 @@ def tags() -> List<&2, Named>:
   Named{"Evm.div", Div{}},
   Named{"Evm.mod", Mod{}},
   Named{"Evm.sstore", Sstore{}},
+  Named{"Evm.tload", Tload{}},
+  Named{"Evm.tstore", Tstore{}},
   Named{"Evm.store", Store{}},
   Named{"Evm.store2", Store2{}},
   Named{"Evm.require", Require{}},
@@ -794,6 +798,10 @@ def word(c: Call, +evm: String, +decls: List<&2, Core.Declaration>) -> Result<&2
       do Result<&2, &2, String, IR.Action>:
         l : IR.Loc <- location(slot, [outer, inner], decls)
         return IR.SLoad{l}
+    case Call{Tload{}, _, slot <> Nil{}}:
+      do Result<&2, &2, String, IR.Action>:
+        e : IR.Expr <- expr(slot, decls)
+        return IR.SLoad{IR.Temp{e}}
     case Call{Caller{}, _, Nil{}}:
       Done{IR.Caller{}}
     case Call{Max{}, _, Nil{}}:
@@ -954,6 +962,11 @@ def effect(c: Call, +evm: String, +decls: List<&2, Core.Declaration>) -> Result<
         l : IR.Loc <- location(slot, [outer, inner], decls)
         v : IR.Expr <- expr(value, decls)
         return IR.SStore{l, v}
+    case Call{Tstore{}, _, slot <> value <> Nil{}}:
+      do Result<&2, &2, String, IR.Effect>:
+        e : IR.Expr <- expr(slot, decls)
+        v : IR.Expr <- expr(value, decls)
+        return IR.SStore{IR.Temp{e}, v}
     case Call{Require{}, _, condition <> Nil{}}:
       do Result<&2, &2, String, IR.Effect>:
         x : IR.Cond <- cond(condition, decls)

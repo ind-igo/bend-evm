@@ -47,6 +47,8 @@ def top.loc(l: IR.Loc) -> Nat:
       top.expr(slot)
     case IR.Mapped{base, key}:
       max(top.loc(base), top.expr(key))
+    case IR.Temp{slot}:
+      top.expr(slot)
 
 def top.word(w: IR.Action) -> Nat:
   match w:
@@ -156,6 +158,8 @@ def rename.loc(l: IR.Loc, +parameters: List<&2, Nat>, +args: List<&2, IR.Expr>, 
       IR.Plain{rename.expr(slot, parameters, args, offset)}
     case IR.Mapped{base, key}:
       IR.Mapped{rename.loc(base, parameters, args, offset), rename.expr(key, parameters, args, offset)}
+    case IR.Temp{slot}:
+      IR.Temp{rename.expr(slot, parameters, args, offset)}
 
 def rename.word(w: IR.Action, +parameters: List<&2, Nat>, +args: List<&2, IR.Expr>, +offset: Nat) -> IR.Action:
   match w:
