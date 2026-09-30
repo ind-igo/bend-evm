@@ -99,6 +99,8 @@ def show.effect(e: IR.Effect) -> String:
       "IR.Require{" ++ show.cond(c) ++ "}"
     case IR.Ensure{c, error, args}:
       "IR.Ensure{" ++ show.cond(c) ++ ", \"" ++ error ++ "\", [" ++ String.join(show.list(args), ", ") ++ "]}"
+    case IR.Pay{target, amount}:
+      show.two("IR.Pay", target, amount)
 
 def show.cmd(c: IR.Cmd) -> String:
   match c:
@@ -166,7 +168,7 @@ def claim(f: Read.Function) -> String:
   match f:
     case Read.Constant{_, _}:
       ""
-    case Read.Contract{+name, _, _, Read.Entry{+levels, +body}}:
+    case Read.Contract{+name, _, _, _, Read.Entry{+levels, +body}}:
       claim.text(name, levels, body, output(Read.output(body)))
 
 def claims(fs: List<&2, Read.Function>) -> String:
@@ -188,7 +190,7 @@ def row(f: Read.Function) -> List<&2, String>:
   match f:
     case Read.Constant{_, _}:
       Nil{}
-    case Read.Contract{+name, _, _, Read.Entry{+levels, +body}}:
+    case Read.Contract{+name, _, _, _, Read.Entry{+levels, +body}}:
       Bool.pick(List<&2, String>, String.eq(name, "init"), Nil{},
         [row.text(name, levels, output(Read.output(body)))])
 

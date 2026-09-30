@@ -65,16 +65,19 @@ def writes(cmd: IR.Cmd) -> Bool:
     case _:
       False{}
 
-def mutability(+w: Bool) -> String:
-  Bool.pick(String, w, "nonpayable", "view")
+def mutability(+payable: Bool, +w: Bool) -> String:
+  Bool.pick(String, payable, "payable", Bool.pick(String, w, "nonpayable", "view"))
 
 def function.text(+name: String, +inputs: List<&2, String>, +output: String, +state: String) -> String:
   "{" ++ join([field("type", quote("function")), field("name", quote(name)), field("inputs", "[" ++ join(inputs) ++ "]"),
     field("outputs", outputs(output)), field("stateMutability", quote(state))]) ++ "}"
 
-def constructor.text(+inputs: List<&2, String>) -> String:
+def constructor.text(+inputs: List<&2, String>, +state: String) -> String:
   "{" ++ join([field("type", quote("constructor")), field("inputs", "[" ++ join(inputs) ++ "]"),
-    field("stateMutability", quote("nonpayable"))]) ++ "}"
+    field("stateMutability", quote(state))]) ++ "}"
+
+def receive.text() -> String:
+  "{" ++ join([field("type", quote("receive")), field("stateMutability", quote("payable"))]) ++ "}"
 
 # An event that a function logs: its signature and the number of indexed words.
 # A log does not say which parameters its topics are, so the first ones are
@@ -229,17 +232,18 @@ def error.texts(+evm: String, +decls: List<&2, Core.Declaration>, es: List<&2, E
 type Item is Data:
   Item{text: String, events: List<&2, Emitted>, errors: List<&2, Emitted>}
 
-def item.contract(+name: String, inputs: List<&2, Read.Input>, +output: String, +body: IR.Cmd) -> Item:
+def item.contract(+name: String, inputs: List<&2, Read.Input>, +output: String, +payable: Bool, +body: IR.Cmd) -> Item:
   +ins = params(inputs)
-  Item{Bool.pick(String, String.eq(name, "init"), constructor.text(ins),
-    function.text(name, ins, output, mutability(writes(body)))), events(body), errors(body)}
+  Item{Bool.pick(String, String.eq(name, "init"), constructor.text(ins, Bool.pick(String, payable, "payable", "nonpayable")),
+    Bool.pick(String, String.eq(name, "receive"), receive.text(),
+      function.text(name, ins, output, mutability(payable, writes(body))))), events(body), errors(body)}
 
 def item(f: Read.Function) -> Item:
   match f:
     case Read.Constant{+name, _}:
       Item{function.text(name, Nil{}, "string", "pure"), Nil{}, Nil{}}
-    case Read.Contract{+name, inputs, +output, Read.Entry{_, +body}}:
-      item.contract(name, inputs, output, body)
+    case Read.Contract{+name, inputs, +output, +payable, Read.Entry{_, +body}}:
+      item.contract(name, inputs, output, payable, body)
 
 type Items is Data:
   Items{texts: List<&2, String>, events: List<&2, Emitted>, errors: List<&2, Emitted>}

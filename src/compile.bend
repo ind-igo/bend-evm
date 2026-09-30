@@ -164,6 +164,9 @@ def stmt(+pad: String, +halt: String, s: Yul.Stmt) -> String:
       external(pad, True{}, target, signature, args) ++ pad ++ "return(0, 32)\n"
     case Yul.Answer{target, +signature, +args}:
       external(pad, False{}, target, signature, args) ++ pad ++ "return(0, 32)\n"
+    case Yul.Pay{target, amount, body}:
+      pad ++ "if iszero(" ++ call("call", ["gas()", atom(target), atom(amount), "0", "0", "0", "0"]) ++ ") { " ++ revert() ++ " }\n"
+        ++ stmt(pad, halt, body)
     case Yul.Sense{level, e, args, body}:
       pad ++ "let " ++ var(level) ++ " := " ++ sense(e, args) ++ "\n" ++ stmt(pad, halt, body)
     case Yul.Sensed{e, args}:
@@ -246,27 +249,32 @@ def valid(+name: String, +body: IR.Cmd, +levels: List<&2, Nat>) -> Result<&2, &2
   Bool.pick(Result<&2, &2, String, IR.Cmd>, Bool.and(IR.closed(body, levels), fixed(body)), Done{body},
     Fail{name ++ ": the IR has an unbound variable or a storage slot that is not a literal"})
 
-# The dispatcher case of a contract function: its selector, the calldata
-# size check, its parameters, then its lowered body.
-def dispatch.text(+signature: String, +types: List<&2, String>, body: Yul.Stmt) -> String:
+# The check that a call sent no ether.
+def no.value(+pad: String) -> String:
+  pad ++ "if callvalue() { " ++ revert() ++ " }\n"
+
+# The dispatcher case of a contract function: its selector, the check for
+# ether if any, the calldata size check, its parameters, then its lowered
+# body.
+def dispatch.text(+signature: String, +check: String, +types: List<&2, String>, body: Yul.Stmt) -> String:
   +pad = indent()
   +size = Nat.add(4n, Nat.mul(32n, List.length(&2, String, types)))
-  "      case " ++ Keccak.hex(Keccak.selector(signature)) ++ " {\n"
+  "      case " ++ Keccak.hex(Keccak.selector(signature)) ++ " {\n" ++ check
     ++ pad ++ "if lt(calldatasize(), " ++ nat(size) ++ ") { " ++ revert() ++ " }\n"
     ++ parameters(pad, "calldataload", 4n, types, 0n) ++ stmt(pad, pad ++ "stop()\n", body) ++ "      }\n"
 
-def dispatch.valid(+signature: String, +types: List<&2, String>, +levels: List<&2, Nat>, +body: IR.Cmd) ->
+def dispatch.valid(+signature: String, +check: String, +types: List<&2, String>, +levels: List<&2, Nat>, +body: IR.Cmd) ->
   Result<&2, &2, String, String>:
   do Result<&2, &2, String, String>:
     +checked : IR.Cmd <- valid(signature, body, levels)
-    return dispatch.text(signature, types, Yul.lower(checked, Read.output(checked)))
+    return dispatch.text(signature, check, types, Yul.lower(checked, Read.output(checked)))
 
-def dispatch(+name: String, inputs: List<&2, Read.Input>, entry: Read.Entry) -> Result<&2, &2, String, String>:
+def dispatch(+name: String, +check: String, inputs: List<&2, Read.Input>, entry: Read.Entry) -> Result<&2, &2, String, String>:
   match entry:
     case Read.Entry{+levels, +body}:
       +ts = types(inputs)
       +signature = name ++ "(" ++ String.join(ts, ",") ++ ")"
-      Bool.pick(Result<&2, &2, String, String>, Keccak.fits(signature), dispatch.valid(signature, ts, levels, body),
+      Bool.pick(Result<&2, &2, String, String>, Keccak.fits(signature), dispatch.valid(signature, check, ts, levels, body),
         Fail{signature ++ ": signatures over 135 bytes are not supported"})
 
 def zeros(+n: Nat) -> String:
@@ -299,44 +307,67 @@ def mstores(+fuel: Nat, +pad: String, s: String, +offset: Nat) -> String:
 
 # A constant string entry returns the ABI encoding of its text: the offset
 # 32, the length, and the bytes in 32-byte words, zero-padded on the right.
-def constant.text(+name: String, +value: String) -> String:
+def constant.text(+name: String, +check: String, +value: String) -> String:
   +pad = indent()
   +size = String.length(value)
-  "      case " ++ Keccak.hex(Keccak.selector(name ++ "()")) ++ " {\n"
+  "      case " ++ Keccak.hex(Keccak.selector(name ++ "()")) ++ " {\n" ++ check
     ++ pad ++ "mstore(0, 32)\n" ++ pad ++ "mstore(32, " ++ nat(size) ++ ")\n"
     ++ mstores(size, pad, value, 64n)
     ++ pad ++ "return(0, " ++ nat(Nat.add(64n, Nat.mul(32n, Nat.div(Nat.add(size, 31n), 32n)))) ++ ")\n      }\n"
 
-def constant.ascii(+name: String, +value: String) -> Result<&2, &2, String, String>:
-  Bool.pick(Result<&2, &2, String, String>, Keccak.ascii(value), Done{constant.text(name, value)},
+def constant.ascii(+name: String, +check: String, +value: String) -> Result<&2, &2, String, String>:
+  Bool.pick(Result<&2, &2, String, String>, Keccak.ascii(value), Done{constant.text(name, check, value)},
     Fail{name ++ ": a constant string must be ASCII"})
 
-def constant(+name: String, +value: String) -> Result<&2, &2, String, String>:
-  Bool.pick(Result<&2, &2, String, String>, Keccak.fits(name ++ "()"), constant.ascii(name, value),
+def constant(+name: String, +check: String, +value: String) -> Result<&2, &2, String, String>:
+  Bool.pick(Result<&2, &2, String, String>, Keccak.fits(name ++ "()"), constant.ascii(name, check, value),
     Fail{name ++ "(): signatures over 135 bytes are not supported"})
 
-def case.text(f: Read.Function) -> Result<&2, &2, String, String>:
+# When some entry is payable, each other one checks for ether itself;
+# otherwise the dispatcher checks once, before the switch.
+def case.text(+each: Bool, f: Read.Function) -> Result<&2, &2, String, String>:
   match f:
     case Read.Constant{+name, +value}:
-      constant(name, value)
-    case Read.Contract{+name, inputs, _, entry}:
-      dispatch(name, inputs, entry)
+      constant(name, Bool.pick(String, each, no.value(indent()), ""), value)
+    case Read.Contract{+name, inputs, _, payable, entry}:
+      dispatch(name, Bool.pick(String, Bool.and(each, Bool.not(payable)), no.value(indent()), ""), inputs, entry)
 
-def is_init(f: Read.Function) -> Bool:
+def is_named(+n: String, f: Read.Function) -> Bool:
   match f:
-    case Read.Contract{name, _, _, _}:
-      String.eq(name, "init")
+    case Read.Contract{name, _, _, _, _}:
+      String.eq(name, n)
     case Read.Constant{_, _}:
       False{}
 
-def cases(fs: List<&2, Read.Function>) -> Result<&2, &2, String, String>:
+def is_init(f: Read.Function) -> Bool:
+  is_named("init", f)
+
+# init runs in the deploy code, and receive when the calldata is empty.
+def special(+f: Read.Function) -> Bool:
+  Bool.or(is_init(f), is_named("receive", f))
+
+def is_payable(f: Read.Function) -> Bool:
+  match f:
+    case Read.Contract{_, _, _, payable, _}:
+      payable
+    case Read.Constant{_, _}:
+      False{}
+
+def any_payable(fs: List<&2, Read.Function>) -> Bool:
+  match fs:
+    case Nil{}:
+      False{}
+    case +f <> rest:
+      Bool.or(Bool.and(is_payable(f), Bool.not(is_init(f))), any_payable(rest))
+
+def cases(+each: Bool, fs: List<&2, Read.Function>) -> Result<&2, &2, String, String>:
   match fs:
     case Nil{}:
       Done{""}
     case +f <> rest:
       do Result<&2, &2, String, String>:
-        head : String <- Bool.pick(Result<&2, &2, String, String>, is_init(f), Done{""}, case.text(f))
-        tail : String <- cases(rest)
+        head : String <- Bool.pick(Result<&2, &2, String, String>, special(f), Done{""}, case.text(each, f))
+        tail : String <- cases(each, rest)
         return head ++ tail
 
 # Yul functions that lowered code calls. Each code block defines its own.
@@ -366,11 +397,13 @@ def helpers(+pad: String) -> String:
     ++ pad ++ "  signer := mload(128)\n"
     ++ pad ++ "}\n"
 
-def object(init: String, body: String) -> String:
+# deploy and runtime are the checks for ether, if any, and receive the code
+# for empty calldata, if any.
+def object(+deploy: String, init: String, +runtime: String, receive: String, body: String) -> String:
   "object \"Contract\" {\n"
     ++ "  code {\n"
     ++ helpers("    ")
-    ++ "    if callvalue() { " ++ revert() ++ " }\n"
+    ++ deploy
     ++ init
     ++ "    datacopy(0, dataoffset(\"runtime\"), datasize(\"runtime\"))\n"
     ++ "    return(0, datasize(\"runtime\"))\n"
@@ -378,7 +411,8 @@ def object(init: String, body: String) -> String:
     ++ "  object \"runtime\" {\n"
     ++ "    code {\n"
     ++ helpers("      ")
-    ++ "      if callvalue() { " ++ revert() ++ " }\n"
+    ++ runtime
+    ++ receive
     ++ "      if lt(calldatasize(), 4) { " ++ revert() ++ " }\n"
     ++ "      switch shr(224, calldataload(0))\n"
     ++ body
@@ -411,7 +445,7 @@ def init.stops(out: IR.Output, inputs: List<&2, Read.Input>, +levels: List<&2, N
 
 def constructor.of(f: Read.Function) -> Result<&2, &2, String, String>:
   match f:
-    case Read.Contract{_, inputs, _, Read.Entry{+levels, +body}}:
+    case Read.Contract{_, inputs, _, _, Read.Entry{+levels, +body}}:
       init.stops(Read.output(body), inputs, levels, body)
     case Read.Constant{_, _}:
       Done{""}
@@ -425,13 +459,50 @@ def constructor(fs: List<&2, Read.Function>) -> Result<&2, &2, String, String>:
     case +f <> rest:
       Bool.pick(Result<&2, &2, String, String>, is_init(f), constructor.of(f), constructor(rest))
 
+# An entry named receive runs when the calldata is empty, as Solidity's
+# receive(). It must be payable, take no parameters and return Unit.
+def receive.stops(out: IR.Output, +levels: List<&2, Nat>, +body: IR.Cmd) -> Result<&2, &2, String, String>:
+  match out:
+    case IR.Stops{}:
+      do Result<&2, &2, String, String>:
+        checked : IR.Cmd <- valid("receive", body, levels)
+        return "      if iszero(calldatasize()) {\n" ++ stmt(indent(), indent() ++ "stop()\n", Yul.lower(checked, IR.Stops{}))
+          ++ "      }\n"
+    case IR.Returns{}:
+      Fail{"receive must return Unit"}
+
+def receive.of(f: Read.Function) -> Result<&2, &2, String, String>:
+  match f:
+    case Read.Contract{_, inputs, _, payable, Read.Entry{+levels, +body}}:
+      Bool.pick(Result<&2, &2, String, String>, Bool.and(payable, Nat.is_eq(List.length(&2, Read.Input, inputs), 0n)),
+        receive.stops(Read.output(body), levels, body), Fail{"receive must be payable and take no parameters"})
+    case Read.Constant{_, _}:
+      Fail{"receive must be payable and take no parameters"}
+
+def receive(fs: List<&2, Read.Function>) -> Result<&2, &2, String, String>:
+  match fs:
+    case Nil{}:
+      Done{""}
+    case +f <> rest:
+      Bool.pick(Result<&2, &2, String, String>, is_named("receive", f), receive.of(f), receive(rest))
+
+def init.payable(fs: List<&2, Read.Function>) -> Bool:
+  match fs:
+    case Nil{}:
+      False{}
+    case +f <> rest:
+      Bool.or(Bool.and(is_init(f), is_payable(f)), init.payable(rest))
+
 def contract(file: String, s: Tool.Setup) -> Result<&2, &2, String, String>:
   match s:
     case Tool.Setup{_, +fs, _}:
+      +each = any_payable(fs)
       do Result<&2, &2, String, String>:
         init : String <- constructor(fs)
-        body : String <- cases(fs)
-        return object(init, body)
+        got : String <- receive(fs)
+        body : String <- cases(each, fs)
+        return object(Bool.pick(String, init.payable(fs), "", no.value("    ")), init,
+          Bool.pick(String, each, "", no.value("      ")), got, body)
 
 def main() -> IO(Unit):
   Tool.main(~contract, "Usage: compile.bend <contract.bend> <function>...")

@@ -107,6 +107,7 @@ type Tag is Data:
   EmitEvent{}
   View{}
   CallOut{}
+  PayOut{}
   IsEq{}
   IsLt{}
   Not{}
@@ -173,6 +174,7 @@ def tags() -> List<&2, Named>:
   Named{"Evm.emit", EmitEvent{}},
   Named{"Evm.view", View{}},
   Named{"Evm.call", CallOut{}},
+  Named{"Evm.pay", PayOut{}},
   Named{"Nat.is_eq", IsEq{}},
   Named{"Nat.is_lt", IsLt{}},
   Named{"Bool.not", Not{}},
@@ -965,6 +967,11 @@ def effect(c: Call, +evm: String, +decls: List<&2, Core.Declaration>) -> Result<
         x : IR.Cond <- cond(condition, decls)
         e : Signed <- signed(ErrorDef{}, evm, call(error, Nil{}), decls)
         ensure(x, e)
+    case Call{PayOut{}, _, to <> amount <> Nil{}}:
+      do Result<&2, &2, String, IR.Effect>:
+        t : IR.Expr <- expr(to, decls)
+        a : IR.Expr <- expr(amount, decls)
+        return IR.Pay{t, a}
     case _:
       Fail{"Unsupported effect"}
 
@@ -1248,10 +1255,10 @@ def inputs(+evm: String, params: List<&2, Param>) -> Result<&2, &2, String, List
 # An entry, read once for every tool: a constant string such as an ERC-20's
 # name(), which the printer returns ABI-encoded and which has nothing to
 # certify, or a contract function with its inputs, the ABI type of its
-# result ("" for Unit) and its IR.
+# result ("" for Unit), whether it accepts ether, and its IR.
 type Function is Data:
   Constant{name: String, text: String}
-  Contract{name: String, inputs: List<&2, Input>, result: String, entry: Entry}
+  Contract{name: String, inputs: List<&2, Input>, result: String, payable: Bool, entry: Entry}
 
 def text(term: Core.Term) -> Maybe<&2, String>:
   match term:
@@ -1268,6 +1275,14 @@ def constant.text(found: Maybe<&2, Def>) -> Maybe<&2, String>:
     case _:
       None{}
 
+# An Evm.Payable(A) result, rather than Evm.Contract(A).
+def payable(+evm: String, c: Call) -> Bool:
+  match c:
+    case Call{_, name, _}:
+      String.eq(name, evm ++ "Payable")
+    case Other{}:
+      False{}
+
 def contract(+name: String, d: Def, +evm: String, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, Function>:
   match d:
     case Def{+arity, typ, body}:
@@ -1277,7 +1292,7 @@ def contract(+name: String, d: Def, +evm: String, +decls: List<&2, Core.Declarat
         out : String <- result.call(evm, call(telescope.result(t), Nil{}))
         l : Lambdas <- lambdas(arity, strip(evm, body))
         e : Entry <- entry(name, l, evm, decls)
-        return Contract{name, ins, out, e}
+        return Contract{name, ins, out, payable(evm, call(telescope.result(t), Nil{})), e}
 
 # An entry named init is the constructor, so it cannot be a constant.
 def function.found(+name: String, text: Maybe<&2, String>, found: Maybe<&2, Def>, +evm: String,
@@ -1320,10 +1335,17 @@ def module.found(found: Maybe<&2, String>) -> Result<&2, &2, String, String>:
     case None{}:
       Fail{"Expected an Evm.Contract result"}
 
+def either(a: Maybe<&2, String>, b: Maybe<&2, String>) -> Maybe<&2, String>:
+  match a:
+    case Some{x}:
+      Some{x}
+    case None{}:
+      b
+
 def module.name(c: Call) -> Result<&2, &2, String, String>:
   match c:
-    case Call{_, name, _}:
-      module.found(before(".Contract", name))
+    case Call{_, +name, _}:
+      module.found(either(before(".Contract", name), before(".Payable", name)))
     case Other{}:
       Fail{"Expected an Evm.Contract result"}
 

@@ -38,6 +38,7 @@ type Stmt is Data:
   Answer{target: IR.Expr, signature: String, args: List<&2, IR.Expr>}
   Call{level: Nat, target: IR.Expr, signature: String, args: List<&2, IR.Expr>, body: Stmt}
   Reply{target: IR.Expr, signature: String, args: List<&2, IR.Expr>}
+  Pay{target: IR.Expr, amount: IR.Expr, body: Stmt}
   Sense{level: Nat, env: Evm.Env, args: List<&2, IR.Expr>, body: Stmt}
   Sensed{env: Evm.Env, args: List<&2, IR.Expr>}
   Result{value: Exp}
@@ -118,9 +119,10 @@ def eval(e: Exp, +env: List<&2, IR.Binding>, +s: Evm.State) -> Nat:
 
 # `if cond { revert(0, 0) }` reverts when cond is not zero, and a Guard
 # reverts with its error's data. A View binds a staticcall's word, and an
-# Answer returns it; a Call and a Reply do the same with call, and a Sense
-# and a Sensed with a value of the environment, as reading one can use up a
-# reading. An If runs no when its test is zero and yes otherwise.
+# Answer returns it; a Call and a Reply do the same with call. A Pay sends
+# ether with call. A Sense binds a value of the environment and a Sensed
+# returns it, as reading one can use up a reading. An If runs no when its
+# test is zero and yes otherwise.
 def exec(stmt: Stmt, +out: IR.Output, +env: List<&2, IR.Binding>) -> Evm.Contract(IR.value(out)):
   match stmt out:
     case Let{level, value, body} o:
@@ -144,6 +146,8 @@ def exec(stmt: Stmt, +out: IR.Output, +env: List<&2, IR.Binding>) -> Evm.Contrac
         x => exec(body, o, IR.Binding{level, x} <> env, R, k))
     case Reply{target, signature, args} IR.Returns{}:
       Evm.call(Evm.Call{IR.eval(target, env), IR.name(signature), IR.evals(args, env)})
+    case Pay{target, amount, body} o:
+      R => k => Evm.pay(IR.eval(target, env), IR.eval(amount, env), R, _ => exec(body, o, env, R, k))
     case Sense{level, +e, args, body} o:
       R => k => +s => exec(body, o, IR.Binding{level, Evm.sense(e, IR.evals(args, env), s)} <> env, R, k, Evm.sensed(e, s))
     case Sensed{e, args} IR.Returns{}:
@@ -260,6 +264,8 @@ def lower(cmd: IR.Cmd, +out: IR.Output) -> Stmt:
       Check{lower.cond(c), lower(body, o)}
     case IR.Then{IR.Ensure{c, error, args}, body} o:
       Guard{lower.cond(c), error, args, lower(body, o)}
+    case IR.Then{IR.Pay{target, amount}, body} o:
+      Pay{target, amount, lower(body, o)}
     case IR.Return{value} IR.Returns{}:
       Result{Atom{value}}
     case IR.Tail{IR.Add{+left, +right}} IR.Returns{}:
@@ -288,6 +294,8 @@ def lower(cmd: IR.Cmd, +out: IR.Output) -> Stmt:
       Check{lower.cond(c), Stop{}}
     case IR.Finish{IR.Ensure{c, error, args}} IR.Stops{}:
       Guard{lower.cond(c), error, args, Stop{}}
+    case IR.Finish{IR.Pay{target, amount}} IR.Stops{}:
+      Pay{target, amount, Stop{}}
     case IR.Stop{} IR.Stops{}:
       Stop{}
     case IR.If{c, yes, no} o:

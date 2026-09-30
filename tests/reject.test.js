@@ -27,6 +27,7 @@ const cases = [
   ['tests/fixtures/vault/bad.bend', ['dotted.entry'], 'dotted.entry: an entry needs an identifier name'],
   ['tests/fixtures/branch/bad.bend', ['early'], 'A branch must be the last step'],
   ['tests/fixtures/branch/bad.bend', ['middle'], 'A call to a function that branches must be the last step'],
+  ['tests/fixtures/receive.bend', ['receive'], 'receive must be payable and take no parameters'],
 ];
 
 for (const [file, functions, error] of cases) {

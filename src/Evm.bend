@@ -98,8 +98,11 @@ type Signed is Data:
 # Evm.view or Evm.call makes it:
 #   def balanceOf(token: Evm.Address, who: Evm.Address) -> Evm.Call:
 #     Evm.Call{token, "balanceOf", [who]}
+#
+# Pay is a call that sends amount wei with no data, which Evm.pay makes.
 type Call is Data:
   Call{target: Nat, name: String, args: List<&2, Nat>}
+  Pay{target: Nat, amount: Nat}
 
 type Answer is Data:
   Answer{call: Call, value: Nat}
@@ -127,6 +130,7 @@ type Env is Data:
   SelfBalance{}
   ExtCodeSize{}
   ExtCodeHash{}
+  CallValue{}
 
 # An operation's or an environment value's constructor, Yul name, name in a
 # contract, and number of words. Solidity checks add, sub, mul, div, mod and
@@ -177,10 +181,12 @@ def sensor(e: Env) -> Sensor:
       Sensor{Info{"ExtCodeSize", "extcodesize", "extcodesize", 1n}, 59n, False{}}
     case ExtCodeHash{}:
       Sensor{Info{"ExtCodeHash", "extcodehash", "extcodehash", 1n}, 63n, False{}}
+    case CallValue{}:
+      Sensor{Info{"CallValue", "callvalue", "callvalue", 0n}, 52n, False{}}
 
 def envs() -> List<&2, Env>:
   [Timestamp{}, ChainId{}, Origin{}, GasPrice{}, Coinbase{}, Number{}, PrevRandao{}, GasLimit{}, BaseFee{}, BlobBaseFee{},
-  BlockHash{}, BlobHash{}, CodeSize{}, Gas{}, Balance{}, SelfBalance{}, ExtCodeSize{}, ExtCodeHash{}]
+  BlockHash{}, BlobHash{}, CodeSize{}, Gas{}, Balance{}, SelfBalance{}, ExtCodeSize{}, ExtCodeHash{}, CallValue{}]
 
 def info.of(x: Sensor) -> Info:
   match x:
@@ -282,6 +288,10 @@ def same.call(a: Call, b: Call) -> Bool:
   match a b:
     case Call{t, f, x} Call{u, g, y}:
       Bool.and(Nat.is_eq(t, u), Bool.and(String.eq(f, g), same.words(x, y)))
+    case Pay{t, x} Pay{u, y}:
+      Bool.and(Nat.is_eq(t, u), Nat.is_eq(x, y))
+    case _ _:
+      False{}
 
 def hash.of(hashes: List<&2, Hashed>, +p: Preimage) -> Nat:
   match hashes:
@@ -339,6 +349,11 @@ type Outcome<-A: Data> is Type:
 # inside a bind, so a law can state every outcome and {==} proves it.
 def Contract(-A: Data) -> Type:
   @-R: Data -> @k: (A -> State -> Outcome<R>) -> State -> Outcome<R>
+
+# The result type of a function that accepts ether, as Solidity's payable.
+# Every other function reverts when it gets ether.
+def Payable(-A: Data) -> Type:
+  Contract(A)
 
 def Contract.pure(-A: Data, x: A) -> Contract(A):
   R => k => s => k(x, s)
@@ -517,6 +532,12 @@ def view(c: Call) -> Contract(Nat):
 # treat a view's.
 def call(c: Call) -> Contract(Nat):
   R => k => s => Calling{c, s, k}
+
+# Sends amount wei to another account with call and no data, and reverts
+# when the call fails, like solady's safeTransferETH. The receiver may call
+# back into this contract, so the contract stops here, as at Evm.call.
+def pay(to: Nat, amount: Nat) -> Contract(Unit):
+  R => k => s => Calling{Pay{to, amount}, s, _ => t => k(Unit{}, t)}
 
 # Checked addition: reverts on overflow, like Solidity 0.8.
 def add(+a: Nat, +b: Nat) -> Contract(Nat):
@@ -971,3 +992,9 @@ def extcodesize(a: Nat) -> Contract(Nat):
 
 def extcodehash(a: Nat) -> Contract(Nat):
   env(ExtCodeHash{}, [a])
+
+# The wei that the call sent. A callback has its own value, so it is a
+# reading. A function that is not payable reverts when it gets ether, so
+# there it is zero.
+def callvalue() -> Contract(Nat):
+  env(CallValue{}, [])

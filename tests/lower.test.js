@@ -21,6 +21,7 @@ test('the preservation proof rejects a wrong lowering', () => {
       ['Sense{level, e, args, lower(body, o)}', 'Sense{level, e, Nil{}, lower(body, o)}'],
       ['      Sensed{e, args}\n', '      Sensed{Evm.Number{}, args}\n'],
       ['<> env, R, k, Evm.sensed(e, s))', '<> env, R, k, s)'],
+      ['Pay{target, amount, lower(body, o)}', 'Pay{amount, target, lower(body, o)}'],
       ['Gt{Atom{right}, Sub{', 'Lt{Atom{right}, Sub{'],
       ['Nat.sub(Nat.sub(l, 1n), x)', 'Nat.sub(l, x)'],
       ['Check{Lt{Atom{left}, Atom{right}}, Let{', 'Check{Lt{Atom{right}, Atom{left}}, Let{'],

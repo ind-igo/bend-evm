@@ -323,3 +323,15 @@ After M21, a contract has all the arithmetic, storage, logs, errors, `keccak256`
 - [x] A test on `anvil` reads each value in a contract and compares it with what `anvil` gives for the same block, transaction and accounts ([tests/env.test.js](tests/env.test.js)). The compiler now targets the Cancun EVM, which has `blobhash` and `blobbasefee`.
 
 Not in M23: `callvalue`, which M24 adds with payable functions; every function now rejects ether. `calldatasize`, `returndatasize`, `msize` and `pc` are for the compiler, not for a contract.
+
+## M24: ether
+
+### Done when
+
+- [x] A function whose result type is `Evm.Payable(A)` accepts ether, and the ABI marks it `payable`. Every other function reverts when it gets ether: once before the dispatcher's switch when no entry is payable, as before, else in each case. `init` can be payable too.
+- [x] `Evm.callvalue()` gives the wei sent. It is a reading, as a callback has its own value.
+- [x] An entry named `receive` runs when the calldata is empty, as Solidity's `receive()`.
+- [x] `Evm.pay(to, amount)` sends ether with `call` and no data, and reverts when the call fails. It is a new kind of call, `Evm.Pay{to, amount}`, which stops the contract as `Evm.call` does, so a law about it holds for every callback. The lowering proof covers it with the same lemma as a call.
+- [x] An example, [examples/weth](examples/weth): wrapped ether after solmate's WETH, with laws for `deposit`, `receive` and `withdraw` ([LAWS.bend](examples/weth/LAWS.bend)), and a differential test against solmate's WETH on anvil with a holder that calls back ([tests/weth.test.js](tests/weth.test.js)).
+
+Not in M24: calls to a function with ether (`token.deposit{value: x}()`), which M30 adds with low-level calls, and `fallback`. The model has no ether balances, so no law can say that WETH holds as much ether as its supply.

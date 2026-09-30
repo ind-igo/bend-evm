@@ -2,7 +2,7 @@
 
 An EVM backend for **Bend 2**, written in Bend. It consumes the checked `Core.Program` from [bend-frontend](https://github.com/ind-igo/bend-frontend).
 
-Contracts are ordinary Bend functions in the `Contract` monad of [Evm.bend](src/Evm.bend). Specifications are laws about them, as in [examples/counter/LAWS.bend](examples/counter/LAWS.bend), [examples/erc20/LAWS.bend](examples/erc20/LAWS.bend) and [examples/amm/LAWS.bend](examples/amm/LAWS.bend).
+Contracts are ordinary Bend functions in the `Contract` monad of [Evm.bend](src/Evm.bend). Specifications are laws about them, as in [examples/counter/LAWS.bend](examples/counter/LAWS.bend), [examples/erc20/LAWS.bend](examples/erc20/LAWS.bend), [examples/amm/LAWS.bend](examples/amm/LAWS.bend) and [examples/weth/LAWS.bend](examples/weth/LAWS.bend).
 
 ```text
 contract.bend ─ Frontend.check ─ read ─→ IR ─ lower ─→ Yul ─ solc ─→ bytecode
@@ -139,6 +139,35 @@ It differs from Uniswap's pair in these ways. It has no lock, no price oracle, n
 
 The liquidity token's functions are the ERC-20 core's, so the core's laws apply to them. Each proof splits a check with a Bool parameter, and a call with a lemma that takes the rest of the run from any state. [tests/amm.test.js](tests/amm.test.js) gives the pair and the same pair in Solidity ([tests/fixtures/reference/Pair.sol](tests/fixtures/reference/Pair.sol)) the same random steps on `anvil`, with tokens that return false, revert, or call back into the pair with `sync`, `swap` or `mint`.
 
+## Wrapped ether
+
+[examples/weth](examples/weth) has wrapped ether, after solmate's `WETH`, on the ERC-20 core. It shows how a contract takes and sends ether:
+
+```bend
+def deposit() -> Evm.Payable(Unit):
+  do Evm.Contract<Unit>:
+    +who : Nat <- Evm.caller()
+    +amount : Nat <- Evm.callvalue()
+    ERC20.mint(who, amount)
+    Evm.emit(Deposit(who, amount))
+
+def withdraw(+amount: Nat) -> Evm.Contract(Unit):
+  do Evm.Contract<Unit>:
+    +who : Nat <- Evm.caller()
+    ERC20.burn(who, amount)
+    Evm.emit(Withdrawal(who, amount))
+    Evm.pay(who, amount)
+```
+
+- A function whose result type is `Evm.Payable(A)` accepts ether, and the ABI marks it `payable`. Every other function reverts when it gets ether, as in Solidity. `init` can be payable too.
+- An entry named `receive` runs when the calldata is empty, as Solidity's `receive()`. It must be payable, take no parameters and return `Unit`.
+- `Evm.callvalue()` gives the wei that the call sent. A callback has its own value, so the model takes it from the readings, as it takes `gas`.
+- `Evm.pay(to, amount)` sends ether with `call` and no data, and reverts when the call fails. The receiver can call back, so the model stops there, as at `Evm.call`.
+
+[LAWS.bend](examples/weth/LAWS.bend) has three laws: `deposit` and `receive` give the sender as many tokens as the wei sent, and `withdraw` burns the tokens and logs before it pays, with the pay as its last step, so a callback sees the burned balance. [tests/weth.test.js](tests/weth.test.js) gives it and solmate's WETH in Solidity ([tests/fixtures/reference/WETH.sol](tests/fixtures/reference/WETH.sol)) the same random steps on `anvil`, with a holder that refuses ether, or deposits or withdraws again when it gets ether.
+
+The model has no ether balances: `balance` and `selfbalance` are readings. So a law cannot say that WETH holds as much ether as its supply.
+
 ## Gas
 
 `bun run gas` ([scripts/gas.js](scripts/gas.js)) runs the same transactions on the token and on the Solidity reference, without and with the solc optimizer (1,000,000 runs, as in solmate), and prints the receipts' `gasUsed`. These numbers include the 21,000 base cost and the calldata cost. They are from solc 0.8.33 for the Cancun EVM on `anvil`:
@@ -204,7 +233,7 @@ The proofs cover deployed code only when the certificate covers the same entries
 - Storage is an association list: the newest slot wins and missing slots read as zero. A key is a plain slot or an entry of a mapping, `Mapped{base, key}`, where `base` is a key too. The printer puts an entry at `keccak256(key . base)`, as Solidity does, so the model assumes that Keccak has no collisions. That is not enough for a slot that a variable gives, which could equal an entry's `keccak256(key . base)`, so `compile.bend` refuses an entry whose plain slots and mapping bases are not literals. Keys can be variables. A revert discards all state.
 - `branch(A, cond, a, b)` runs the contract `a` when `cond` holds and `b` otherwise, and must be the last step: each arm runs to the end of the call. Code that both arms run after the choice goes in each arm, as a call to a def, as `ERC20.transferFrom` does with `move`. A run stops at a branch whose condition is not known, so a law about it names both arms with `Evm.branch.run` ([tests/fixtures/branch](tests/fixtures/branch) has examples).
 - Events are `emit(Event(...))` with an event def, as above: at most three indexed parameters, before the others, as the ABI marks the first parameters as indexed, one for each topic word. The state keeps logs newest first, so a revert drops them too. Topic 0 is the Keccak-256 of the signature, which the printer computes. Two events with the same signature must agree on their indexed parameters.
-- Supported now: `sload`, `sstore`, mappings (`load(slot, key)`, `store(slot, key, value)`) and nested mappings (`load2(slot, outer, inner)`, `store2(slot, outer, inner, value)`); `caller` and `self`; the environment: `timestamp`, `chainid`, `origin`, `gasprice`, `coinbase`, `number`, `prevrandao`, `gaslimit`, `basefee`, `blobbasefee`, `blockhash(n)`, `blobhash(i)`, `codesize`, `gas`, `balance(a)`, `selfbalance`, `extcodesize(a)` and `extcodehash(a)`; checked `add`, `sub`, `mul`, `div` and `mod`; the word operations; `max()`; `select(cond, a, b)` and `branch(A, cond, a, b)`, where a condition is `Nat.is_eq` or `Nat.is_lt` under `Bool.not`; `require`; `ensure(cond, error)`; `emit`; `view(call)` and `call(call)`; `keccak(words)`, `id(text)`, `typed(domain, message)` (the EIP-712 digest) and `recover(digest, v, r, s)`; `pure`; the parameter types above; literal constants; and calls to the contract's own functions, which the reader inlines. The reader rejects everything else.
+- Supported now: `sload`, `sstore`, mappings (`load(slot, key)`, `store(slot, key, value)`) and nested mappings (`load2(slot, outer, inner)`, `store2(slot, outer, inner, value)`); `caller` and `self`; the environment: `timestamp`, `chainid`, `origin`, `gasprice`, `coinbase`, `number`, `prevrandao`, `gaslimit`, `basefee`, `blobbasefee`, `blockhash(n)`, `blobhash(i)`, `codesize`, `gas`, `balance(a)`, `selfbalance`, `extcodesize(a)` and `extcodehash(a)`; checked `add`, `sub`, `mul`, `div` and `mod`; the word operations; `max()`; `select(cond, a, b)` and `branch(A, cond, a, b)`, where a condition is `Nat.is_eq` or `Nat.is_lt` under `Bool.not`; `require`; `ensure(cond, error)`; `emit`; `view(call)` and `call(call)`; `pay(to, amount)` and `callvalue()`, with `Evm.Payable(A)` results and `receive`; `keccak(words)`, `id(text)`, `typed(domain, message)` (the EIP-712 digest) and `recover(digest, v, r, s)`; `pure`; the parameter types above; literal constants; and calls to the contract's own functions, which the reader inlines. The reader rejects everything else.
 
 ## Limits
 
@@ -212,7 +241,7 @@ The proofs cover deployed code only when the certificate covers the same entries
 - certify.bend must run through the frontend's `host/run.js`, which gives it its own path in `BEND_ENTRY`.
 - Literals are limited by `Nat.read` (about 2^48). Source Nat literals already stop at 2^32 - 1.
 - Parameters, results, event fields and error arguments are words with the ABI types above; only parameters are range-checked.
-- A view or a call gives one word, with no range check, and reverts with no data when the called function fails; Solidity passes on its revert data. A call sends no ETH.
+- A view or a call gives one word, with no range check, and reverts with no data when the called function fails; Solidity passes on its revert data. `Evm.call` sends no ether; `Evm.pay` sends ether with no data.
 - Nothing stops a callback. A law states what callbacks can do, and an invariant across every callback is proved by hand, by induction on the answers, with one lemma for each entry (see the vault's proof). A law about one call needs no induction when it holds for any state that the callbacks leave, as the AMM's `swap` law does. There is no reentrancy guard yet. While a call runs, the called contract can also read this contract's state, so update the state before the call.
 - Calls and branches nest at most 8 deep together, so a function cannot call itself. An `else if` chain of 8 branches is too deep.
 - A branch must be the last step, and its arms return `Nat` or `Unit`. There is no join point after a branch; see ROADMAP.md (M13).

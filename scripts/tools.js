@@ -65,6 +65,8 @@ export const entries = {
   vault: ['init', 'token', 'sharesOf', 'totalShares', 'deposit', 'withdraw', 'ping', 'touch'],
   amm: ['name', 'symbol', 'decimals', 'init', 'token0', 'token1', 'reserve0', 'reserve1', 'totalSupply', 'balanceOf',
     'allowance', 'approve', 'transfer', 'transferFrom', 'sync', 'mint', 'burn', 'swap'],
+  weth: ['name', 'symbol', 'decimals', 'totalSupply', 'balanceOf', 'allowance', 'approve', 'transfer', 'transferFrom',
+    'deposit', 'withdraw', 'receive'],
   math: ['add', 'sub', 'mul', 'div', 'sdiv', 'mod', 'smod', 'addmod', 'mulmod', 'exp', 'signextend', 'lt', 'gt', 'slt',
     'sgt', 'eq', 'iszero', 'and', 'or', 'xor', 'not', 'byte', 'shl', 'shr', 'sar', 'checked_mul', 'checked_div', 'checked_mod', 'sqrt'],
 };
