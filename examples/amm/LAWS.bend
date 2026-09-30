@@ -110,3 +110,55 @@ law mint:
   for +world: Evm.World
   for +to: Nat
   {True{} == fair(storage, Evm.run(Nat, Pair.mint(to), Evm.State{storage, caller, limit, logs, world})) : Bool}
+
+# The first two words of a log's data are at most the burned share of each
+# balance: a * s <= l * b, for liquidity l of supply s.
+def within(+l: Nat, +s: Nat, +b0: Nat, +b1: Nat, data: List<&2, Nat>) -> Bool:
+  match data:
+    case a0 <> a1 <> _:
+      Bool.and(Bool.not(Nat.is_lt(Nat.mul(l, b0), Nat.mul(a0, s))), Bool.not(Nat.is_lt(Nat.mul(l, b1), Nat.mul(a1, s))))
+    case _:
+      True{}
+
+# A burn that ends well logs Burn last, with the amounts that it paid.
+def paid(+l: Nat, +s: Nat, +b0: Nat, +b1: Nat, o: Evm.Outcome<Unit>) -> Bool:
+  match o:
+    case Evm.Ok{_, t}:
+      match t:
+        case Evm.State{_, _, _, logs, _}:
+          match logs:
+            case Evm.Log{_, _, data} <> _:
+              within(l, s, b0, b1, data)
+            case Nil{}:
+              True{}
+    case Evm.Revert{}:
+      True{}
+    case Evm.Raise{_}:
+      True{}
+    case Evm.Calling{_, _, _}:
+      True{}
+
+# A burn pays each token no more than the burned share of the pair's
+# balance, b0 and b1 here: amount * supply <= liquidity * balance. The
+# rounding goes to the pair. This holds whatever the tokens answer and
+# whatever their callbacks do while the pair pays.
+law burn:
+  for +steps: List<&2, Calls.Step>
+  for +storage: List<&2, Evm.Slot>
+  for +caller: Nat
+  for +limit: Nat
+  for +logs: List<&2, Evm.Log>
+  for +time: Nat
+  for +chain: Nat
+  for +self: Nat
+  for +hashes: List<&2, Evm.Hashed>
+  for +signers: List<&2, Evm.Signed>
+  for +q0: Evm.Call
+  for +b0: Nat
+  for +q1: Evm.Call
+  for +b1: Nat
+  for +more: List<&2, Evm.Answer>
+  for +to: Nat
+  {True{} == paid(Evm.lookup(storage, Evm.Mapped{Evm.Plain{ERC20.BALANCES()}, self}), supply(storage), b0, b1,
+    Calls.run(Cert.entry.table(), Unit, Pair.burn(to), steps, Evm.State{storage, caller, limit, logs,
+      Evm.World{time, chain, self, hashes, signers, Evm.Answer{q0, b0} <> Evm.Answer{q1, b1} <> more}})) : Bool}

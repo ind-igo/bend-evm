@@ -610,3 +610,183 @@ def Laws.mint(storage, caller, limit, logs, world, to):
             Evm.Revert{}, storage,
             _ => mint.second(to, b0, storage, caller, limit, logs, time, chain, self, hashes, signers, more),
             _ => {==})
+
+# ---- A burn pays no more than the share ----
+
+def pays(+l: Nat, +s: Nat, +b0: Nat, +b1: Nat) -> Evm.Outcome<Unit> -> Bool:
+  o => Laws.paid(l, s, b0, b1, o)
+
+# (p / s) * s <= p.
+def part_le(+p: Nat, s: Nat, +ez: {False{} == Nat.is_eq(s, 0n) : Bool}) -> {False{} == Nat.is_lt(p, Nat.mul(Nat.div(p, s), s)) : Bool}:
+  match s:
+    case 0n:
+      N.absurd({False{} == Nat.is_lt(p, Nat.mul(Nat.div(p, 0n), 0n)) : Bool}, Equal.sym(Bool, False{}, True{}, ez))
+    case 1n+q:
+      floored(q, p)
+
+# The end of a burn: update and log Burn.
+def burn.fin(+who: Nat, +to: Nat, +a0: Nat, +a1: Nat, +c0: Nat, +c1: Nat) -> Evm.Contract(Unit):
+  do Evm.Contract<Unit>:
+    Pair.update(c0, c1)
+    Evm.emit(Pair.Burn(who, to, a0, a1))
+
+# What burn does after both calls: sync, then log Burn.
+def burn.end(+who: Nat, +to: Nat, +a0: Nat, +a1: Nat) -> Evm.Contract(Unit):
+  do Evm.Contract<Unit>:
+    Pair.sync()
+    Evm.emit(Pair.Burn(who, to, a0, a1))
+
+def end.second(+rest: List<&2, Calls.Step>, +who: Nat, +to: Nat, +a0: Nat, +a1: Nat, +c0: Nat, +st: List<&2, Evm.Slot>, +ca: Nat,
+  +li: Nat, +lo: List<&2, Evm.Log>, +time: Nat, +chain: Nat, +self: Nat, +hashes: List<&2, Evm.Hashed>,
+  +signers: List<&2, Evm.Signed>, answers: List<&2, Evm.Answer>, -l: Nat, -s: Nat, -b0: Nat, -b1: Nat,
+  +f: {True{} == Laws.within(l, s, b0, b1, [a0, a1]) : Bool}) ->
+  {True{} == Laws.paid(l, s, b0, b1, closed(rest, Evm.answer(Unit, balance.of(st, 4n, self),
+    c1 => v => burn.fin(who, to, a0, a1, c0, c1)(Unit, ok(Unit), v),
+    Evm.State{st, ca, li, lo, Evm.World{time, chain, self, hashes, signers, answers}}))) : Bool}:
+  match answers:
+    case Nil{}:
+      closed_revert(rest, pays(l, s, b0, b1), {==})
+    case Evm.Answer{+q, +c1} <> +more:
+      closed_pick(rest, Evm.same.call(q, balance.of(st, 4n, self)),
+        burn.fin(who, to, a0, a1, c0, c1)(Unit, ok(Unit), Evm.State{st, ca, li, lo, Evm.World{time, chain, self, hashes, signers, more}}),
+        Evm.Revert{}, pays(l, s, b0, b1),
+        _ => closed_ok(rest, Evm.State{Evm.Slot{Evm.Plain{6n}, c1} <> Evm.Slot{Evm.Plain{5n}, c0} <> st, ca, li,
+          Pair.Burn(who, to, a0, a1) <> Pair.Sync(c0, c1) <> lo, Evm.World{time, chain, self, hashes, signers, more}}, pays(l, s, b0, b1), f),
+        _ => closed_revert(rest, pays(l, s, b0, b1), {==}))
+
+# The end from any state that the callbacks leave.
+def end.first(+rest: List<&2, Calls.Step>, +who: Nat, +to: Nat, +a0: Nat, +a1: Nat, u: Evm.State, -l: Nat, -s: Nat, -b0: Nat, -b1: Nat,
+  +f: {True{} == Laws.within(l, s, b0, b1, [a0, a1]) : Bool}) ->
+  {True{} == Laws.paid(l, s, b0, b1, closed(rest, burn.end(who, to, a0, a1)(Unit, ok(Unit), u))) : Bool}:
+  match u:
+    case Evm.State{+st, +ca, +li, +lo, Evm.World{+time, +chain, +self, +hashes, +signers, answers}}:
+      match answers:
+        case Nil{}:
+          closed_revert(rest, pays(l, s, b0, b1), {==})
+        case Evm.Answer{+q, +c0} <> +more:
+          closed_pick(rest, Evm.same.call(q, balance.of(st, 3n, self)),
+            Evm.answer(Unit, balance.of(st, 4n, self), c1 => v => burn.fin(who, to, a0, a1, c0, c1)(Unit, ok(Unit), v),
+              Evm.State{st, ca, li, lo, Evm.World{time, chain, self, hashes, signers, more}}),
+            Evm.Revert{}, pays(l, s, b0, b1),
+            _ => end.second(rest, who, to, a0, a1, c0, st, ca, li, lo, time, chain, self, hashes, signers, more, l, s, b0, b1, f),
+            _ => closed_revert(rest, pays(l, s, b0, b1), {==}))
+
+def burn.after1(+who: Nat, +to: Nat, +a0: Nat, +a1: Nat) -> Nat -> Evm.State -> Evm.Outcome<Unit>:
+  x => u => Bool.pick(Evm.Outcome<Unit>, Nat.is_eq(x, 1n), burn.end(who, to, a0, a1)(Unit, ok(Unit), u),
+    Evm.Raise{Pair.TransferFailed()})
+
+def burn.after0(+who: Nat, +to: Nat, +a0: Nat, +a1: Nat, +t1: Nat) -> Nat -> Evm.State -> Evm.Outcome<Unit>:
+  x => u => Bool.pick(Evm.Outcome<Unit>, Nat.is_eq(x, 1n),
+    Pair.pay(t1, to, a1)(Unit, v => w => burn.end(who, to, a0, a1)(Unit, ok(Unit), w), u), Evm.Raise{Pair.TransferFailed()})
+
+def burn.paid1(+x: Nat, +rest: List<&2, Calls.Step>, u: Evm.State, +who: Nat, +to: Nat, +a0: Nat, +a1: Nat,
+  -l: Nat, -s: Nat, -b0: Nat, -b1: Nat, +f: {True{} == Laws.within(l, s, b0, b1, [a0, a1]) : Bool}) ->
+  {True{} == Laws.paid(l, s, b0, b1, closed(rest, burn.after1(who, to, a0, a1)(x, u))) : Bool}:
+  closed_pick(rest, Nat.is_eq(x, 1n), burn.end(who, to, a0, a1)(Unit, ok(Unit), u), Evm.Raise{Pair.TransferFailed()},
+    pays(l, s, b0, b1),
+    _ => end.first(rest, who, to, a0, a1, u, l, s, b0, b1, f),
+    _ => closed_raise(rest, Pair.TransferFailed(), pays(l, s, b0, b1), {==}))
+
+def burn.paid0(+x: Nat, +rest: List<&2, Calls.Step>, +u: Evm.State, +who: Nat, +to: Nat, +a0: Nat, +a1: Nat, +t1: Nat,
+  -l: Nat, -s: Nat, -b0: Nat, -b1: Nat, +f: {True{} == Laws.within(l, s, b0, b1, [a0, a1]) : Bool}) ->
+  {True{} == Laws.paid(l, s, b0, b1, closed(rest, burn.after0(who, to, a0, a1, t1)(x, u))) : Bool}:
+  closed_pick(rest, Nat.is_eq(x, 1n), Pair.pay(t1, to, a1)(Unit, v => w => burn.end(who, to, a0, a1)(Unit, ok(Unit), w), u),
+    Evm.Raise{Pair.TransferFailed()}, pays(l, s, b0, b1),
+    _ => calling(rest, Evm.Call{t1, "transfer", [to, a1]}, u, burn.after1(who, to, a0, a1), pays(l, s, b0, b1), {==},
+      y => more => v => burn.paid1(y, more, v, who, to, a0, a1, l, s, b0, b1, f)),
+    _ => closed_raise(rest, Pair.TransferFailed(), pays(l, s, b0, b1), {==}))
+
+# The liquidity that the pair holds, and the amounts that it pays for it.
+def held(+st: List<&2, Evm.Slot>, +self: Nat) -> Nat:
+  Evm.lookup(st, Evm.Mapped{Evm.Plain{1n}, self})
+
+def owed(+st: List<&2, Evm.Slot>, +self: Nat, +b: Nat) -> Nat:
+  Nat.div(Nat.mul(held(st, self), b), at(st, 0n))
+
+# A burn with its checks as parameters, up to the first call.
+def burn.go(steps: List<&2, Calls.Step>, +st: List<&2, Evm.Slot>, +ca: Nat, +li: Nat, +lo: List<&2, Evm.Log>, +time: Nat,
+  +chain: Nat, +self: Nat, +hashes: List<&2, Evm.Hashed>, +signers: List<&2, Evm.Signed>, +more: List<&2, Evm.Answer>,
+  +to: Nat, +b0: Nat, +b1: Nat, cv0: Bool, cv1: Bool, cx: Bool, cd: Bool, +ed: {cd == Nat.is_eq(at(st, 0n), 0n) : Bool},
+  cy: Bool, cd2: Bool, c0: Bool, c1: Bool, cb: Bool, cs: Bool) ->
+  {True{} == Laws.paid(held(st, self), at(st, 0n), b0, b1, closed(steps,
+    Bool.pick(Evm.Outcome<Unit>, cv0,
+    Bool.pick(Evm.Outcome<Unit>, cv1,
+    Bool.pick(Evm.Outcome<Unit>, cx,
+    Bool.pick(Evm.Outcome<Unit>, cd, Evm.Revert{},
+    Bool.pick(Evm.Outcome<Unit>, cy,
+    Bool.pick(Evm.Outcome<Unit>, cd2, Evm.Revert{},
+    Bool.pick(Evm.Outcome<Unit>, c0,
+    Bool.pick(Evm.Outcome<Unit>, c1,
+    Bool.pick(Evm.Outcome<Unit>, cb, Evm.Revert{},
+    Bool.pick(Evm.Outcome<Unit>, cs, Evm.Revert{},
+      Evm.Calling{Evm.Call{at(st, 3n), "transfer", [to, owed(st, self, b0)]},
+        Evm.State{Evm.Slot{Evm.Plain{0n}, Nat.sub(at(st, 0n), held(st, self))}
+          <> Evm.Slot{Evm.Mapped{Evm.Plain{1n}, self}, Nat.sub(held(st, self), held(st, self))} <> st, ca, li,
+          Evm.Log{"Transfer", [self, 0n], [held(st, self)]} <> lo, Evm.World{time, chain, self, hashes, signers, more}},
+        burn.after0(ca, to, owed(st, self, b0), owed(st, self, b1), at(st, 4n))})),
+      Evm.Raise{Pair.InsufficientLiquidityBurned()}),
+      Evm.Raise{Pair.InsufficientLiquidityBurned()})),
+      Evm.Revert{})),
+      Evm.Revert{}),
+      Evm.Revert{}),
+      Evm.Revert{}))) : Bool}:
+  match cv0:
+    case False{}:
+      closed_revert(steps, pays(held(st, self), at(st, 0n), b0, b1), {==})
+    case True{}:
+      match cv1:
+        case False{}:
+          closed_revert(steps, pays(held(st, self), at(st, 0n), b0, b1), {==})
+        case True{}:
+          match cx:
+            case False{}:
+              closed_revert(steps, pays(held(st, self), at(st, 0n), b0, b1), {==})
+            case True{}:
+              match cd:
+                case True{}:
+                  closed_revert(steps, pays(held(st, self), at(st, 0n), b0, b1), {==})
+                case False{}:
+                  match cy:
+                    case False{}:
+                      closed_revert(steps, pays(held(st, self), at(st, 0n), b0, b1), {==})
+                    case True{}:
+                      match cd2:
+                        case True{}:
+                          closed_revert(steps, pays(held(st, self), at(st, 0n), b0, b1), {==})
+                        case False{}:
+                          match c0:
+                            case False{}:
+                              closed_raise(steps, Pair.InsufficientLiquidityBurned(), pays(held(st, self), at(st, 0n), b0, b1), {==})
+                            case True{}:
+                              match c1:
+                                case False{}:
+                                  closed_raise(steps, Pair.InsufficientLiquidityBurned(), pays(held(st, self), at(st, 0n), b0, b1), {==})
+                                case True{}:
+                                  match cb:
+                                    case True{}:
+                                      closed_revert(steps, pays(held(st, self), at(st, 0n), b0, b1), {==})
+                                    case False{}:
+                                      match cs:
+                                        case True{}:
+                                          closed_revert(steps, pays(held(st, self), at(st, 0n), b0, b1), {==})
+                                        case False{}:
+                                          calling(steps, Evm.Call{at(st, 3n), "transfer", [to, owed(st, self, b0)]},
+                                            Evm.State{Evm.Slot{Evm.Plain{0n}, Nat.sub(at(st, 0n), held(st, self))}
+                                              <> Evm.Slot{Evm.Mapped{Evm.Plain{1n}, self}, Nat.sub(held(st, self), held(st, self))} <> st, ca, li,
+                                              Evm.Log{"Transfer", [self, 0n], [held(st, self)]} <> lo, Evm.World{time, chain, self, hashes, signers, more}},
+                                            burn.after0(ca, to, owed(st, self, b0), owed(st, self, b1), at(st, 4n)),
+                                            pays(held(st, self), at(st, 0n), b0, b1), {==},
+                                            x => rest => u => burn.paid0(x, rest, u, ca, to, owed(st, self, b0), owed(st, self, b1), at(st, 4n),
+                                              held(st, self), at(st, 0n), b0, b1,
+                                              both(Nat.is_lt(Nat.mul(held(st, self), b0), Nat.mul(owed(st, self, b0), at(st, 0n))),
+                                                Nat.is_lt(Nat.mul(held(st, self), b1), Nat.mul(owed(st, self, b1), at(st, 0n))),
+                                                part_le(Nat.mul(held(st, self), b0), at(st, 0n), ed),
+                                                part_le(Nat.mul(held(st, self), b1), at(st, 0n), ed))))
+
+def Laws.burn(steps, storage, caller, limit, logs, time, chain, self, hashes, signers, q0, b0, q1, b1, more, to):
+  burn.go(steps, storage, caller, limit, logs, time, chain, self, hashes, signers, more, to, b0, b1,
+    Evm.same.call(q0, balance.of(storage, 3n, self)), Evm.same.call(q1, balance.of(storage, 4n, self)),
+    Nat.is_lt(Nat.mul(held(storage, self), b0), limit), Nat.is_eq(at(storage, 0n), 0n), {==},
+    Nat.is_lt(Nat.mul(held(storage, self), b1), limit), Nat.is_eq(at(storage, 0n), 0n),
+    Nat.is_lt(0n, owed(storage, self, b0)), Nat.is_lt(0n, owed(storage, self, b1)),
+    Nat.is_lt(held(storage, self), held(storage, self)), Nat.is_lt(at(storage, 0n), held(storage, self)))

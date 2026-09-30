@@ -296,7 +296,7 @@ A constant-product pair, after Uniswap V2, as `examples/amm`. It pushes laws abo
 ### Done when
 
 - [x] A pair with fixed `token0` and `token1` does `mint`, `burn`, `swap` and `sync` with the 0.3% fee ([examples/amm/Pair.bend](examples/amm/Pair.bend)). Its LP token is the ERC-20 core. A differential test on `anvil` runs it and the same pair in Solidity ([tests/fixtures/reference/Pair.sol](tests/fixtures/reference/Pair.sol)) on random steps, with tokens that return false, revert, or call back into the pair. The square root is solady's, with no loop, and `tests/math.test.js` checks it against a bisection.
-- [ ] Laws for each function, and the law that x·y does not go down.
+- [x] Laws for each function, and the law that x·y does not go down: `swap` (x·y does not go down), `mint` (a mint does not dilute the liquidity tokens), `burn` (a burn pays no more than the burned share) and `sync`, each for every answer and callback of the tokens. The liquidity token has the ERC-20 core's laws.
 - [x] The x·y law holds across every callback from the two tokens, with no lock: `swap` in [examples/amm/LAWS.bend](examples/amm/LAWS.bend). It holds because a swap reads the reserves before it pays and checks the balances after it against them. No guard is needed.
 
-Not in M22: the price oracle (packed reserves and wrapping time accumulators), flash swaps (`bytes` data) and the factory (`CREATE2`).
+Not in M22: the price oracle (packed reserves and wrapping time accumulators), flash swaps (`bytes` data), the factory (`CREATE2`), `skim`, the protocol fee and `getReserves` (a function gives one word).
