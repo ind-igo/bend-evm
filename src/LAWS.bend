@@ -36,3 +36,11 @@ law callbacks:
   for +open: Bool
   for o: Evm.Outcome<A>
   {Calls.drive(Calls.Lowered{}, entries, steps, A, open, o) == Calls.drive(Calls.Model{}, entries, steps, A, open, o) : Evm.Outcome<A>}
+
+# A value of the environment that is fixed in a transaction uses up no
+# reading, so a second read of it gives the same word.
+law fixed:
+  for +e: Evm.Env
+  for +s: Evm.State
+  for +h: {True{} == Evm.fixed(e) : Bool}
+  {Evm.sensed(e, s) == s : Evm.State}

@@ -66,6 +66,8 @@ def top.word(w: IR.Action) -> Nat:
       top.two(left, right)
     case IR.Math{_, words}:
       top.list(words)
+    case IR.Env{_, words}:
+      top.list(words)
     case IR.Select{c, yes, no}:
       max(top.cond(c), top.two(yes, no))
     case IR.Keccak{words}:
@@ -79,10 +81,6 @@ def top.word(w: IR.Action) -> Nat:
     case IR.Call{target, _, args}:
       max(top.expr(target), top.list(args))
     case IR.Max{}:
-      0n
-    case IR.Timestamp{}:
-      0n
-    case IR.ChainId{}:
       0n
     case IR.Self{}:
       0n
@@ -180,10 +178,8 @@ def rename.word(w: IR.Action, +parameters: List<&2, Nat>, +args: List<&2, IR.Exp
         rename.expr(no, parameters, args, offset)}
     case IR.Max{}:
       IR.Max{}
-    case IR.Timestamp{}:
-      IR.Timestamp{}
-    case IR.ChainId{}:
-      IR.ChainId{}
+    case IR.Env{e, words}:
+      IR.Env{e, rename.list(words, parameters, args, offset)}
     case IR.Self{}:
       IR.Self{}
     case IR.Keccak{words}:

@@ -14,7 +14,7 @@ const state = () => [read('sharesOf(address)(uint256)', chain.sender), read('sha
   read('totalShares()(uint256)'), held(vault)];
 
 beforeAll(async () => {
-  const solidity = must(run('solc', '--evm-version', 'shanghai', '--bin', 'tests/fixtures/vault/Hook.sol'));
+  const solidity = must(run('solc', '--evm-version', 'cancun', '--bin', 'tests/fixtures/vault/Hook.sol'));
   chain = await deploy({ bytecode: solidity.split('Binary:')[1].trim().split('\n')[0] });
   const code = bytecode(must(bend('src/compile.bend', program, ...entries.vault)));
   const receipt = must(chain.cast('send', '--unlocked', '--from', chain.sender, '--json', '--create',

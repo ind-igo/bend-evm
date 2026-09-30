@@ -259,36 +259,36 @@ def balance.of(+st: List<&2, Evm.Slot>, +n: Nat, +self: Nat) -> Evm.Call:
 
 # The second balance, from the answers left after the first.
 def viewed(+rest: List<&2, Calls.Step>, +who: Nat, +to: Nat, +out0: Nat, +out1: Nat, +r0: Nat, +r1: Nat, +b0: Nat,
-  +st: List<&2, Evm.Slot>, +ca: Nat, +li: Nat, +lo: List<&2, Evm.Log>, +time: Nat, +chain: Nat, +self: Nat,
+  +st: List<&2, Evm.Slot>, +ca: Nat, +li: Nat, +lo: List<&2, Evm.Log>, +facts: List<&2, Evm.Fact>, +readings: List<&2, Nat>, +self: Nat,
   +hashes: List<&2, Evm.Hashed>, +signers: List<&2, Evm.Signed>, answers: List<&2, Evm.Answer>) ->
   {True{} == Laws.kept(Nat.mul(r0, r1), closed(rest, Evm.answer(Unit, balance.of(st, 4n, self),
     b1 => v => Pair.check(who, to, out0, out1, r0, r1, b0, b1)(Unit, ok(Unit), v),
-    Evm.State{st, ca, li, lo, Evm.World{time, chain, self, hashes, signers, answers}}))) : Bool}:
+    Evm.State{st, ca, li, lo, Evm.World{facts, readings, self, hashes, signers, answers}}))) : Bool}:
   match answers:
     case Nil{}:
       closed_revert(rest, keeps(Nat.mul(r0, r1)), {==})
     case Evm.Answer{+q, +b1} <> +more:
       closed_pick(rest, Evm.same.call(q, balance.of(st, 4n, self)),
         Pair.check(who, to, out0, out1, r0, r1, b0, b1)(Unit, ok(Unit),
-          Evm.State{st, ca, li, lo, Evm.World{time, chain, self, hashes, signers, more}}),
+          Evm.State{st, ca, li, lo, Evm.World{facts, readings, self, hashes, signers, more}}),
         Evm.Revert{}, keeps(Nat.mul(r0, r1)),
-        _ => check.at(rest, who, to, out0, out1, r0, r1, b0, b1, st, ca, li, lo, Evm.World{time, chain, self, hashes, signers, more}),
+        _ => check.at(rest, who, to, out0, out1, r0, r1, b0, b1, st, ca, li, lo, Evm.World{facts, readings, self, hashes, signers, more}),
         _ => closed_revert(rest, keeps(Nat.mul(r0, r1)), {==}))
 
 # settle from any state: the callbacks may leave any storage and answers.
 def settled(+rest: List<&2, Calls.Step>, +who: Nat, +to: Nat, +out0: Nat, +out1: Nat, +r0: Nat, +r1: Nat, u: Evm.State) ->
   {True{} == Laws.kept(Nat.mul(r0, r1), closed(rest, Pair.settle(who, to, out0, out1, r0, r1)(Unit, ok(Unit), u))) : Bool}:
   match u:
-    case Evm.State{+st, +ca, +li, +lo, Evm.World{+time, +chain, +self, +hashes, +signers, answers}}:
+    case Evm.State{+st, +ca, +li, +lo, Evm.World{+facts, +readings, +self, +hashes, +signers, answers}}:
       match answers:
         case Nil{}:
           closed_revert(rest, keeps(Nat.mul(r0, r1)), {==})
         case Evm.Answer{+q, +b0} <> +more:
           closed_pick(rest, Evm.same.call(q, balance.of(st, 3n, self)),
             Evm.answer(Unit, balance.of(st, 4n, self), b1 => v => Pair.check(who, to, out0, out1, r0, r1, b0, b1)(Unit, ok(Unit), v),
-              Evm.State{st, ca, li, lo, Evm.World{time, chain, self, hashes, signers, more}}),
+              Evm.State{st, ca, li, lo, Evm.World{facts, readings, self, hashes, signers, more}}),
             Evm.Revert{}, keeps(Nat.mul(r0, r1)),
-            _ => viewed(rest, who, to, out0, out1, r0, r1, b0, st, ca, li, lo, time, chain, self, hashes, signers, more),
+            _ => viewed(rest, who, to, out0, out1, r0, r1, b0, st, ca, li, lo, facts, readings, self, hashes, signers, more),
             _ => closed_revert(rest, keeps(Nat.mul(r0, r1)), {==}))
 
 # After the second call: the token must return 1.
@@ -366,7 +366,7 @@ def Laws.swap(steps, s, amount0Out, amount1Out, to):
         Nat.is_lt(0n, Evm.op(Evm.Or{}, [amount0Out, amount1Out], li)), Nat.is_lt(amount0Out, at(st, 5n)),
         Nat.is_lt(amount1Out, at(st, 6n)), Bool.not(Nat.is_eq(to, at(st, 3n))), Bool.not(Nat.is_eq(to, at(st, 4n))))
 
-def Laws.sync(storage, caller, limit, logs, time, chain, self, hashes, signers, q0, b0, q1, b1, more):
+def Laws.sync(storage, caller, limit, logs, facts, readings, self, hashes, signers, q0, b0, q1, b1, more):
   {==}
 
 # ---- A mint does not dilute ----
@@ -582,33 +582,33 @@ def mint.go(+to: Nat, +b0: Nat, +b1: Nat, +st: List<&2, Evm.Slot>, +ca: Nat, +li
                 Nat.is_lt(0n, minimum(b0, b1, st)), Nat.is_lt(Nat.add(at(st, 0n), minimum(b0, b1, st)), li),
                 Nat.is_lt(Nat.add(Evm.lookup(st, Evm.Mapped{Evm.Plain{1n}, to}), minimum(b0, b1, st)), li))
 
-def mint.second(+to: Nat, +b0: Nat, +st: List<&2, Evm.Slot>, +ca: Nat, +li: Nat, +lo: List<&2, Evm.Log>, +time: Nat,
-  +chain: Nat, +self: Nat, +hashes: List<&2, Evm.Hashed>, +signers: List<&2, Evm.Signed>, answers: List<&2, Evm.Answer>) ->
+def mint.second(+to: Nat, +b0: Nat, +st: List<&2, Evm.Slot>, +ca: Nat, +li: Nat, +lo: List<&2, Evm.Log>, +facts: List<&2, Evm.Fact>,
+  +readings: List<&2, Nat>, +self: Nat, +hashes: List<&2, Evm.Hashed>, +signers: List<&2, Evm.Signed>, answers: List<&2, Evm.Answer>) ->
   {True{} == Laws.fair(st, Evm.answer(Nat, balance.of(st, 4n, self), b1 => v => mint.rest(to, b0, b1)(Nat, ok(Nat), v),
-    Evm.State{st, ca, li, lo, Evm.World{time, chain, self, hashes, signers, answers}})) : Bool}:
+    Evm.State{st, ca, li, lo, Evm.World{facts, readings, self, hashes, signers, answers}})) : Bool}:
   match answers:
     case Nil{}:
       {==}
     case Evm.Answer{+q, +b1} <> +more:
       fair_pick(Evm.same.call(q, balance.of(st, 4n, self)),
-        mint.rest(to, b0, b1)(Nat, ok(Nat), Evm.State{st, ca, li, lo, Evm.World{time, chain, self, hashes, signers, more}}),
+        mint.rest(to, b0, b1)(Nat, ok(Nat), Evm.State{st, ca, li, lo, Evm.World{facts, readings, self, hashes, signers, more}}),
         Evm.Revert{}, st,
-        _ => mint.go(to, b0, b1, st, ca, li, lo, Evm.World{time, chain, self, hashes, signers, more},
+        _ => mint.go(to, b0, b1, st, ca, li, lo, Evm.World{facts, readings, self, hashes, signers, more},
           Nat.is_lt(b0, at(st, 5n)), {==}, Nat.is_lt(b1, at(st, 6n)), {==}, Nat.is_eq(at(st, 0n), 0n), {==}),
         _ => {==})
 
 def Laws.mint(storage, caller, limit, logs, world, to):
   match world:
-    case Evm.World{+time, +chain, +self, +hashes, +signers, answers}:
+    case Evm.World{+facts, +readings, +self, +hashes, +signers, answers}:
       match answers:
         case Nil{}:
           {==}
         case Evm.Answer{+q, +b0} <> +more:
           fair_pick(Evm.same.call(q, balance.of(storage, 3n, self)),
             Evm.answer(Nat, balance.of(storage, 4n, self), b1 => v => mint.rest(to, b0, b1)(Nat, ok(Nat), v),
-              Evm.State{storage, caller, limit, logs, Evm.World{time, chain, self, hashes, signers, more}}),
+              Evm.State{storage, caller, limit, logs, Evm.World{facts, readings, self, hashes, signers, more}}),
             Evm.Revert{}, storage,
-            _ => mint.second(to, b0, storage, caller, limit, logs, time, chain, self, hashes, signers, more),
+            _ => mint.second(to, b0, storage, caller, limit, logs, facts, readings, self, hashes, signers, more),
             _ => {==})
 
 # ---- A burn pays no more than the share ----
@@ -637,21 +637,21 @@ def burn.end(+who: Nat, +to: Nat, +a0: Nat, +a1: Nat) -> Evm.Contract(Unit):
     Evm.emit(Pair.Burn(who, to, a0, a1))
 
 def end.second(+rest: List<&2, Calls.Step>, +who: Nat, +to: Nat, +a0: Nat, +a1: Nat, +c0: Nat, +st: List<&2, Evm.Slot>, +ca: Nat,
-  +li: Nat, +lo: List<&2, Evm.Log>, +time: Nat, +chain: Nat, +self: Nat, +hashes: List<&2, Evm.Hashed>,
+  +li: Nat, +lo: List<&2, Evm.Log>, +facts: List<&2, Evm.Fact>, +readings: List<&2, Nat>, +self: Nat, +hashes: List<&2, Evm.Hashed>,
   +signers: List<&2, Evm.Signed>, answers: List<&2, Evm.Answer>, -l: Nat, -s: Nat, -b0: Nat, -b1: Nat,
   +f: {True{} == Laws.within(l, s, b0, b1, [a0, a1]) : Bool}) ->
   {True{} == Laws.paid(l, s, b0, b1, closed(rest, Evm.answer(Unit, balance.of(st, 4n, self),
     c1 => v => burn.fin(who, to, a0, a1, c0, c1)(Unit, ok(Unit), v),
-    Evm.State{st, ca, li, lo, Evm.World{time, chain, self, hashes, signers, answers}}))) : Bool}:
+    Evm.State{st, ca, li, lo, Evm.World{facts, readings, self, hashes, signers, answers}}))) : Bool}:
   match answers:
     case Nil{}:
       closed_revert(rest, pays(l, s, b0, b1), {==})
     case Evm.Answer{+q, +c1} <> +more:
       closed_pick(rest, Evm.same.call(q, balance.of(st, 4n, self)),
-        burn.fin(who, to, a0, a1, c0, c1)(Unit, ok(Unit), Evm.State{st, ca, li, lo, Evm.World{time, chain, self, hashes, signers, more}}),
+        burn.fin(who, to, a0, a1, c0, c1)(Unit, ok(Unit), Evm.State{st, ca, li, lo, Evm.World{facts, readings, self, hashes, signers, more}}),
         Evm.Revert{}, pays(l, s, b0, b1),
         _ => closed_ok(rest, Evm.State{Evm.Slot{Evm.Plain{6n}, c1} <> Evm.Slot{Evm.Plain{5n}, c0} <> st, ca, li,
-          Pair.Burn(who, to, a0, a1) <> Pair.Sync(c0, c1) <> lo, Evm.World{time, chain, self, hashes, signers, more}}, pays(l, s, b0, b1), f),
+          Pair.Burn(who, to, a0, a1) <> Pair.Sync(c0, c1) <> lo, Evm.World{facts, readings, self, hashes, signers, more}}, pays(l, s, b0, b1), f),
         _ => closed_revert(rest, pays(l, s, b0, b1), {==}))
 
 # The end from any state that the callbacks leave.
@@ -659,16 +659,16 @@ def end.first(+rest: List<&2, Calls.Step>, +who: Nat, +to: Nat, +a0: Nat, +a1: N
   +f: {True{} == Laws.within(l, s, b0, b1, [a0, a1]) : Bool}) ->
   {True{} == Laws.paid(l, s, b0, b1, closed(rest, burn.end(who, to, a0, a1)(Unit, ok(Unit), u))) : Bool}:
   match u:
-    case Evm.State{+st, +ca, +li, +lo, Evm.World{+time, +chain, +self, +hashes, +signers, answers}}:
+    case Evm.State{+st, +ca, +li, +lo, Evm.World{+facts, +readings, +self, +hashes, +signers, answers}}:
       match answers:
         case Nil{}:
           closed_revert(rest, pays(l, s, b0, b1), {==})
         case Evm.Answer{+q, +c0} <> +more:
           closed_pick(rest, Evm.same.call(q, balance.of(st, 3n, self)),
             Evm.answer(Unit, balance.of(st, 4n, self), c1 => v => burn.fin(who, to, a0, a1, c0, c1)(Unit, ok(Unit), v),
-              Evm.State{st, ca, li, lo, Evm.World{time, chain, self, hashes, signers, more}}),
+              Evm.State{st, ca, li, lo, Evm.World{facts, readings, self, hashes, signers, more}}),
             Evm.Revert{}, pays(l, s, b0, b1),
-            _ => end.second(rest, who, to, a0, a1, c0, st, ca, li, lo, time, chain, self, hashes, signers, more, l, s, b0, b1, f),
+            _ => end.second(rest, who, to, a0, a1, c0, st, ca, li, lo, facts, readings, self, hashes, signers, more, l, s, b0, b1, f),
             _ => closed_revert(rest, pays(l, s, b0, b1), {==}))
 
 def burn.after1(+who: Nat, +to: Nat, +a0: Nat, +a1: Nat) -> Nat -> Evm.State -> Evm.Outcome<Unit>:
@@ -704,8 +704,8 @@ def owed(+st: List<&2, Evm.Slot>, +self: Nat, +b: Nat) -> Nat:
   Nat.div(Nat.mul(held(st, self), b), at(st, 0n))
 
 # A burn with its checks as parameters, up to the first call.
-def burn.go(steps: List<&2, Calls.Step>, +st: List<&2, Evm.Slot>, +ca: Nat, +li: Nat, +lo: List<&2, Evm.Log>, +time: Nat,
-  +chain: Nat, +self: Nat, +hashes: List<&2, Evm.Hashed>, +signers: List<&2, Evm.Signed>, +more: List<&2, Evm.Answer>,
+def burn.go(steps: List<&2, Calls.Step>, +st: List<&2, Evm.Slot>, +ca: Nat, +li: Nat, +lo: List<&2, Evm.Log>, +facts: List<&2, Evm.Fact>,
+  +readings: List<&2, Nat>, +self: Nat, +hashes: List<&2, Evm.Hashed>, +signers: List<&2, Evm.Signed>, +more: List<&2, Evm.Answer>,
   +to: Nat, +b0: Nat, +b1: Nat, cv0: Bool, cv1: Bool, cx: Bool, cd: Bool, +ed: {cd == Nat.is_eq(at(st, 0n), 0n) : Bool},
   cy: Bool, cd2: Bool, c0: Bool, c1: Bool, cb: Bool, cs: Bool) ->
   {True{} == Laws.paid(held(st, self), at(st, 0n), b0, b1, closed(steps,
@@ -722,7 +722,7 @@ def burn.go(steps: List<&2, Calls.Step>, +st: List<&2, Evm.Slot>, +ca: Nat, +li:
       Evm.Calling{Evm.Call{at(st, 3n), "transfer", [to, owed(st, self, b0)]},
         Evm.State{Evm.Slot{Evm.Plain{0n}, Nat.sub(at(st, 0n), held(st, self))}
           <> Evm.Slot{Evm.Mapped{Evm.Plain{1n}, self}, Nat.sub(held(st, self), held(st, self))} <> st, ca, li,
-          Evm.Log{"Transfer", [self, 0n], [held(st, self)]} <> lo, Evm.World{time, chain, self, hashes, signers, more}},
+          Evm.Log{"Transfer", [self, 0n], [held(st, self)]} <> lo, Evm.World{facts, readings, self, hashes, signers, more}},
         burn.after0(ca, to, owed(st, self, b0), owed(st, self, b1), at(st, 4n))})),
       Evm.Raise{Pair.InsufficientLiquidityBurned()}),
       Evm.Raise{Pair.InsufficientLiquidityBurned()})),
@@ -773,7 +773,7 @@ def burn.go(steps: List<&2, Calls.Step>, +st: List<&2, Evm.Slot>, +ca: Nat, +li:
                                           calling(steps, Evm.Call{at(st, 3n), "transfer", [to, owed(st, self, b0)]},
                                             Evm.State{Evm.Slot{Evm.Plain{0n}, Nat.sub(at(st, 0n), held(st, self))}
                                               <> Evm.Slot{Evm.Mapped{Evm.Plain{1n}, self}, Nat.sub(held(st, self), held(st, self))} <> st, ca, li,
-                                              Evm.Log{"Transfer", [self, 0n], [held(st, self)]} <> lo, Evm.World{time, chain, self, hashes, signers, more}},
+                                              Evm.Log{"Transfer", [self, 0n], [held(st, self)]} <> lo, Evm.World{facts, readings, self, hashes, signers, more}},
                                             burn.after0(ca, to, owed(st, self, b0), owed(st, self, b1), at(st, 4n)),
                                             pays(held(st, self), at(st, 0n), b0, b1), {==},
                                             x => rest => u => burn.paid0(x, rest, u, ca, to, owed(st, self, b0), owed(st, self, b1), at(st, 4n),
@@ -783,8 +783,8 @@ def burn.go(steps: List<&2, Calls.Step>, +st: List<&2, Evm.Slot>, +ca: Nat, +li:
                                                 part_le(Nat.mul(held(st, self), b0), at(st, 0n), ed),
                                                 part_le(Nat.mul(held(st, self), b1), at(st, 0n), ed))))
 
-def Laws.burn(steps, storage, caller, limit, logs, time, chain, self, hashes, signers, q0, b0, q1, b1, more, to):
-  burn.go(steps, storage, caller, limit, logs, time, chain, self, hashes, signers, more, to, b0, b1,
+def Laws.burn(steps, storage, caller, limit, logs, facts, readings, self, hashes, signers, q0, b0, q1, b1, more, to):
+  burn.go(steps, storage, caller, limit, logs, facts, readings, self, hashes, signers, more, to, b0, b1,
     Evm.same.call(q0, balance.of(storage, 3n, self)), Evm.same.call(q1, balance.of(storage, 4n, self)),
     Nat.is_lt(Nat.mul(held(storage, self), b0), limit), Nat.is_eq(at(storage, 0n), 0n), {==},
     Nat.is_lt(Nat.mul(held(storage, self), b1), limit), Nat.is_eq(at(storage, 0n), 0n),

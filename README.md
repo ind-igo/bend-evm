@@ -141,11 +141,11 @@ The liquidity token's functions are the ERC-20 core's, so the core's laws apply 
 
 ## Gas
 
-`bun run gas` ([scripts/gas.js](scripts/gas.js)) runs the same transactions on the token and on the Solidity reference, without and with the solc optimizer (1,000,000 runs, as in solmate), and prints the receipts' `gasUsed`. These numbers include the 21,000 base cost and the calldata cost. They are from solc 0.8.33 on `anvil`:
+`bun run gas` ([scripts/gas.js](scripts/gas.js)) runs the same transactions on the token and on the Solidity reference, without and with the solc optimizer (1,000,000 runs, as in solmate), and prints the receipts' `gasUsed`. These numbers include the 21,000 base cost and the calldata cost. They are from solc 0.8.33 for the Cancun EVM on `anvil`:
 
 | | Bend | Bend, optimized | Solidity | Solidity, optimized |
 |---|---:|---:|---:|---:|
-| deploy | 553029 | 484374 | 1293946 | 873554 |
+| deploy | 553029 | 484374 | 1288335 | 868800 |
 | mint to a new holder | 70253 | 70243 | 71137 | 70424 |
 | mint to a holder | 36053 | 36043 | 36937 | 36224 |
 | transfer to a new holder | 51175 | 51140 | 52045 | 51252 |
@@ -155,8 +155,8 @@ The liquidity token's functions are the ERC-20 core's, so the core's laws apply 
 | approve max | 29292 | 29296 | 29945 | 29362 |
 | transferFrom, max allowance | 36899 | 36832 | 37908 | 36964 |
 | burn | 33538 | 33536 | 34156 | 33604 |
-| permit | 73802 | 73841 | 77585 | 74384 |
-| runtime code (bytes) | 2158 | 1842 | 5554 | 3639 |
+| permit | 73790 | 73841 | 77585 | 74384 |
+| runtime code (bytes) | 2158 | 1842 | 5528 | 3617 |
 
 Every transaction of the Bend token uses a little less gas than optimized Solidity. The runtime code is smaller too, although a branch copies the code after it into both arms. The Bend token reverts with custom errors, and the Solidity reference with no data. `bun run build` does not use the optimizer: it changes little gas, and the tests run the code that is not optimized.
 
@@ -170,7 +170,7 @@ bun run check   # check every proof, certificate and Bend tool
 bun run test
 mkdir -p build
 bun run build examples/counter/program.bend get increment decrement set > build/Counter.yul
-solc --strict-assembly --evm-version shanghai --bin build/Counter.yul
+solc --strict-assembly --evm-version cancun --bin build/Counter.yul
 ```
 
 [tests/counter.test.js](tests/counter.test.js) and [tests/token.test.js](tests/token.test.js) deploy the examples on `anvil` and call them through the standard ABI. [scripts/tools.js](scripts/tools.js) holds what the scripts and tests share, including each example's entry list.
@@ -197,13 +197,14 @@ The proofs cover deployed code only when the certificate covers the same entries
 
 - A contract passes its result and state to a continuation, and `Evm.run(A, m, s)` gives its outcome. Each check is then a `Bool.pick` at the top of the normal form. So a law can state every outcome from any state, with symbolic storage, caller, addresses and amounts, and `{==}` proves it. See the [counter](examples/counter/LAWS.bend) and [ERC-20](examples/erc20/LAWS.bend) laws.
 - Laws can also cover many calls. The token's `supply_sum` law runs any list of calls from deployment, with a `Call` for each function that writes storage, and proves that `totalSupply` is the sum of the balances of any list of accounts that has the deployer and each sender and receiver once. The list of every address qualifies, so the supply is the sum of all balances. Its proof is by induction over the calls and the list, with Nat facts from [nat.bend](src/nat.bend) and the ERC20 core's supply laws. [sum.bend](src/sum.bend) has the facts about a sum over a mapping that such a law needs.
-- A state also has a `World`: the block time, the chain id, the contract's address, tables that stand for `keccak256` and `ecrecover`, and the answers of view calls in order. A law holds for every table, so no law depends on how either function works, and the printer uses the real ones: `keccak256` over memory, and the `ecrecover` precompile, which gives zero for a bad signature. `permit` checks that the signer is not zero.
+- A state also has a `World`: a table of the values of the environment that are fixed in a transaction, a list of readings for the ones that can change, the contract's address, tables that stand for `keccak256` and `ecrecover`, and the answers of view calls in order. A law holds for every table, so no law depends on how either function works, and the printer uses the real ones: `keccak256` over memory, and the `ecrecover` precompile, which gives zero for a bad signature. `permit` checks that the signer is not zero.
+- A value of the environment that is fixed in a transaction, such as `number` or `chainid`, comes from the table, so two reads give the same word (the law `fixed` in [src/LAWS.bend](src/LAWS.bend)). One that can change, such as `gas`, `selfbalance` or `balance(a)`, comes from the next reading, so no law depends on two reads being the same. A missing entry or reading reads as zero. [tests/env.test.js](tests/env.test.js) compares each value with what `anvil` gives.
 - A contract that makes calls that may write runs with `Calls.run`, which takes the answers and callbacks as above. A callback names an entry by its index in the certificate's table: the listed entries in order, without `init` and the constants. The EVM rejects some callbacks before an entry runs, such as ones with a bad selector or a bad argument; they change nothing, so a real run has a list without them.
 - Words are `Nat`. Checked `add` and `mul` revert at the state's `limit`, which is 2^256 on the EVM, and checked `sub` reverts below zero. The word operations compute modulo `limit`. Proofs keep the limit symbolic: the checker writes any closed Nat near 2^256 out in unary.
 - Storage is an association list: the newest slot wins and missing slots read as zero. A key is a plain slot or an entry of a mapping, `Mapped{base, key}`, where `base` is a key too. The printer puts an entry at `keccak256(key . base)`, as Solidity does, so the model assumes that Keccak has no collisions. That is not enough for a slot that a variable gives, which could equal an entry's `keccak256(key . base)`, so `compile.bend` refuses an entry whose plain slots and mapping bases are not literals. Keys can be variables. A revert discards all state.
 - `branch(A, cond, a, b)` runs the contract `a` when `cond` holds and `b` otherwise, and must be the last step: each arm runs to the end of the call. Code that both arms run after the choice goes in each arm, as a call to a def, as `ERC20.transferFrom` does with `move`. A run stops at a branch whose condition is not known, so a law about it names both arms with `Evm.branch.run` ([tests/fixtures/branch](tests/fixtures/branch) has examples).
 - Events are `emit(Event(...))` with an event def, as above: at most three indexed parameters, before the others, as the ABI marks the first parameters as indexed, one for each topic word. The state keeps logs newest first, so a revert drops them too. Topic 0 is the Keccak-256 of the signature, which the printer computes. Two events with the same signature must agree on their indexed parameters.
-- Supported now: `sload`, `sstore`, mappings (`load(slot, key)`, `store(slot, key, value)`) and nested mappings (`load2(slot, outer, inner)`, `store2(slot, outer, inner, value)`); `caller`, `timestamp`, `chainid` and `self`; checked `add`, `sub`, `mul`, `div` and `mod`; the word operations; `max()`; `select(cond, a, b)` and `branch(A, cond, a, b)`, where a condition is `Nat.is_eq` or `Nat.is_lt` under `Bool.not`; `require`; `ensure(cond, error)`; `emit`; `view(call)` and `call(call)`; `keccak(words)`, `id(text)`, `typed(domain, message)` (the EIP-712 digest) and `recover(digest, v, r, s)`; `pure`; the parameter types above; literal constants; and calls to the contract's own functions, which the reader inlines. The reader rejects everything else.
+- Supported now: `sload`, `sstore`, mappings (`load(slot, key)`, `store(slot, key, value)`) and nested mappings (`load2(slot, outer, inner)`, `store2(slot, outer, inner, value)`); `caller` and `self`; the environment: `timestamp`, `chainid`, `origin`, `gasprice`, `coinbase`, `number`, `prevrandao`, `gaslimit`, `basefee`, `blobbasefee`, `blockhash(n)`, `blobhash(i)`, `codesize`, `gas`, `balance(a)`, `selfbalance`, `extcodesize(a)` and `extcodehash(a)`; checked `add`, `sub`, `mul`, `div` and `mod`; the word operations; `max()`; `select(cond, a, b)` and `branch(A, cond, a, b)`, where a condition is `Nat.is_eq` or `Nat.is_lt` under `Bool.not`; `require`; `ensure(cond, error)`; `emit`; `view(call)` and `call(call)`; `keccak(words)`, `id(text)`, `typed(domain, message)` (the EIP-712 digest) and `recover(digest, v, r, s)`; `pure`; the parameter types above; literal constants; and calls to the contract's own functions, which the reader inlines. The reader rejects everything else.
 
 ## Limits
 

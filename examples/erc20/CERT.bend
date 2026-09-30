@@ -203,7 +203,7 @@ def ir.DOMAIN_SEPARATOR() -> IR.Cmd:
   IR.Bind{IR.Id{"Bend Token"}, 0n,
     IR.Bind{IR.Id{"EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"}, 1n,
     IR.Bind{IR.Id{"1"}, 2n,
-    IR.Bind{IR.ChainId{}, 3n,
+    IR.Bind{IR.Env{Evm.ChainId{}, []}, 3n,
     IR.Bind{IR.Self{}, 4n,
     IR.Tail{IR.Keccak{[IR.Var{1n}, IR.Var{0n}, IR.Var{2n}, IR.Var{3n}, IR.Var{4n}]}}}}}}}
 
@@ -217,10 +217,10 @@ def ir.permit() -> IR.Cmd:
   IR.Bind{IR.Id{"Bend Token"}, 17n,
     IR.Bind{IR.Id{"EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"}, 18n,
     IR.Bind{IR.Id{"1"}, 19n,
-    IR.Bind{IR.ChainId{}, 20n,
+    IR.Bind{IR.Env{Evm.ChainId{}, []}, 20n,
     IR.Bind{IR.Self{}, 21n,
     IR.Bind{IR.Keccak{[IR.Var{18n}, IR.Var{17n}, IR.Var{19n}, IR.Var{20n}, IR.Var{21n}]}, 7n,
-    IR.Bind{IR.Timestamp{}, 8n,
+    IR.Bind{IR.Env{Evm.Timestamp{}, []}, 8n,
     IR.Then{IR.Ensure{IR.Not{IR.Lt{IR.Var{3n}, IR.Var{8n}}}, "ERC2612ExpiredSignature(uint256)", [IR.Var{3n}]},
     IR.Bind{IR.SLoad{IR.Mapped{IR.Plain{IR.Lit{3n}}, IR.Var{0n}}}, 10n,
     IR.Bind{IR.Add{IR.Var{10n}, IR.Lit{1n}}, 11n,

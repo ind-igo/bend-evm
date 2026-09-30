@@ -300,3 +300,26 @@ A constant-product pair, after Uniswap V2, as `examples/amm`. It pushes laws abo
 - [x] The x·y law holds across every callback from the two tokens, with no lock: `swap` in [examples/amm/LAWS.bend](examples/amm/LAWS.bend). It holds because a swap reads the reserves before it pays and checks the balances after it against them. No guard is needed.
 
 Not in M22: the price oracle (packed reserves and wrapping time accumulators), flash swaps (`bytes` data), the factory (`CREATE2`), `skim`, the protocol fee and `getReserves` (a function gives one word).
+
+## The rest of the EVM (M23–M30)
+
+After M21, a contract has all the arithmetic, storage, logs, errors, `keccak256`, `ecrecover`, `staticcall` and `call` with one-word results, and five values from the environment (`caller`, `address`, `timestamp`, `chainid`, and the word limit). The milestones below add the rest of the EVM that a contract can use. The compiler itself uses `mload`, `mstore`, `calldataload`, `codecopy`, `return` and the stack and jump opcodes; they are not in this list. `selfdestruct` and `callcode` are deprecated, and are not planned.
+
+1. **M23: the environment.** Every opcode that reads the transaction, the block or an account: `origin`, `gasprice`, `coinbase`, `number`, `prevrandao`, `gaslimit`, `basefee`, `blobbasefee`, `blockhash`, `blobhash`, `codesize`, `gas`, `balance`, `selfbalance`, `extcodesize` and `extcodehash`.
+2. **M24: ether.** `payable` functions and `callvalue`, `receive`, and calls that send ether.
+3. **M25: transient storage.** `tload` and `tstore`, and a reentrancy guard with a law.
+4. **M26: more than one word.** Functions and calls that return tuples (such as `getReserves`), and revert data that a failed call passes on.
+5. **M27: dynamic data.** `bytes`, `string` and arrays in calldata, return data, logs and errors; memory, `mcopy`, `calldatacopy`, `returndatacopy` and `keccak256` of bytes. Then flash swaps in the AMM.
+6. **M28: loops.** A bounded loop, with laws by induction over it.
+7. **M29: creating contracts.** `create`, `create2` and `extcodecopy`. Then a factory for the AMM.
+8. **M30: the rest of the calls.** `delegatecall` (proxies), low-level calls that give the success flag, and the precompiles other than `ecrecover`. Also checked `**` and checked `int256` arithmetic, which are Solidity checks on top of the opcodes.
+
+## M23: the environment
+
+### Done when
+
+- [x] One IR action, `IR.Env{env, args}`, reads any value of the environment, and one Yul statement lowers it, so the lowering proof covers all of them with one case. `timestamp` and `chainid` become two of these values. In a contract they are `Evm.number()`, `Evm.balance(a)` and so on.
+- [x] Values that cannot change during a transaction (`origin`, `gasprice`, `coinbase`, `number`, `prevrandao`, `gaslimit`, `basefee`, `blobbasefee`, `blockhash(n)`, `blobhash(i)`, `codesize`, `timestamp`, `chainid`) come from a table in the world, so two reads give the same value. Values that can change (`gas`, `balance(a)`, `selfbalance`, `extcodesize(a)`, `extcodehash(a)`) come from a list of readings, one for each read, so no law depends on them being the same twice. The law `fixed` in [src/LAWS.bend](src/LAWS.bend) shows that a fixed value uses up no reading.
+- [x] A test on `anvil` reads each value in a contract and compares it with what `anvil` gives for the same block, transaction and accounts ([tests/env.test.js](tests/env.test.js)). The compiler now targets the Cancun EVM, which has `blobhash` and `blobbasefee`.
+
+Not in M23: `callvalue`, which M24 adds with payable functions; every function now rejects ether. `calldatasize`, `returndatasize`, `msize` and `pc` are for the compiler, not for a contract.

@@ -77,10 +77,6 @@ def exp(e: Yul.Exp) -> String:
     case Yul.Select{cond, yes, no}:
       c y n = exp(cond) exp(yes) exp(no)
       call("select", [c, y, n])
-    case Yul.Timestamp{}:
-      "timestamp()"
-    case Yul.ChainId{}:
-      "chainid()"
     case Yul.Address{}:
       "address()"
     case Yul.Keccak{words}:
@@ -99,6 +95,9 @@ def exp(e: Yul.Exp) -> String:
     case Yul.And{left, right}:
       a b = exp(left) exp(right)
       call("and", [a, b])
+
+def sense(e: Evm.Env, args: List<&2, IR.Expr>) -> String:
+  call(yul(Evm.info.of(Evm.sensor(e))), atoms(args))
 
 def revert() -> String:
   "revert(0, 0)"
@@ -165,6 +164,10 @@ def stmt(+pad: String, +halt: String, s: Yul.Stmt) -> String:
       external(pad, True{}, target, signature, args) ++ pad ++ "return(0, 32)\n"
     case Yul.Answer{target, +signature, +args}:
       external(pad, False{}, target, signature, args) ++ pad ++ "return(0, 32)\n"
+    case Yul.Sense{level, e, args, body}:
+      pad ++ "let " ++ var(level) ++ " := " ++ sense(e, args) ++ "\n" ++ stmt(pad, halt, body)
+    case Yul.Sensed{e, args}:
+      pad ++ "mstore(0, " ++ sense(e, args) ++ ")\n" ++ pad ++ "return(0, 32)\n"
     case Yul.Result{+value}:
       prelude(pad, value) ++ pad ++ "mstore(0, " ++ exp(value) ++ ")\n" ++ pad ++ "return(0, 32)\n"
     case Yul.Stop{}:

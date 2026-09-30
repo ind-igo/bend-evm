@@ -29,8 +29,7 @@ type Action is Data:
   Math{op: Evm.Op, args: List<&2, Expr>}
   Select{cond: Cond, yes: Expr, no: Expr}
   Max{}
-  Timestamp{}
-  ChainId{}
+  Env{env: Evm.Env, args: List<&2, Expr>}
   Self{}
   Keccak{words: List<&2, Expr>}
   Typed{domain: Expr, message: Expr}
@@ -138,10 +137,8 @@ def word(w: Action, +env: List<&2, Binding>) -> Evm.Contract(Nat):
       Evm.select(cond(c, env), eval(yes, env), eval(no, env))
     case Max{}:
       Evm.max()
-    case Timestamp{}:
-      Evm.timestamp()
-    case ChainId{}:
-      Evm.chainid()
+    case Env{e, args}:
+      Evm.env(e, evals(args, env))
     case Self{}:
       Evm.self()
     case Keccak{words}:
@@ -255,10 +252,8 @@ def closed.word(w: Action, +scope: List<&2, Nat>) -> Bool:
       Bool.and(closed.cond(c, scope), closed.two(yes, no, scope))
     case Max{}:
       True{}
-    case Timestamp{}:
-      True{}
-    case ChainId{}:
-      True{}
+    case Env{_, args}:
+      closed.list(args, scope)
     case Self{}:
       True{}
     case Keccak{words}:

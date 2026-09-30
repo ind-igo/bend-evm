@@ -9,6 +9,7 @@ for (const [program, functions] of [
   ['examples/amm/Pair.bend', entries.amm],
   ['tests/fixtures/branch/program.bend', entries.branch],
   ['tests/fixtures/emit/program.bend', entries.emit],
+  ['tests/fixtures/env/program.bend', entries.env],
   ['tests/fixtures/view/program.bend', entries.view],
   ['tests/fixtures/vault/program.bend', entries.vault],
   ['tests/fixtures/math/program.bend', entries.math],

@@ -58,8 +58,8 @@ law sync:
   for +caller: Nat
   for +limit: Nat
   for +logs: List<&2, Evm.Log>
-  for +time: Nat
-  for +chain: Nat
+  for +facts: List<&2, Evm.Fact>
+  for +readings: List<&2, Nat>
   for +self: Nat
   for +hashes: List<&2, Evm.Hashed>
   for +signers: List<&2, Evm.Signed>
@@ -69,11 +69,11 @@ law sync:
   for +b1: Nat
   for +more: List<&2, Evm.Answer>
   {Evm.run(Unit, Pair.sync(), Evm.State{storage, caller, limit, logs,
-      Evm.World{time, chain, self, hashes, signers, Evm.Answer{q0, b0} <> Evm.Answer{q1, b1} <> more}})
+      Evm.World{facts, readings, self, hashes, signers, Evm.Answer{q0, b0} <> Evm.Answer{q1, b1} <> more}})
     == Bool.pick(Evm.Outcome<Unit>, Evm.same.call(q0, Evm.Call{token0(storage), "balanceOf", [self]}),
       Bool.pick(Evm.Outcome<Unit>, Evm.same.call(q1, Evm.Call{token1(storage), "balanceOf", [self]}),
         Evm.Ok{Unit{}, Evm.State{Evm.Slot{Evm.Plain{Pair.RESERVE1()}, b1} <> Evm.Slot{Evm.Plain{Pair.RESERVE0()}, b0} <> storage,
-          caller, limit, Pair.Sync(b0, b1) <> logs, Evm.World{time, chain, self, hashes, signers, more}}},
+          caller, limit, Pair.Sync(b0, b1) <> logs, Evm.World{facts, readings, self, hashes, signers, more}}},
         Evm.Revert{}),
       Evm.Revert{}) : Evm.Outcome<Unit>}
 
@@ -148,8 +148,8 @@ law burn:
   for +caller: Nat
   for +limit: Nat
   for +logs: List<&2, Evm.Log>
-  for +time: Nat
-  for +chain: Nat
+  for +facts: List<&2, Evm.Fact>
+  for +readings: List<&2, Nat>
   for +self: Nat
   for +hashes: List<&2, Evm.Hashed>
   for +signers: List<&2, Evm.Signed>
@@ -161,4 +161,4 @@ law burn:
   for +to: Nat
   {True{} == paid(Evm.lookup(storage, Evm.Mapped{Evm.Plain{ERC20.BALANCES()}, self}), supply(storage), b0, b1,
     Calls.run(Cert.entry.table(), Unit, Pair.burn(to), steps, Evm.State{storage, caller, limit, logs,
-      Evm.World{time, chain, self, hashes, signers, Evm.Answer{q0, b0} <> Evm.Answer{q1, b1} <> more}})) : Bool}
+      Evm.World{facts, readings, self, hashes, signers, Evm.Answer{q0, b0} <> Evm.Answer{q1, b1} <> more}})) : Bool}

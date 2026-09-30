@@ -10,8 +10,8 @@ law others:
   for who: Nat
   for limit: Nat
   for logs: List<&2, Evm.Log>
-  for time: Nat
-  for chain: Nat
+  for facts: List<&2, Evm.Fact>
+  for readings: List<&2, Nat>
   for self: Nat
   for hashes: List<&2, Evm.Hashed>
   for signers: List<&2, Evm.Signed>
@@ -23,10 +23,10 @@ law others:
   for +token: Nat
   for +owner: Nat
   {Evm.run(Nat, Program.others(token, owner), Evm.State{storage, who, limit, logs,
-      Evm.World{time, chain, self, hashes, signers, Evm.Answer{q, held} <> Evm.Answer{r, supply} <> rest}})
+      Evm.World{facts, readings, self, hashes, signers, Evm.Answer{q, held} <> Evm.Answer{r, supply} <> rest}})
     == Bool.pick(Evm.Outcome<Nat>, Evm.same.call(q, Evm.Call{token, "balanceOf", [owner]}),
       Bool.pick(Evm.Outcome<Nat>, Evm.same.call(r, Evm.Call{token, "totalSupply", []}),
         Bool.pick(Evm.Outcome<Nat>, Nat.is_lt(supply, held), Evm.Revert{},
-          Evm.Ok{Nat.sub(supply, held), Evm.State{storage, who, limit, logs, Evm.World{time, chain, self, hashes, signers, rest}}}),
+          Evm.Ok{Nat.sub(supply, held), Evm.State{storage, who, limit, logs, Evm.World{facts, readings, self, hashes, signers, rest}}}),
         Evm.Revert{}),
       Evm.Revert{}) : Evm.Outcome<Nat>}

@@ -20,7 +20,7 @@ function create(code, name) {
 }
 
 function solidity(flags) {
-  const out = must(run('solc', '--evm-version', 'shanghai', ...flags, '--bin', 'tests/fixtures/reference/Token.sol'));
+  const out = must(run('solc', '--evm-version', 'cancun', ...flags, '--bin', 'tests/fixtures/reference/Token.sol'));
   return out.split('Binary:')[1].trim() + word(0);
 }
 

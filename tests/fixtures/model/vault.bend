@@ -138,7 +138,7 @@ def start(args: List<String>) -> String:
   match args:
     case limit <> tokens:
       go(tokens, Run{"", [], Evm.State{[Evm.Slot{Evm.Plain{2n}, 2n}], 0n, Maybe.default(&2, Nat, Nat.read(limit), 0n), [],
-        Evm.World{0n, 0n, 3n, [], [], []}}})
+        Evm.World{[], [], 3n, [], [], []}}})
     case Nil{}:
       ""
 

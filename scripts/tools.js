@@ -33,7 +33,7 @@ export const check = (file, options) => spawn([process.execPath, checker, file, 
 
 // The deploy bytecode of a Yul object.
 export function bytecode(yul, flags = []) {
-  const solc = spawn(['solc', '--strict-assembly', '--evm-version', 'shanghai', ...flags, '--bin', '-'],
+  const solc = spawn(['solc', '--strict-assembly', '--evm-version', 'cancun', ...flags, '--bin', '-'],
     { stdin: new TextEncoder().encode(yul) });
   return must(solc).split('Binary representation:')[1].trim();
 }
@@ -59,6 +59,8 @@ export const entries = {
   branch: ['init', 'keep', 'grade', 'get', 'mark', 'marked'],
   calls: ['run', 'outer'],
   emit: ['moved', 'take'],
+  env: ['timestamp', 'chainid', 'origin', 'gasprice', 'coinbase', 'number', 'prevrandao', 'gaslimit', 'basefee',
+    'blobbasefee', 'codesize', 'gas', 'selfbalance', 'blockhash', 'blobhash', 'balance', 'extcodesize', 'extcodehash', 'block'],
   view: ['mint', 'balanceOf', 'totalSupply', 'holding', 'others'],
   vault: ['init', 'token', 'sharesOf', 'totalShares', 'deposit', 'withdraw', 'ping', 'touch'],
   amm: ['name', 'symbol', 'decimals', 'init', 'token0', 'token1', 'reserve0', 'reserve1', 'totalSupply', 'balanceOf',

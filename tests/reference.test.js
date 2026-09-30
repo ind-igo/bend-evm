@@ -85,7 +85,7 @@ beforeAll(async () => {
   chain = await deploy({ program: 'examples/erc20/Token.bend', functions: entries.erc20, deployer: people[0],
     args: [supply] });
   for (const who of people.slice(1)) chain.fund(who);
-  const out = must(run('solc', '--evm-version', 'shanghai', '--bin', 'tests/fixtures/reference/Token.sol'));
+  const out = must(run('solc', '--evm-version', 'cancun', '--bin', 'tests/fixtures/reference/Token.sol'));
   const bytecode = out.split('Binary:')[1].trim();
   const args = must(run('cast', 'abi-encode', 'constructor(uint256)', String(supply))).slice(2);
   created = JSON.parse(must(chain.cast('send', '--unlocked', '--from', people[0], '--json', '--create',

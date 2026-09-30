@@ -104,14 +104,118 @@ type Call is Data:
 type Answer is Data:
   Answer{call: Call, value: Nat}
 
-# The chain around a call: the block time, the chain id, the contract's own
-# address, tables that stand for keccak256 and ecrecover, and the answers of
-# the view calls in the order the contract makes them. A law holds for every
-# table and every list of answers, so no law depends on how these functions
-# or other contracts work; the printer uses the real ones. A missing entry
-# reads as zero, as ecrecover gives zero for a bad signature.
+# A value that a contract reads from its environment: the transaction, the
+# block or an account. Values that cannot change during a transaction come
+# from a table; the others (fixed is False) come from a list of readings,
+# one for each read, so no law depends on two reads being the same.
+type Env is Data:
+  Timestamp{}
+  ChainId{}
+  Origin{}
+  GasPrice{}
+  Coinbase{}
+  Number{}
+  PrevRandao{}
+  GasLimit{}
+  BaseFee{}
+  BlobBaseFee{}
+  BlockHash{}
+  BlobHash{}
+  CodeSize{}
+  Gas{}
+  Balance{}
+  SelfBalance{}
+  ExtCodeSize{}
+  ExtCodeHash{}
+
+# An operation's or an environment value's constructor, Yul name, name in a
+# contract, and number of words. Solidity checks add, sub, mul, div, mod and
+# **, so a contract names their word operations Evm.unchecked.add and so on.
+type Info is Data:
+  Info{con: String, yul: String, name: String, arity: Nat}
+
+# An environment value's names and number of words, its opcode, and whether
+# it is fixed in a transaction.
+type Sensor is Data:
+  Sensor{info: Info, code: Nat, fixed: Bool}
+
+def sensor(e: Env) -> Sensor:
+  match e:
+    case Timestamp{}:
+      Sensor{Info{"Timestamp", "timestamp", "timestamp", 0n}, 66n, True{}}
+    case ChainId{}:
+      Sensor{Info{"ChainId", "chainid", "chainid", 0n}, 70n, True{}}
+    case Origin{}:
+      Sensor{Info{"Origin", "origin", "origin", 0n}, 50n, True{}}
+    case GasPrice{}:
+      Sensor{Info{"GasPrice", "gasprice", "gasprice", 0n}, 58n, True{}}
+    case Coinbase{}:
+      Sensor{Info{"Coinbase", "coinbase", "coinbase", 0n}, 65n, True{}}
+    case Number{}:
+      Sensor{Info{"Number", "number", "number", 0n}, 67n, True{}}
+    case PrevRandao{}:
+      Sensor{Info{"PrevRandao", "prevrandao", "prevrandao", 0n}, 68n, True{}}
+    case GasLimit{}:
+      Sensor{Info{"GasLimit", "gaslimit", "gaslimit", 0n}, 69n, True{}}
+    case BaseFee{}:
+      Sensor{Info{"BaseFee", "basefee", "basefee", 0n}, 72n, True{}}
+    case BlobBaseFee{}:
+      Sensor{Info{"BlobBaseFee", "blobbasefee", "blobbasefee", 0n}, 74n, True{}}
+    case BlockHash{}:
+      Sensor{Info{"BlockHash", "blockhash", "blockhash", 1n}, 64n, True{}}
+    case BlobHash{}:
+      Sensor{Info{"BlobHash", "blobhash", "blobhash", 1n}, 73n, True{}}
+    case CodeSize{}:
+      Sensor{Info{"CodeSize", "codesize", "codesize", 0n}, 56n, True{}}
+    case Gas{}:
+      Sensor{Info{"Gas", "gas", "gas", 0n}, 90n, False{}}
+    case Balance{}:
+      Sensor{Info{"Balance", "balance", "balance", 1n}, 49n, False{}}
+    case SelfBalance{}:
+      Sensor{Info{"SelfBalance", "selfbalance", "selfbalance", 0n}, 71n, False{}}
+    case ExtCodeSize{}:
+      Sensor{Info{"ExtCodeSize", "extcodesize", "extcodesize", 1n}, 59n, False{}}
+    case ExtCodeHash{}:
+      Sensor{Info{"ExtCodeHash", "extcodehash", "extcodehash", 1n}, 63n, False{}}
+
+def envs() -> List<&2, Env>:
+  [Timestamp{}, ChainId{}, Origin{}, GasPrice{}, Coinbase{}, Number{}, PrevRandao{}, GasLimit{}, BaseFee{}, BlobBaseFee{},
+  BlockHash{}, BlobHash{}, CodeSize{}, Gas{}, Balance{}, SelfBalance{}, ExtCodeSize{}, ExtCodeHash{}]
+
+def info.of(x: Sensor) -> Info:
+  match x:
+    case Sensor{i, _, _}:
+      i
+
+def code.of(x: Sensor) -> Nat:
+  match x:
+    case Sensor{_, c, _}:
+      c
+
+def fixed.of(x: Sensor) -> Bool:
+  match x:
+    case Sensor{_, _, f}:
+      f
+
+def code(e: Env) -> Nat:
+  code.of(sensor(e))
+
+def fixed(e: Env) -> Bool:
+  fixed.of(sensor(e))
+
+type Fact is Data:
+  Fact{env: Env, args: List<&2, Nat>, value: Nat}
+
+# The chain around a call: the table of fixed values, the readings, the
+# contract's own address, tables that stand for keccak256 and ecrecover,
+# and the answers of the view calls in the order the contract makes them. A
+# law holds for every table and every list of readings and answers, so no
+# law depends on how these functions or other contracts work; the printer
+# uses the real ones. A missing entry reads as zero, as ecrecover gives zero
+# for a bad signature.
 type World is Data:
-  World{time: Nat, chain: Nat, self: Nat, hashes: List<&2, Hashed>, signers: List<&2, Signed>, answers: List<&2, Answer>}
+  World{facts: List<&2, Fact>, readings: List<&2, Nat>, self: Nat, hashes: List<&2, Hashed>, signers: List<&2, Signed>,
+    answers: List<&2, Answer>}
 
 # A call's state. Logs are newest first. The word limit is state, not a
 # constant: a symbolic limit keeps proofs from expanding 2^256 as a unary
@@ -139,15 +243,15 @@ def world.of(s: State) -> World:
     case State{_, _, _, _, world}:
       world
 
-def time.of(w: World) -> Nat:
+def facts.of(w: World) -> List<&2, Fact>:
   match w:
-    case World{time, _, _, _, _, _}:
-      time
+    case World{facts, _, _, _, _, _}:
+      facts
 
-def chain.of(w: World) -> Nat:
+def readings.of(w: World) -> List<&2, Nat>:
   match w:
-    case World{_, chain, _, _, _, _}:
-      chain
+    case World{_, readings, _, _, _, _}:
+      readings
 
 def self.of(w: World) -> Nat:
   match w:
@@ -193,6 +297,20 @@ def signer.of(signers: List<&2, Signed>, +digest: Nat, +v: Nat, +r: Nat, +s: Nat
     case Signed{d, x, y, z, who} <> rest:
       Bool.pick(Nat, Bool.and(Bool.and(Nat.is_eq(d, digest), Nat.is_eq(x, v)), Bool.and(Nat.is_eq(y, r), Nat.is_eq(z, s))),
         who, signer.of(rest, digest, v, r, s))
+
+def fact.of(facts: List<&2, Fact>, +e: Env, +args: List<&2, Nat>) -> Nat:
+  match facts:
+    case Nil{}:
+      0n
+    case Fact{f, a, v} <> rest:
+      Bool.pick(Nat, Bool.and(Nat.is_eq(code(f), code(e)), same.words(a, args)), v, fact.of(rest, e, args))
+
+# The block's timestamp and the chain id, which laws name.
+def time.of(w: World) -> Nat:
+  fact.of(facts.of(w), Timestamp{}, [])
+
+def chain.of(w: World) -> Nat:
+  fact.of(facts.of(w), ChainId{}, [])
 
 def hashes.of(w: World) -> List<&2, Hashed>:
   match w:
@@ -327,13 +445,31 @@ def branch.run(-A: Data, ok: Bool, -a: Contract(A), -b: Contract(A), +s: State) 
 def max() -> Contract(Nat):
   R => k => +s => k(Nat.sub(limit.of(s), 1n), s)
 
-# The block's timestamp, the chain id and the contract's own address.
-def timestamp() -> Contract(Nat):
-  R => k => +s => k(time.of(world.of(s)), s)
+# A value of the environment: a fixed one from the table, or the next
+# reading, which the read uses up. No reading left reads as zero.
+def first(xs: List<&2, Nat>) -> Nat:
+  match xs:
+    case Nil{}:
+      0n
+    case x <> _:
+      x
 
-def chainid() -> Contract(Nat):
-  R => k => +s => k(chain.of(world.of(s)), s)
+def sense(+e: Env, +args: List<&2, Nat>, +s: State) -> Nat:
+  Bool.pick(Nat, fixed(e), fact.of(facts.of(world.of(s)), e, args), first(readings.of(world.of(s))))
 
+# The state after a read: a value that can change uses up a reading.
+def used(s: State) -> State:
+  match s:
+    case State{storage, caller, limit, logs, World{facts, readings, self, hashes, signers, answers}}:
+      State{storage, caller, limit, logs, World{facts, List.tail(&2, Nat, readings), self, hashes, signers, answers}}
+
+def sensed(+e: Env, +s: State) -> State:
+  Bool.pick(State, fixed(e), s, used(s))
+
+def env(+e: Env, args: List<&2, Nat>) -> Contract(Nat):
+  R => k => +s => k(sense(e, args, s), sensed(e, s))
+
+# The contract's own address.
 def self() -> Contract(Nat):
   R => k => +s => k(self.of(world.of(s)), s)
 
@@ -356,13 +492,13 @@ def recover(digest: Nat, v: Nat, r: Nat, sig: Nat) -> Contract(Nat):
 # contract reverts; a list of answers exists for each run on the EVM.
 def answer(-R: Data, c: Call, k: Nat -> State -> Outcome<R>, s: State) -> Outcome<R>:
   match s:
-    case State{storage, caller, limit, logs, World{time, chain, self, hashes, signers, answers}}:
+    case State{storage, caller, limit, logs, World{facts, readings, self, hashes, signers, answers}}:
       match answers:
         case Nil{}:
           Revert{}
         case Answer{q, x} <> rest:
           Bool.pick(Outcome<R>, same.call(q, c),
-            k(x, State{storage, caller, limit, logs, World{time, chain, self, hashes, signers, rest}}), Revert{})
+            k(x, State{storage, caller, limit, logs, World{facts, readings, self, hashes, signers, rest}}), Revert{})
 
 # Calls a function of another contract with staticcall and gives the first
 # word it returns, as in IERC20(token).balanceOf(who). The reader takes the
@@ -621,12 +757,6 @@ def op(+o: Op, args: List<&2, Nat>, +l: Nat) -> Nat:
     case _:
       0n
 
-# Each operation's constructor, Yul name, name in a contract, and number of
-# words. Solidity checks add, sub, mul, div, mod and **, so a contract
-# names their word operations Evm.unchecked.add and so on.
-type Info is Data:
-  Info{con: String, yul: String, name: String, arity: Nat}
-
 def info(op: Op) -> Info:
   match op:
     case Add{}:
@@ -785,3 +915,59 @@ def shr(shift: Nat, x: Nat) -> Contract(Nat):
 
 def sar(shift: Nat, x: Nat) -> Contract(Nat):
   math(Sar{}, [shift, x])
+
+# The environment, as in Solidity: block.timestamp is Evm.timestamp(),
+# tx.origin is Evm.origin(), address(a).balance is Evm.balance(a), and so on.
+def timestamp() -> Contract(Nat):
+  env(Timestamp{}, [])
+
+def chainid() -> Contract(Nat):
+  env(ChainId{}, [])
+
+def origin() -> Contract(Nat):
+  env(Origin{}, [])
+
+def gasprice() -> Contract(Nat):
+  env(GasPrice{}, [])
+
+def coinbase() -> Contract(Nat):
+  env(Coinbase{}, [])
+
+def number() -> Contract(Nat):
+  env(Number{}, [])
+
+def prevrandao() -> Contract(Nat):
+  env(PrevRandao{}, [])
+
+def gaslimit() -> Contract(Nat):
+  env(GasLimit{}, [])
+
+def basefee() -> Contract(Nat):
+  env(BaseFee{}, [])
+
+def blobbasefee() -> Contract(Nat):
+  env(BlobBaseFee{}, [])
+
+def blockhash(n: Nat) -> Contract(Nat):
+  env(BlockHash{}, [n])
+
+def blobhash(i: Nat) -> Contract(Nat):
+  env(BlobHash{}, [i])
+
+def codesize() -> Contract(Nat):
+  env(CodeSize{}, [])
+
+def gas() -> Contract(Nat):
+  env(Gas{}, [])
+
+def balance(a: Nat) -> Contract(Nat):
+  env(Balance{}, [a])
+
+def selfbalance() -> Contract(Nat):
+  env(SelfBalance{}, [])
+
+def extcodesize(a: Nat) -> Contract(Nat):
+  env(ExtCodeSize{}, [a])
+
+def extcodehash(a: Nat) -> Contract(Nat):
+  env(ExtCodeHash{}, [a])

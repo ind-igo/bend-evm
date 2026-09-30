@@ -86,8 +86,6 @@ type Tag is Data:
   Load2{}
   Caller{}
   Max{}
-  Timestamp{}
-  Chainid{}
   Self{}
   Keccak{}
   Typed{}
@@ -100,6 +98,7 @@ type Tag is Data:
   Div{}
   Mod{}
   MathOp{op: Evm.Op}
+  EnvOp{env: Evm.Env}
   Sstore{}
   Store{}
   Store2{}
@@ -142,14 +141,19 @@ def math.tags(ops: List<&2, Evm.Op>) -> List<&2, Named>:
     case +o <> rest:
       Named{"Evm." ++ op.name(Evm.info(o)), MathOp{o}} <> math.tags(rest)
 
+def env.tags(envs: List<&2, Evm.Env>) -> List<&2, Named>:
+  match envs:
+    case Nil{}:
+      Nil{}
+    case +e <> rest:
+      Named{"Evm." ++ op.name(Evm.info.of(Evm.sensor(e))), EnvOp{e}} <> env.tags(rest)
+
 def tags() -> List<&2, Named>:
-  List.append(&2, Named, math.tags(Evm.ops()), [Named{"Evm.sload", Sload{}},
+  List.append(&2, Named, List.append(&2, Named, math.tags(Evm.ops()), env.tags(Evm.envs())), [Named{"Evm.sload", Sload{}},
   Named{"Evm.load", Load{}},
   Named{"Evm.load2", Load2{}},
   Named{"Evm.caller", Caller{}},
   Named{"Evm.max", Max{}},
-  Named{"Evm.timestamp", Timestamp{}},
-  Named{"Evm.chainid", Chainid{}},
   Named{"Evm.self", Self{}},
   Named{"Evm.keccak", Keccak{}},
   Named{"Evm.typed", Typed{}},
@@ -764,6 +768,16 @@ def math(+op: Evm.Op, +args: List<&2, Core.Term>, +decls: List<&2, Core.Declarat
       return IR.Math{op, es},
     Fail{"Evm." ++ op.name(Evm.info(op)) ++ " takes " ++ Nat.show(op.arity(Evm.info(op))) ++ " words"})
 
+# A value of the environment, such as Evm.balance(who), with its number of
+# words.
+def sense(+e: Evm.Env, +args: List<&2, Core.Term>, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Action>:
+  +i = Evm.info.of(Evm.sensor(e))
+  Bool.pick(Result<&2, &2, String, IR.Action>, Nat.is_eq(List.length(&2, Core.Term, args), op.arity(i)),
+    do Result<&2, &2, String, IR.Action>:
+      es : List<&2, IR.Expr> <- operands(args, decls)
+      return IR.Env{e, es},
+    Fail{"Evm." ++ op.name(i) ++ " takes " ++ Nat.show(op.arity(i)) ++ " words"})
+
 def word(c: Call, +evm: String, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Action>:
   match c:
     case Call{Sload{}, _, slot <> Nil{}}:
@@ -782,10 +796,6 @@ def word(c: Call, +evm: String, +decls: List<&2, Core.Declaration>) -> Result<&2
       Done{IR.Caller{}}
     case Call{Max{}, _, Nil{}}:
       Done{IR.Max{}}
-    case Call{Timestamp{}, _, Nil{}}:
-      Done{IR.Timestamp{}}
-    case Call{Chainid{}, _, Nil{}}:
-      Done{IR.ChainId{}}
     case Call{Self{}, _, Nil{}}:
       Done{IR.Self{}}
     case Call{Keccak{}, _, words <> Nil{}}:
@@ -841,6 +851,8 @@ def word(c: Call, +evm: String, +decls: List<&2, Core.Declaration>) -> Result<&2
         return IR.Mod{l, r}
     case Call{MathOp{op}, _, args}:
       math(op, args, decls)
+    case Call{EnvOp{e}, _, args}:
+      sense(e, args, decls)
     case Call{View{}, _, called <> Nil{}}:
       view(False{}, call(called, Nil{}), evm, decls)
     case Call{CallOut{}, _, called <> Nil{}}:

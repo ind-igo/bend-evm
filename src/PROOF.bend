@@ -260,12 +260,12 @@ def view_step(+c: Evm.Call, -R: Data, -y: Nat -> Evm.State -> Evm.Outcome<R>, -f
   +s: Evm.State, -d: Evm.Outcome<R> -> Evm.Outcome<R>, h: @x: Nat -> @t: Evm.State -> {d(y(x, t)) == d(f(x, t)) : Evm.Outcome<R>}) ->
   {d(Evm.answer(R, c, y, s)) == d(Evm.answer(R, c, f, s)) : Evm.Outcome<R>}:
   match s:
-    case Evm.State{storage, caller, limit, logs, Evm.World{time, chain, self, hashes, signers, answers}}:
+    case Evm.State{storage, caller, limit, logs, Evm.World{facts, readings, self, hashes, signers, answers}}:
       match answers:
         case Nil{}:
           {==}
         case Evm.Answer{q, x} <> rest:
-          +t : Evm.State = Evm.State{storage, caller, limit, logs, Evm.World{time, chain, self, hashes, signers, rest}}
+          +t : Evm.State = Evm.State{storage, caller, limit, logs, Evm.World{facts, readings, self, hashes, signers, rest}}
           pick_step(Evm.same.call(q, c), R, y(x, t), f(x, t), Evm.Revert{}, d, h(x, t))
 
 # A Call: Yul and the IR stop at the same call. The run takes the same
@@ -369,10 +369,8 @@ def sim(+cmd: IR.Cmd, +out: IR.Output, +env: List<&2, IR.Binding>, -R: Data,
       %max_eq(l) : {obs(entries, steps, R, open)(Yul.exec(Yul.lower(body, o), o, IR.Binding{level, _} <> env, R, k, s))
         == obs(entries, steps, R, open)(IR.run(body, o, IR.Binding{level, Nat.sub(l, 1n)} <> env, R, k, s)) : Evm.Outcome<R>}
       sim(body, o, IR.Binding{level, Nat.sub(l, 1n)} <> env, R, k, s, entries, steps, open)
-    case IR.Bind{IR.Timestamp{}, level, body} o:
-      sim(body, o, IR.Binding{level, Evm.time.of(Evm.world.of(s))} <> env, R, k, s, entries, steps, open)
-    case IR.Bind{IR.ChainId{}, level, body} o:
-      sim(body, o, IR.Binding{level, Evm.chain.of(Evm.world.of(s))} <> env, R, k, s, entries, steps, open)
+    case IR.Bind{IR.Env{+e, args}, level, body} o:
+      sim(body, o, IR.Binding{level, Evm.sense(e, IR.evals(args, env), s)} <> env, R, k, Evm.sensed(e, s), entries, steps, open)
     case IR.Bind{IR.Self{}, level, body} o:
       sim(body, o, IR.Binding{level, Evm.self.of(Evm.world.of(s))} <> env, R, k, s, entries, steps, open)
     case IR.Bind{IR.Keccak{words}, level, body} o:
@@ -454,9 +452,7 @@ def sim(+cmd: IR.Cmd, +out: IR.Output, +env: List<&2, IR.Binding>, -R: Data,
     case IR.Tail{IR.Max{}} IR.Returns{}:
       %max_eq(Evm.limit.of(s)) : {obs(entries, steps, R, open)(k(_, s)) == obs(entries, steps, R, open)(k(Nat.sub(Evm.limit.of(s), 1n), s)) : Evm.Outcome<R>}
       {==}
-    case IR.Tail{IR.Timestamp{}} IR.Returns{}:
-      {==}
-    case IR.Tail{IR.ChainId{}} IR.Returns{}:
+    case IR.Tail{IR.Env{_, _}} IR.Returns{}:
       {==}
     case IR.Tail{IR.Self{}} IR.Returns{}:
       {==}
@@ -492,9 +488,7 @@ def sim(+cmd: IR.Cmd, +out: IR.Output, +env: List<&2, IR.Binding>, -R: Data,
       {==}
     case IR.Tail{IR.Max{}} IR.Stops{}:
       {==}
-    case IR.Tail{IR.Timestamp{}} IR.Stops{}:
-      {==}
-    case IR.Tail{IR.ChainId{}} IR.Stops{}:
+    case IR.Tail{IR.Env{_, _}} IR.Stops{}:
       {==}
     case IR.Tail{IR.Self{}} IR.Stops{}:
       {==}
@@ -640,3 +634,7 @@ def Laws.preserves(entries, steps, cmd, out, env, R, k, s, open):
 
 def Laws.callbacks(entries, steps, A, open, o):
   table(entries, steps, A, open, o)
+
+def Laws.fixed(e, s, h):
+  %h : {Bool.pick(Evm.State, _, s, Evm.used(s)) == s : Evm.State}
+  {==}

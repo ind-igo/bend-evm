@@ -12,7 +12,7 @@ import { generator } from './random.js';
 // reverts with Panic(0x11) and the Bend pair with no data, so only 4-byte
 // custom errors are compared. SEED=<n> runs another sequence.
 const seed = Number(process.env.SEED ?? 1);
-const solidity = must(run('solc', '--evm-version', 'shanghai', '--bin', 'tests/fixtures/reference/Pair.sol'));
+const solidity = must(run('solc', '--evm-version', 'cancun', '--bin', 'tests/fixtures/reference/Pair.sol'));
 const code = name => solidity.split(`:${name} =======`)[1].split('Binary:')[1].trim().split('\n')[0];
 let chain, people, sides, names;
 

@@ -71,10 +71,8 @@ def show.word(w: IR.Action) -> String:
       "IR.Select{" ++ show.cond(c) ++ ", " ++ show.expr(yes) ++ ", " ++ show.expr(no) ++ "}"
     case IR.Max{}:
       "IR.Max{}"
-    case IR.Timestamp{}:
-      "IR.Timestamp{}"
-    case IR.ChainId{}:
-      "IR.ChainId{}"
+    case IR.Env{e, args}:
+      "IR.Env{Evm." ++ con(Evm.info.of(Evm.sensor(e))) ++ "{}, [" ++ String.join(show.list(args), ", ") ++ "]}"
     case IR.Self{}:
       "IR.Self{}"
     case IR.Keccak{words}:

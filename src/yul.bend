@@ -18,8 +18,6 @@ type Exp is Data:
   Gt{left: Exp, right: Exp}
   IsZero{value: Exp}
   Select{cond: Exp, yes: Exp, no: Exp}
-  Timestamp{}
-  ChainId{}
   Address{}
   Keccak{words: List<&2, IR.Expr>}
   Typed{domain: IR.Expr, message: IR.Expr}
@@ -40,6 +38,8 @@ type Stmt is Data:
   Answer{target: IR.Expr, signature: String, args: List<&2, IR.Expr>}
   Call{level: Nat, target: IR.Expr, signature: String, args: List<&2, IR.Expr>, body: Stmt}
   Reply{target: IR.Expr, signature: String, args: List<&2, IR.Expr>}
+  Sense{level: Nat, env: Evm.Env, args: List<&2, IR.Expr>, body: Stmt}
+  Sensed{env: Evm.Env, args: List<&2, IR.Expr>}
   Result{value: Exp}
   Stop{}
   Revert{}
@@ -96,10 +96,6 @@ def eval(e: Exp, +env: List<&2, IR.Binding>, +s: Evm.State) -> Nat:
     case Select{cond, yes, no}:
       c y n = eval(cond, env, s) eval(yes, env, s) eval(no, env, s)
       Bool.pick(Nat, Nat.is_eq(c, 0n), n, y)
-    case Timestamp{}:
-      Evm.time.of(Evm.world.of(s))
-    case ChainId{}:
-      Evm.chain.of(Evm.world.of(s))
     case Address{}:
       Evm.self.of(Evm.world.of(s))
     case Keccak{words}:
@@ -122,7 +118,9 @@ def eval(e: Exp, +env: List<&2, IR.Binding>, +s: Evm.State) -> Nat:
 
 # `if cond { revert(0, 0) }` reverts when cond is not zero, and a Guard
 # reverts with its error's data. A View binds a staticcall's word, and an
-# Answer returns it; a Call and a Reply do the same with call. An If runs no when its test is zero and yes otherwise.
+# Answer returns it; a Call and a Reply do the same with call, and a Sense
+# and a Sensed with a value of the environment, as reading one can use up a
+# reading. An If runs no when its test is zero and yes otherwise.
 def exec(stmt: Stmt, +out: IR.Output, +env: List<&2, IR.Binding>) -> Evm.Contract(IR.value(out)):
   match stmt out:
     case Let{level, value, body} o:
@@ -146,6 +144,10 @@ def exec(stmt: Stmt, +out: IR.Output, +env: List<&2, IR.Binding>) -> Evm.Contrac
         x => exec(body, o, IR.Binding{level, x} <> env, R, k))
     case Reply{target, signature, args} IR.Returns{}:
       Evm.call(Evm.Call{IR.eval(target, env), IR.name(signature), IR.evals(args, env)})
+    case Sense{level, +e, args, body} o:
+      R => k => +s => exec(body, o, IR.Binding{level, Evm.sense(e, IR.evals(args, env), s)} <> env, R, k, Evm.sensed(e, s))
+    case Sensed{e, args} IR.Returns{}:
+      Evm.env(e, IR.evals(args, env))
     case Result{value} IR.Returns{}:
       R => k => +s => k(eval(value, env, s), s)
     case Stop{} IR.Stops{}:
@@ -209,10 +211,6 @@ def lower.word(w: IR.Action) -> Exp:
       lower.select(c, yes, no)
     case IR.Max{}:
       max()
-    case IR.Timestamp{}:
-      Timestamp{}
-    case IR.ChainId{}:
-      ChainId{}
     case IR.Self{}:
       Address{}
     case IR.Keccak{words}:
@@ -224,10 +222,13 @@ def lower.word(w: IR.Action) -> Exp:
     case IR.Recover{digest, v, r, sig}:
       Recover{digest, v, r, sig}
     case IR.View{_, _, _}:
-      # A call can revert, so it is no expression: lower makes it a View, an
-      # Answer, a Call or a Reply, and never gets here.
+      # A call can revert and a value of the environment can use up a
+      # reading, so they are no expressions: lower makes them statements,
+      # and never gets here.
       Atom{IR.Lit{0n}}
     case IR.Call{_, _, _}:
+      Atom{IR.Lit{0n}}
+    case IR.Env{_, _}:
       Atom{IR.Lit{0n}}
 
 # The entry's output is known, so a tail of the wrong kind lowers to a revert.
@@ -247,6 +248,8 @@ def lower(cmd: IR.Cmd, +out: IR.Output) -> Stmt:
       View{level, target, signature, args, lower(body, o)}
     case IR.Bind{IR.Call{target, signature, args}, level, body} o:
       Call{level, target, signature, args, lower(body, o)}
+    case IR.Bind{IR.Env{e, args}, level, body} o:
+      Sense{level, e, args, lower(body, o)}
     case IR.Bind{w, level, body} o:
       Let{level, lower.word(w), lower(body, o)}
     case IR.Then{IR.SStore{loc, value}, body} o:
@@ -273,6 +276,8 @@ def lower(cmd: IR.Cmd, +out: IR.Output) -> Stmt:
       Answer{target, signature, args}
     case IR.Tail{IR.Call{target, signature, args}} IR.Returns{}:
       Reply{target, signature, args}
+    case IR.Tail{IR.Env{e, args}} IR.Returns{}:
+      Sensed{e, args}
     case IR.Tail{w} IR.Returns{}:
       Result{lower.word(w)}
     case IR.Finish{IR.SStore{loc, value}} IR.Stops{}:

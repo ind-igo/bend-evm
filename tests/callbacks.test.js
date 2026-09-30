@@ -53,7 +53,7 @@ const line = ok => [ok ? 'ok' : 'revert', ...[...people.values()].map(shares),
   BigInt(must(chain.cast('call', vault, 'totalShares()(uint256)')).split(' ')[0]), ids.get(slot(3)) ?? slot(3)].join(' ');
 
 beforeAll(async () => {
-  const solidity = must(run('solc', '--evm-version', 'shanghai', '--bin', 'tests/fixtures/vault/Hook.sol'));
+  const solidity = must(run('solc', '--evm-version', 'cancun', '--bin', 'tests/fixtures/vault/Hook.sol'));
   chain = await deploy({ bytecode: solidity.split('Binary:')[1].trim().split('\n')[0] });
   const code = bytecode(must(bend('src/compile.bend', program, ...entries.vault)));
   vault = JSON.parse(must(chain.cast('send', '--unlocked', '--from', chain.sender, '--json', '--create',
