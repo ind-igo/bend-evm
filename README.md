@@ -184,6 +184,14 @@ def reserves(+pair: Evm.Address) -> Evm.Contract(Evm.Values):
 
 In the model, a view of `n` words takes `n` answers for the same call, one for each word. [tests/fixtures/values](tests/fixtures/values) has a law about it, and [tests/values.test.js](tests/values.test.js) runs it on `anvil`, with a call that fails and whose revert data the contract passes on.
 
+## An auction
+
+[examples/auction](examples/auction) is `SimpleAuction` from the Solidity documentation. It uses the time, ether and a tuple result together. Bids are ether, and they end at a time that the constructor sets from `Evm.timestamp()`. A bidder who is outbid takes the ether back with `withdraw`, and `auctionEnd` sends the highest bid to the beneficiary. `status()` gives the highest bidder, the highest bid and whether the auction ended, as one tuple.
+
+[LAWS.bend](examples/auction/LAWS.bend) gives every outcome of `init`, `bid`, `withdraw` and `auctionEnd`. `withdraw` sets what the sender is owed to zero before it sends, and the send is its last step, so a callback that withdraws again gets nothing. `once` proves that every end after the first one reverts, so the beneficiary gets the bid once. There is no lock. The bid law shows how a proof goes past an `Evm.branch` whose condition is not known: a lemma takes the condition as a variable and matches on it.
+
+[tests/auction.test.js](tests/auction.test.js) gives the auction and the Solidity version ([tests/fixtures/reference/Auction.sol](tests/fixtures/reference/Auction.sol)) the same random steps on `anvil`, before and after the end. A bidder contract refuses ether, or withdraws or bids again when it gets ether. Two changes from the documentation: a failed send reverts, as there are no low-level calls with a success flag yet, and `withdraw` sends also when nothing is owed.
+
 ## Gas
 
 `bun run gas` ([scripts/gas.js](scripts/gas.js)) runs the same transactions on the token and on the Solidity reference, without and with the solc optimizer (1,000,000 runs, as in solmate), and prints the receipts' `gasUsed`. These numbers include the 21,000 base cost and the calldata cost. They are from solc 0.8.33 for the Cancun EVM on `anvil`:

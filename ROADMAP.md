@@ -312,7 +312,7 @@ After M21, a contract has all the arithmetic, storage, logs, errors, `keccak256`
 5. **M27: dynamic data.** `bytes`, `string` and arrays in calldata, return data, logs and errors; memory, `mcopy`, `calldatacopy`, `returndatacopy` and `keccak256` of bytes. Then flash swaps in the AMM.
 6. **M28: loops.** A bounded loop, with laws by induction over it.
 7. **M29: creating contracts.** `create`, `create2` and `extcodecopy`. Then a factory for the AMM.
-8. **M30: the rest of the calls.** `delegatecall` (proxies), low-level calls that give the success flag, and the precompiles other than `ecrecover`. Also checked `**` and checked `int256` arithmetic, which are Solidity checks on top of the opcodes.
+8. **M30: the rest of the calls.** `delegatecall` (proxies), low-level calls that give the success flag (then `examples/auction` can keep a failed refund owed, as the Solidity documentation does), and the precompiles other than `ecrecover`. Also checked `**` and checked `int256` arithmetic, which are Solidity checks on top of the opcodes.
 
 ## M23: the environment
 

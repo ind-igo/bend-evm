@@ -8,6 +8,7 @@ for (const [program, functions] of [
   ['examples/counter/program.bend', entries.counter],
   ['examples/amm/Pair.bend', entries.amm],
   ['examples/weth/WETH.bend', entries.weth],
+  ['examples/auction/Auction.bend', entries.auction],
   ['tests/fixtures/branch/program.bend', entries.branch],
   ['tests/fixtures/emit/program.bend', entries.emit],
   ['tests/fixtures/env/program.bend', entries.env],

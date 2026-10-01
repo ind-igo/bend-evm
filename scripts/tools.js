@@ -69,6 +69,8 @@ export const entries = {
     'allowance', 'approve', 'transfer', 'transferFrom', 'sync', 'mint', 'burn', 'swap', 'getReserves'],
   weth: ['name', 'symbol', 'decimals', 'totalSupply', 'balanceOf', 'allowance', 'approve', 'transfer', 'transferFrom',
     'deposit', 'withdraw', 'receive'],
+  auction: ['init', 'beneficiary', 'auctionEndTime', 'highestBidder', 'highestBid', 'pendingReturns', 'ended', 'status', 'bid',
+    'withdraw', 'auctionEnd'],
   math: ['add', 'sub', 'mul', 'div', 'sdiv', 'mod', 'smod', 'addmod', 'mulmod', 'exp', 'signextend', 'lt', 'gt', 'slt',
     'sgt', 'eq', 'iszero', 'and', 'or', 'xor', 'not', 'byte', 'shl', 'shr', 'sar', 'checked_mul', 'checked_div', 'checked_mod', 'sqrt'],
 };
