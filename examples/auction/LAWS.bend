@@ -40,10 +40,11 @@ def credited(+storage: List<&2, Evm.Slot>) -> List<&2, Evm.Slot>:
   Evm.Slot{Evm.Mapped{Evm.Plain{4n}, stored(storage, 2n)}, Nat.add(owed(storage, stored(storage, 2n)), stored(storage, 3n))}
     <> storage
 
-# A bid reverts after the end with AuctionAlreadyEnded, and unless it is
-# above the highest bid with BidNotHighEnough. Else the sender leads, and
-# the bidder it outbids is owed that bid. The value sent is the first
-# reading, which callvalue uses up.
+# A bid reverts at or after the end with AuctionAlreadyEnded, and unless
+# it is above the highest bid with BidNotHighEnough. Else the sender leads,
+# and the bidder it outbids is owed that bid. The value sent is the first
+# reading, which callvalue uses up. auctionEnd raises before the end, so no
+# bid comes after an end.
 law bid:
   for +storage: List<&2, Evm.Slot>
   for +who: Nat
@@ -58,7 +59,7 @@ law bid:
   for +answers: List<&2, Evm.Answer>
   {Evm.run(Unit, Auction.bid(), Evm.State{storage, who, limit, logs,
       Evm.World{facts, value <> readings, self, hashes, signers, answers}})
-    == Bool.pick(Evm.Outcome<Unit>, Bool.not(Nat.is_lt(stored(storage, 1n), now(facts))),
+    == Bool.pick(Evm.Outcome<Unit>, Nat.is_lt(now(facts), stored(storage, 1n)),
       Bool.pick(Evm.Outcome<Unit>, Nat.is_lt(stored(storage, 3n), value),
         Bool.pick(Evm.Outcome<Unit>, Nat.is_eq(stored(storage, 3n), 0n),
           led(storage, who, limit, logs, Evm.World{facts, readings, self, hashes, signers, answers}, value),

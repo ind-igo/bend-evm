@@ -3,7 +3,8 @@ pragma solidity ^0.8.20;
 
 // The reference for examples/auction/Auction.bend: SimpleAuction from the
 // Solidity documentation, with each send a call that reverts when it fails,
-// a withdraw that sends also when nothing is owed, and status().
+// a withdraw that sends also when nothing is owed, a bid at the end time
+// that reverts, and status().
 contract SimpleAuction {
     address payable public beneficiary;
     uint256 public auctionEndTime;
@@ -30,7 +31,7 @@ contract SimpleAuction {
     }
 
     function bid() external payable {
-        if (block.timestamp > auctionEndTime) revert AuctionAlreadyEnded();
+        if (block.timestamp >= auctionEndTime) revert AuctionAlreadyEnded();
         if (msg.value <= highestBid) revert BidNotHighEnough(highestBid);
         if (highestBid != 0) pendingReturns[highestBidder] += highestBid;
         highestBidder = msg.sender;

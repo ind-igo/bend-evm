@@ -31,8 +31,8 @@ def kept(+k: Nat, o: Evm.Outcome<Unit>) -> Bool:
 
 # A swap does not make x·y go down. This holds for every answer that the
 # two tokens and a flash swap's receiver give, and for every callback that
-# they make into the pair while it pays, at any depth: other swaps, flash
-# swaps, mints, burns and syncs. There is no lock. The swap reads the
+# they make into the pair while it pays, at any depth, from any state that
+# the callbacks leave: it does not need the lock. The swap reads the
 # reserves before it pays, checks the balances after it against them, and
 # then writes those balances as the reserves, so what the callbacks did in
 # between cannot pass the check.
@@ -45,6 +45,56 @@ law swap:
   for +data: Evm.Bytes
   {True{} == kept(product(s), Calls.run(Cert.entry.table(), Unit, Pair.swap(amount0Out, amount1Out, to, data), steps, s)) : Bool}
 
+def lock(+storage: List<&2, Evm.Slot>) -> Nat:
+  Evm.lookup(storage, Evm.Transient{Pair.LOCK()})
+
+# While one of swap, mint, burn and sync runs, it holds the lock, and each
+# of them raises Locked(). So a callback cannot sync and mint against the
+# reserves of a swap that paid out and did not check yet. The ERC20
+# functions and the views have no lock.
+law swap_locked:
+  for +storage: List<&2, Evm.Slot>
+  for +caller: Nat
+  for +limit: Nat
+  for +logs: List<&2, Evm.Log>
+  for +world: Evm.World
+  for +amount0Out: Nat
+  for +amount1Out: Nat
+  for +to: Nat
+  for +data: Evm.Bytes
+  for +h: {False{} == Nat.is_eq(lock(storage), 0n) : Bool}
+  {Evm.run(Unit, Pair.swap(amount0Out, amount1Out, to, data), Evm.State{storage, caller, limit, logs, world})
+    == Evm.Raise{Pair.Locked()} : Evm.Outcome<Unit>}
+
+law mint_locked:
+  for +storage: List<&2, Evm.Slot>
+  for +caller: Nat
+  for +limit: Nat
+  for +logs: List<&2, Evm.Log>
+  for +world: Evm.World
+  for +to: Nat
+  for +h: {False{} == Nat.is_eq(lock(storage), 0n) : Bool}
+  {Evm.run(Nat, Pair.mint(to), Evm.State{storage, caller, limit, logs, world}) == Evm.Raise{Pair.Locked()} : Evm.Outcome<Nat>}
+
+law burn_locked:
+  for +storage: List<&2, Evm.Slot>
+  for +caller: Nat
+  for +limit: Nat
+  for +logs: List<&2, Evm.Log>
+  for +world: Evm.World
+  for +to: Nat
+  for +h: {False{} == Nat.is_eq(lock(storage), 0n) : Bool}
+  {Evm.run(Unit, Pair.burn(to), Evm.State{storage, caller, limit, logs, world}) == Evm.Raise{Pair.Locked()} : Evm.Outcome<Unit>}
+
+law sync_locked:
+  for +storage: List<&2, Evm.Slot>
+  for +caller: Nat
+  for +limit: Nat
+  for +logs: List<&2, Evm.Log>
+  for +world: Evm.World
+  for +h: {False{} == Nat.is_eq(lock(storage), 0n) : Bool}
+  {Evm.run(Unit, Pair.sync(), Evm.State{storage, caller, limit, logs, world}) == Evm.Raise{Pair.Locked()} : Evm.Outcome<Unit>}
+
 def supply(+storage: List<&2, Evm.Slot>) -> Nat:
   Evm.lookup(storage, Evm.Plain{ERC20.SUPPLY()})
 
@@ -54,7 +104,8 @@ def token0(+storage: List<&2, Evm.Slot>) -> Nat:
 def token1(+storage: List<&2, Evm.Slot>) -> Nat:
   Evm.lookup(storage, Evm.Plain{Pair.TOKEN1()})
 
-# sync makes the balances that the tokens report the reserves.
+# sync makes the balances that the tokens report the reserves. It takes the
+# lock first, and gives it back at the end.
 law sync:
   for +storage: List<&2, Evm.Slot>
   for +caller: Nat
@@ -72,12 +123,15 @@ law sync:
   for +more: List<&2, Evm.Answer>
   {Evm.run(Unit, Pair.sync(), Evm.State{storage, caller, limit, logs,
       Evm.World{facts, readings, self, hashes, signers, Evm.Answer{q0, b0} <> Evm.Answer{q1, b1} <> more}})
-    == Bool.pick(Evm.Outcome<Unit>, Evm.same.call(q0, Evm.Call{token0(storage), "balanceOf", [self]}),
-      Bool.pick(Evm.Outcome<Unit>, Evm.same.call(q1, Evm.Call{token1(storage), "balanceOf", [self]}),
-        Evm.Ok{Unit{}, Evm.State{Evm.Slot{Evm.Plain{Pair.RESERVE1()}, b1} <> Evm.Slot{Evm.Plain{Pair.RESERVE0()}, b0} <> storage,
-          caller, limit, Pair.Sync(b0, b1) <> logs, Evm.World{facts, readings, self, hashes, signers, more}}},
+    == Bool.pick(Evm.Outcome<Unit>, Nat.is_eq(lock(storage), 0n),
+      Bool.pick(Evm.Outcome<Unit>, Evm.same.call(q0, Evm.Call{token0(storage), "balanceOf", [self]}),
+        Bool.pick(Evm.Outcome<Unit>, Evm.same.call(q1, Evm.Call{token1(storage), "balanceOf", [self]}),
+          Evm.Ok{Unit{}, Evm.State{Evm.Slot{Evm.Transient{Pair.LOCK()}, 0n} <> Evm.Slot{Evm.Plain{Pair.RESERVE1()}, b1}
+            <> Evm.Slot{Evm.Plain{Pair.RESERVE0()}, b0} <> Evm.Slot{Evm.Transient{Pair.LOCK()}, 1n} <> storage,
+            caller, limit, Pair.Sync(b0, b1) <> logs, Evm.World{facts, readings, self, hashes, signers, more}}},
+          Evm.Revert{}),
         Evm.Revert{}),
-      Evm.Revert{}) : Evm.Outcome<Unit>}
+      Evm.Raise{Pair.Locked()}) : Evm.Outcome<Unit>}
 
 # For each token, the reserve for each liquidity token does not go down
 # from storage st to storage t: supply(t) * reserve(st) <= supply(st) *

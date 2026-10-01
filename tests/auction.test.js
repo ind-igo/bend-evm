@@ -132,6 +132,29 @@ async function apply({ auction, bidder }, step) {
   }
 }
 
+// One block at the end time, with an end and then a bid on each side. The
+// end pays the beneficiary, and the bid is late: it reverts, so no ether
+// stays in an auction that has ended.
+async function boundary(lines) {
+  const end = BigInt((await rpc(view(sides[0].auction, 'auctionEndTime()')))[0].result);
+  await rpc(['evm_setAutomine', false]);
+  const sent = [];
+  for (const { auction } of sides) {
+    for (const [signature, value] of [['auctionEnd()', 0n], ['bid()', 10n ** 18n]]) {
+      const tx = { from: people[1], to: auction, value: hex(value), gas: hex(1_000_000n), data: calldata(signature) };
+      sent.push((await rpc(['eth_sendTransaction', tx]))[0].result);
+    }
+  }
+  await rpc(['evm_mine', Number(end)], ['evm_setAutomine', true]);
+  const receipts = (await rpc(...sent.map(hash => ['eth_getTransactionReceipt', hash]))).map(r => r.result);
+  expect(receipts.map(r => BigInt(r.blockNumber))).toEqual(receipts.map(() => BigInt(receipts[0].blockNumber)));
+  expect(receipts.map(r => r.status)).toEqual(['0x1', '0x0', '0x1', '0x0']);
+  for (const [i, side] of sides.entries()) {
+    const done = receipts.slice(2 * i, 2 * i + 2).map(r => named([r.status, ...r.logs.map(l => `${l.address} ${l.topics.join(' ')} ${l.data}`)].join(' ')));
+    lines[i].push('boundary', ...done, await state(side));
+  }
+}
+
 test(`the Bend auction and Solidity's SimpleAuction agree on random steps (SEED=${seed})`, async () => {
   const random = generator(seed);
   const before = [...scripted(), ...steps(random, 60, 5)];
@@ -144,6 +167,7 @@ test(`the Bend auction and Solidity's SimpleAuction agree on random steps (SEED=
     }
   };
   await play(before);
+  await boundary(lines);
   await rpc(['evm_increaseTime', Number(2n * biddingTime)], ['evm_mine']);
   await play(after);
   expect(lines[0]).toEqual(lines[1]);

@@ -92,7 +92,7 @@ test('a certificate for the wrong word operation does not check', () => {
 // Not mint: the checker prints the failed term without sharing, and the
 // square root's term then grows past a gigabyte.
 test('a certificate for the wrong fee does not check', () => {
-  mutated('examples/amm', [['IR.Mul{IR.Var{91n}, IR.Lit{3n}}', 'IR.Mul{IR.Var{91n}, IR.Lit{2n}}', 'swap']],
+  mutated('examples/amm', [['IR.Mul{IR.Var{307n}, IR.Lit{3n}}', 'IR.Mul{IR.Var{307n}, IR.Lit{2n}}', 'swap']],
     ['examples/erc20/ERC20.bend']);
 }, 120_000);
 

@@ -7,7 +7,7 @@ import { generator } from './random.js';
 // the same pair in Solidity (tests/fixtures/reference/Pair.sol) each get two
 // Coins, which can misbehave or call back into the pair when it pays, and
 // share a Borrower for flash swaps, which pays back or not, and can flash
-// swap again inside its call. Both
+// swap, or sync and mint, inside its call, which the lock stops. Both
 // get the same random steps on one anvil chain, and must give the same
 // results, revert data, logs and state after each step. Addresses become
 // names first, as the two sides have their own. Solidity's arithmetic
@@ -107,7 +107,13 @@ function scripted() {
     { kind: 'add', a0: 10n ** 18n, a1: 10n ** 18n, who: b },
     { kind: 'remove', part: 0.5, who: a },
     mode(1, 4), { kind: 'remove', part: 0.5, who: b }, mode(1, 0),
+    // The pair's balances become its reserves, so a flash swap that pays
+    // back one token too few fails the check with K().
+    { kind: 'sync', who: b },
     ...[0n, -1n].flatMap(extra => [0, 1, 2].map(m => ({ kind: 'flash', coin: 0, amount: 10n ** 18n, extra, mode: m, who: b }))),
+    // The theft that the lock stops: take 90% of each token, sync, pay back
+    // 90.3% and mint against the synced reserves.
+    { kind: 'theft', who: b },
     // A flash swap to an account with no code reverts before the call.
     { kind: 'raw', a0: 1n, a1: 0n, to: a, data: '0x01', who: b },
   ];
@@ -144,15 +150,20 @@ function apply(side, step) {
       return [effect(step.who, pair, 'swap(uint256,uint256,address,bytes)', String(step.a0), String(step.a1), to, step.data ?? '0x')];
     }
     case 'flash': {
-      // Out of one coin, paid back in the same coin: the amount less the
-      // fee, rounded up, is enough; one less is not.
+      // Out of one coin, paid back in the same coin: o / 0.997, rounded up,
+      // is enough when the balances are the reserves; one less is not.
       const [r0, r1] = r();
       const o = step.amount < (step.coin === 0 ? r0 : r1) ? step.amount : 1n;
-      const paid = o * 1000n / 997n + 1n + step.extra;
+      const paid = (o * 1000n + 996n) / 997n + step.extra;
       const pays = step.coin === 0 ? [paid, 0n] : [0n, paid];
       const outs = step.coin === 0 ? [o, 0n] : [0n, o];
       const data = must(run('cast', 'abi-encode', 'f(uint256,uint256,uint256)', ...pays.map(String), String(step.mode)));
       return [effect(step.who, pair, 'swap(uint256,uint256,address,bytes)', ...outs.map(String), borrower, data)];
+    }
+    case 'theft': {
+      const [r0, r1] = r();
+      const data = must(run('cast', 'abi-encode', 'f(uint256,uint256,uint256)', String(r0 * 903n / 1000n), String(r1 * 903n / 1000n), '3'));
+      return [effect(step.who, pair, 'swap(uint256,uint256,address,bytes)', String(r0 * 9n / 10n), String(r1 * 9n / 10n), borrower, data)];
     }
     case 'sync':
       return [effect(step.who, pair, 'sync()')];
@@ -171,14 +182,18 @@ test(`the Bend pair and the Solidity pair agree on random steps (SEED=${seed})`,
   expect(lines[0]).toEqual(lines[1]);
   if (process.env.DUMP) Bun.write(process.env.DUMP, lines[0].join("\n"));
   // The steps must reach the paths that matter: flash swaps that pay back
-  // and pass, and ones that do not.
+  // and pass, ones that pay one token too few and fail the check, and the
+  // theft, which the lock stops.
   const all = lines[0].join('\n');
-  const flashes = lines[0].map((l, i) => [l, lines[0][i + 1]]).filter(([l]) => l.includes('"flash"'));
-  expect(flashes.filter(([, r]) => r.startsWith('ok')).length).toBeGreaterThan(2);
-  expect(flashes.filter(([, r]) => r.startsWith('revert')).length).toBeGreaterThan(2);
+  const sig = error => must(run('cast', 'sig', error)).slice(2);
+  const after = kind => lines[0].map((l, i) => [l, lines[0][i + 1]]).filter(([l]) => l.includes(`"${kind}"`)).map(([, r]) => r);
+  const flashes = after('flash');
+  expect(flashes.filter(r => r.startsWith('ok')).length).toBeGreaterThan(2);
+  expect(flashes.filter(r => r === `revert ${sig('K()')}`).length).toBeGreaterThan(1);
+  expect(after('theft')).toEqual([`revert ${sig('Locked()')}`]);
   for (const error of ['K()', 'InsufficientInputAmount()', 'InsufficientLiquidity()', 'TransferFailed()', 'InvalidTo()',
     'InsufficientLiquidityMinted()', 'InsufficientLiquidityBurned()']) {
-    expect(all).toContain(`revert ${must(run('cast', 'sig', error)).slice(2)}`);
+    expect(all).toContain(`revert ${sig(error)}`);
   }
   for (const event of ['Swap(address,address,uint256,uint256,uint256,uint256)', 'Burn(address,address,uint256,uint256)',
     'Mint(address,uint256,uint256)']) {

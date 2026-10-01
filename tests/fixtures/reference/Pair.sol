@@ -2,7 +2,7 @@
 pragma solidity ^0.8.20;
 
 // The reference for examples/amm/Pair.bend: Uniswap V2's pair with the same
-// changes (no lock, no oracle, no skim, full-word reserves
+// changes (a lock in transient storage, no oracle, no skim, full-word reserves
 // and no time in getReserves, custom errors, both transfers always made,
 // indexed event parameters first). The square root is Uniswap's Babylonian loop, not the Bend pair's
 // Newton steps, so the test checks one against the other.
@@ -36,6 +36,16 @@ contract Pair {
     error InvalidTo();
     error TransferFailed();
     error K();
+    error Locked();
+
+    bool transient locked;
+
+    modifier lock() {
+        if (locked) revert Locked();
+        locked = true;
+        _;
+        locked = false;
+    }
 
     constructor(address _token0, address _token1) {
         token0 = _token0;
@@ -103,11 +113,15 @@ contract Pair {
         return (reserve0, reserve1);
     }
 
-    function sync() public {
+    function sync() external lock {
+        _sync();
+    }
+
+    function _sync() internal {
         _update(IERC20(token0).balanceOf(address(this)), IERC20(token1).balanceOf(address(this)));
     }
 
-    function mint(address to) external returns (uint256 liquidity) {
+    function mint(address to) external lock returns (uint256 liquidity) {
         uint256 balance0 = IERC20(token0).balanceOf(address(this));
         uint256 balance1 = IERC20(token1).balanceOf(address(this));
         uint256 amount0 = balance0 - reserve0;
@@ -126,7 +140,7 @@ contract Pair {
         emit Mint(msg.sender, amount0, amount1);
     }
 
-    function burn(address to) external {
+    function burn(address to) external lock {
         address _token0 = token0;
         address _token1 = token1;
         uint256 balance0 = IERC20(_token0).balanceOf(address(this));
@@ -139,11 +153,11 @@ contract Pair {
         _burn(address(this), liquidity);
         _pay(_token0, to, amount0);
         _pay(_token1, to, amount1);
-        sync();
+        _sync();
         emit Burn(msg.sender, to, amount0, amount1);
     }
 
-    function swap(uint256 amount0Out, uint256 amount1Out, address to, bytes calldata data) external {
+    function swap(uint256 amount0Out, uint256 amount1Out, address to, bytes calldata data) external lock {
         if (amount0Out == 0 && amount1Out == 0) revert InsufficientOutputAmount();
         uint256 r0 = reserve0;
         uint256 r1 = reserve1;
@@ -237,15 +251,19 @@ interface IPairTokens {
 // The receiver of flash swaps. The data says what to pay back: pay0 and
 // pay1 of each token, which it mints to the pair, and a mode. 0: pay. 1:
 // revert. 2: pay, then flash swap one token out again, paying it back with
-// one more, inside the call.
+// one more, inside the call. 3: sync, pay, then mint, which the lock stops:
+// without it, the mint would buy liquidity against the reserves that the
+// swap paid out.
 contract Borrower {
     function uniswapV2Call(address, uint256, uint256, bytes calldata data) external {
         (uint256 pay0, uint256 pay1, uint256 mode) = abi.decode(data, (uint256, uint256, uint256));
         require(mode != 1, "no");
         address token0 = IPairTokens(msg.sender).token0();
         address token1 = IPairTokens(msg.sender).token1();
+        if (mode == 3) IPair(msg.sender).sync();
         Coin(token0).mint(msg.sender, pay0);
         Coin(token1).mint(msg.sender, pay1);
+        if (mode == 3) IPair(msg.sender).mint(address(this));
         if (mode == 2) try IPair(msg.sender).swap(1, 0, address(this), abi.encode(uint256(3), uint256(0), uint256(0))) {} catch {}
     }
 }

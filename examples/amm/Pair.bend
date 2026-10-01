@@ -11,8 +11,12 @@ import ./Math.bend as Math
 # tokens to the pair, then calls mint or swap; for burn, the user first
 # sends liquidity tokens to the pair.
 #
-# There is no lock. A token, or the receiver of a flash swap, may call back
-# into the pair, and LAWS.bend proves that x·y still does not go down.
+# As in Uniswap, swap, mint, burn and sync share a lock in transient
+# storage: while one of them runs, a callback into any of them raises
+# Locked(). Without it, a flash swap's receiver could sync and then mint
+# against the reserves that the swap paid out, and burn later for more than
+# it paid. A token, or the receiver of a flash swap, may still call the
+# other functions, and LAWS.bend proves that x·y does not go down.
 #
 # Not here: the price oracle, skim, the protocol fee and the 112-bit
 # reserves. Reserves are full words, and the checked arithmetic
@@ -30,6 +34,10 @@ def RESERVE0() -> Nat:
 
 def RESERVE1() -> Nat:
   6n
+
+# The transient slot of the lock.
+def LOCK() -> Nat:
+  0n
 
 # The liquidity that the first mint locks at address zero.
 def MINIMUM_LIQUIDITY() -> Nat:
@@ -77,6 +85,9 @@ def TransferFailed() -> Evm.Error:
 
 def K() -> Evm.Error:
   Evm.Error{"K", []}
+
+def Locked() -> Evm.Error:
+  Evm.Error{"Locked", []}
 
 def name() -> String:
   "Bend LP"
@@ -134,6 +145,17 @@ def pay(+token: Nat, +to: Nat, +amount: Nat) -> Evm.Contract(Unit):
     ok : Nat <- Evm.call(IERC20.transfer(token, to, amount))
     Evm.ensure(Nat.is_eq(ok, 1n), TransferFailed())
 
+# Takes the lock, or raises Locked() if one of swap, mint, burn and sync
+# has it.
+def enter() -> Evm.Contract(Unit):
+  do Evm.Contract<Unit>:
+    held : Nat <- Evm.tload(LOCK())
+    Evm.ensure(Nat.is_eq(held, 0n), Locked())
+    Evm.tstore(LOCK(), 1n)
+
+def leave() -> Evm.Contract(Unit):
+  Evm.tstore(LOCK(), 0n)
+
 # The new reserves.
 def update(+balance0: Nat, +balance1: Nat) -> Evm.Contract(Unit):
   do Evm.Contract<Unit>:
@@ -142,7 +164,7 @@ def update(+balance0: Nat, +balance1: Nat) -> Evm.Contract(Unit):
     Evm.emit(Sync(balance0, balance1))
 
 # The pair's balances of its two tokens become the reserves.
-def sync() -> Evm.Contract(Unit):
+def refresh() -> Evm.Contract(Unit):
   do Evm.Contract<Unit>:
     +me : Nat <- Evm.self()
     +t0 : Nat <- Evm.sload(TOKEN0())
@@ -150,6 +172,12 @@ def sync() -> Evm.Contract(Unit):
     +balance0 : Nat <- Evm.view(IERC20.balanceOf(t0, me))
     +balance1 : Nat <- Evm.view(IERC20.balanceOf(t1, me))
     update(balance0, balance1)
+
+def sync() -> Evm.Contract(Unit):
+  do Evm.Contract<Unit>:
+    enter()
+    refresh()
+    leave()
 
 # The end of a mint: gives to the liquidity, which must not be zero.
 def minted(+to: Nat, +balance0: Nat, +balance1: Nat, +amount0: Nat, +amount1: Nat, +liquidity: Nat) ->
@@ -160,6 +188,7 @@ def minted(+to: Nat, +balance0: Nat, +balance1: Nat, +amount0: Nat, +amount1: Na
     update(balance0, balance1)
     +who : Nat <- Evm.caller()
     Evm.emit(Mint(who, amount0, amount1))
+    leave()
     Evm.Contract.pure(Nat, liquidity)
 
 # The first mint: the geometric mean of the amounts, less the minimum
@@ -183,9 +212,8 @@ def more(+to: Nat, +balance0: Nat, +balance1: Nat, +amount0: Nat, +amount1: Nat,
     +liquidity : Nat <- Evm.select(Nat.is_lt(share0, share1), share0, share1)
     minted(to, balance0, balance1, amount0, amount1, liquidity)
 
-# Gives to liquidity tokens for the tokens sent to the pair since the last
-# update, and returns their number.
-def mint(+to: Evm.Address) -> Evm.Contract(Nat):
+# mint, with the lock taken.
+def issue(+to: Nat) -> Evm.Contract(Nat):
   do Evm.Contract<Nat>:
     +me : Nat <- Evm.self()
     +t0 : Nat <- Evm.sload(TOKEN0())
@@ -200,9 +228,15 @@ def mint(+to: Evm.Address) -> Evm.Contract(Nat):
     Evm.branch(Nat, Nat.is_eq(supply, 0n), first(to, balance0, balance1, amount0, amount1),
       more(to, balance0, balance1, amount0, amount1, r0, r1, supply))
 
-# Burns the liquidity tokens that the pair holds, and sends to its share
-# of each token.
-def burn(+to: Evm.Address) -> Evm.Contract(Unit):
+# Gives to liquidity tokens for the tokens sent to the pair since the last
+# update, and returns their number.
+def mint(+to: Evm.Address) -> Evm.Contract(Nat):
+  do Evm.Contract<Nat>:
+    enter()
+    issue(to)
+
+# burn, with the lock taken.
+def redeem(+to: Nat) -> Evm.Contract(Unit):
   do Evm.Contract<Unit>:
     +who : Nat <- Evm.caller()
     +me : Nat <- Evm.self()
@@ -221,8 +255,16 @@ def burn(+to: Evm.Address) -> Evm.Contract(Unit):
     ERC20.burn(me, liquidity)
     pay(t0, to, amount0)
     pay(t1, to, amount1)
-    sync()
+    refresh()
     Evm.emit(Burn(who, to, amount0, amount1))
+    leave()
+
+# Burns the liquidity tokens that the pair holds, and sends to its share
+# of each token.
+def burn(+to: Evm.Address) -> Evm.Contract(Unit):
+  do Evm.Contract<Unit>:
+    enter()
+    redeem(to)
 
 # The check at the end of a swap, on the balances after the tokens went out.
 def check(+who: Nat, +to: Nat, +amount0Out: Nat, +amount1Out: Nat, +r0: Nat, +r1: Nat, +balance0: Nat,
@@ -249,6 +291,7 @@ def check(+who: Nat, +to: Nat, +amount0Out: Nat, +amount1Out: Nat, +r0: Nat, +r1
     Evm.ensure(Bool.not(Nat.is_lt(after, least)), K())
     update(balance0, balance1)
     Evm.emit(Swap(who, to, amount0In, amount1In, amount0Out, amount1Out))
+    leave()
 
 # The end of a swap, after the tokens went out.
 def settle(+who: Nat, +to: Nat, +amount0Out: Nat, +amount1Out: Nat, +r0: Nat, +r1: Nat) -> Evm.Contract(Unit):
@@ -268,10 +311,8 @@ def flash(+who: Nat, +to: Nat, +amount0Out: Nat, +amount1Out: Nat, +r0: Nat, +r1
     Evm.invoke(ICallee.uniswapV2Call(to, who, amount0Out, amount1Out, data))
     settle(who, to, amount0Out, amount1Out, r0, r1)
 
-# Sends to the amounts out. The tokens that the caller sent in, before the
-# swap or in the flash swap's call when data is not empty, less the 0.3%
-# fee, must keep the product of the reserves.
-def swap(+amount0Out: Nat, +amount1Out: Nat, +to: Evm.Address, +data: Evm.Bytes) -> Evm.Contract(Unit):
+# swap, with the lock taken.
+def exchange(+amount0Out: Nat, +amount1Out: Nat, +to: Nat, +data: Evm.Bytes) -> Evm.Contract(Unit):
   do Evm.Contract<Unit>:
     +who : Nat <- Evm.caller()
     +out : Nat <- Evm.or(amount0Out, amount1Out)
@@ -288,3 +329,12 @@ def swap(+amount0Out: Nat, +amount1Out: Nat, +to: Evm.Address, +data: Evm.Bytes)
     pay(t1, to, amount1Out)
     Evm.branch(Unit, Nat.is_eq(Evm.length(data), 0n), settle(who, to, amount0Out, amount1Out, r0, r1),
       flash(who, to, amount0Out, amount1Out, r0, r1, data))
+
+
+# Sends to the amounts out. The tokens that the caller sent in, before the
+# swap or in the flash swap's call when data is not empty, less the 0.3%
+# fee, must keep the product of the reserves.
+def swap(+amount0Out: Nat, +amount1Out: Nat, +to: Evm.Address, +data: Evm.Bytes) -> Evm.Contract(Unit):
+  do Evm.Contract<Unit>:
+    enter()
+    exchange(amount0Out, amount1Out, to, data)

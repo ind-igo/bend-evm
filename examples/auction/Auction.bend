@@ -104,12 +104,13 @@ def outbid(+who: Nat, +amount: Nat, +high: Nat) -> Evm.Contract(Unit):
     lead(who, amount)
 
 # A bid of the ether sent, before the end, and above the highest bid. The
-# bidder it outbids can withdraw that bid.
+# bidder it outbids can withdraw that bid. A bid at the end time is late:
+# auctionEnd can run then, and a bid after it would lock its ether.
 def bid() -> Evm.Payable(Unit):
   do Evm.Contract<Unit>:
     now : Nat <- Evm.timestamp()
     end : Nat <- Evm.sload(END())
-    Evm.ensure(Bool.not(Nat.is_lt(end, now)), AuctionAlreadyEnded())
+    Evm.ensure(Nat.is_lt(now, end), AuctionAlreadyEnded())
     +who : Nat <- Evm.caller()
     +amount : Nat <- Evm.callvalue()
     +high : Nat <- Evm.sload(BID())

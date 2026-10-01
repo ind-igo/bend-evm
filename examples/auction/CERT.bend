@@ -89,7 +89,7 @@ def status():
 def ir.bid() -> IR.Cmd:
   IR.Bind{IR.Env{Evm.Timestamp{}, []}, 0n,
     IR.Bind{IR.SLoad{IR.Plain{IR.Lit{1n}}}, 1n,
-    IR.Then{IR.Ensure{IR.Not{IR.Lt{IR.Var{1n}, IR.Var{0n}}}, "AuctionAlreadyEnded()", []},
+    IR.Then{IR.Ensure{IR.Lt{IR.Var{0n}, IR.Var{1n}}, "AuctionAlreadyEnded()", []},
     IR.Bind{IR.Caller{}, 3n,
     IR.Bind{IR.Env{Evm.CallValue{}, []}, 4n,
     IR.Bind{IR.SLoad{IR.Plain{IR.Lit{3n}}}, 5n,

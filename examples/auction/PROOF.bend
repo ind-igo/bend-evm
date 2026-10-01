@@ -10,13 +10,13 @@ def Laws.init(storage, who, limit, logs, world, biddingTime, beneficiary):
 # lemma takes the branch's condition as c and matches on it.
 def bid.go(c: Bool, +storage: List<&2, Evm.Slot>, +who: Nat, +limit: Nat, +logs: List<&2, Evm.Log>,
   +facts: List<&2, Evm.Fact>, +value: Nat, +world: Evm.World) ->
-  {Bool.pick(Evm.Outcome<Unit>, Bool.not(Nat.is_lt(Laws.stored(storage, 1n), Laws.now(facts))),
+  {Bool.pick(Evm.Outcome<Unit>, Nat.is_lt(Laws.now(facts), Laws.stored(storage, 1n)),
       Bool.pick(Evm.Outcome<Unit>, Nat.is_lt(Laws.stored(storage, 3n), value),
         Evm.branch(Unit, c, Auction.lead(who, value), Auction.outbid(who, value, Laws.stored(storage, 3n)))(Unit,
           x => t => Evm.Ok{x, t}, Evm.State{storage, who, limit, logs, world}),
         Evm.Raise{Auction.BidNotHighEnough(Laws.stored(storage, 3n))}),
       Evm.Raise{Auction.AuctionAlreadyEnded()})
-    == Bool.pick(Evm.Outcome<Unit>, Bool.not(Nat.is_lt(Laws.stored(storage, 1n), Laws.now(facts))),
+    == Bool.pick(Evm.Outcome<Unit>, Nat.is_lt(Laws.now(facts), Laws.stored(storage, 1n)),
       Bool.pick(Evm.Outcome<Unit>, Nat.is_lt(Laws.stored(storage, 3n), value),
         Bool.pick(Evm.Outcome<Unit>, c,
           Laws.led(storage, who, limit, logs, world, value),
