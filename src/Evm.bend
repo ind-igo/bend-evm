@@ -649,6 +649,13 @@ def views(c: Call, n: Nat) -> Contract(Values):
 def call(c: Call) -> Contract(Nat):
   R => k => s => Calling{c, s, k}
 
+# Calls a function that returns nothing, such as a flash swap's
+# uniswapV2Call: as Evm.call, but the answer's word is not used. On the
+# chain the target must have code, as Solidity checks, and the call must not
+# fail.
+def invoke(c: Call) -> Contract(Unit):
+  R => k => s => Calling{c, s, _ => t => k(Unit{}, t)}
+
 # Sends amount wei to another account with call and no data, and reverts
 # when the call fails, like solady's safeTransferETH. The receiver may call
 # back into this contract, so the contract stops here, as at Evm.call.

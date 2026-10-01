@@ -2,7 +2,7 @@
 pragma solidity ^0.8.20;
 
 // The reference for examples/amm/Pair.bend: Uniswap V2's pair with the same
-// changes (no lock, no oracle, no flash swaps, no skim, full-word reserves
+// changes (no lock, no oracle, no skim, full-word reserves
 // and no time in getReserves, custom errors, both transfers always made,
 // indexed event parameters first). The square root is Uniswap's Babylonian loop, not the Bend pair's
 // Newton steps, so the test checks one against the other.
@@ -143,7 +143,7 @@ contract Pair {
         emit Burn(msg.sender, to, amount0, amount1);
     }
 
-    function swap(uint256 amount0Out, uint256 amount1Out, address to) external {
+    function swap(uint256 amount0Out, uint256 amount1Out, address to, bytes calldata data) external {
         if (amount0Out == 0 && amount1Out == 0) revert InsufficientOutputAmount();
         uint256 r0 = reserve0;
         uint256 r1 = reserve1;
@@ -153,6 +153,11 @@ contract Pair {
         if (to == token1) revert InvalidTo();
         _pay(token0, to, amount0Out);
         _pay(token1, to, amount1Out);
+        if (data.length > 0) IUniswapV2Callee(to).uniswapV2Call(msg.sender, amount0Out, amount1Out, data);
+        _settle(to, amount0Out, amount1Out, r0, r1);
+    }
+
+    function _settle(address to, uint256 amount0Out, uint256 amount1Out, uint256 r0, uint256 r1) private {
         uint256 balance0 = IERC20(token0).balanceOf(address(this));
         uint256 balance1 = IERC20(token1).balanceOf(address(this));
         uint256 amount0In = balance0 > r0 - amount0Out ? balance0 - (r0 - amount0Out) : 0;
@@ -174,7 +179,11 @@ interface IERC20 {
 interface IPair {
     function sync() external;
     function mint(address to) external returns (uint256);
-    function swap(uint256 amount0Out, uint256 amount1Out, address to) external;
+    function swap(uint256 amount0Out, uint256 amount1Out, address to, bytes calldata data) external;
+}
+
+interface IUniswapV2Callee {
+    function uniswapV2Call(address sender, uint256 amount0, uint256 amount1, bytes calldata data) external;
 }
 
 // A token for the pair test, with balances and no allowances. When the pair
@@ -211,7 +220,7 @@ contract Coin {
             if (mode == 4) {
                 // Out of whichever token is not this one.
                 bool zero = IPairTokens(msg.sender).token0() == address(this);
-                try IPair(msg.sender).swap(zero ? 0 : 1, zero ? 1 : 0, owner) {} catch {}
+                try IPair(msg.sender).swap(zero ? 0 : 1, zero ? 1 : 0, owner, "") {} catch {}
             }
             if (mode == 5) try IPair(msg.sender).mint(owner) {} catch {}
             inside = false;
@@ -222,4 +231,21 @@ contract Coin {
 
 interface IPairTokens {
     function token0() external view returns (address);
+    function token1() external view returns (address);
+}
+
+// The receiver of flash swaps. The data says what to pay back: pay0 and
+// pay1 of each token, which it mints to the pair, and a mode. 0: pay. 1:
+// revert. 2: pay, then flash swap one token out again, paying it back with
+// one more, inside the call.
+contract Borrower {
+    function uniswapV2Call(address, uint256, uint256, bytes calldata data) external {
+        (uint256 pay0, uint256 pay1, uint256 mode) = abi.decode(data, (uint256, uint256, uint256));
+        require(mode != 1, "no");
+        address token0 = IPairTokens(msg.sender).token0();
+        address token1 = IPairTokens(msg.sender).token1();
+        Coin(token0).mint(msg.sender, pay0);
+        Coin(token1).mint(msg.sender, pay1);
+        if (mode == 2) try IPair(msg.sender).swap(1, 0, address(this), abi.encode(uint256(3), uint256(0), uint256(0))) {} catch {}
+    }
 }

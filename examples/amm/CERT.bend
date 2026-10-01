@@ -328,28 +328,29 @@ def burn(p0):
   {==}
 
 def ir.swap() -> IR.Cmd:
-  IR.Bind{IR.Caller{}, 3n,
-    IR.Bind{IR.Math{Evm.Or{}, [IR.Var{0n}, IR.Var{1n}]}, 4n,
-    IR.Then{IR.Ensure{IR.Lt{IR.Lit{0n}, IR.Var{4n}}, "InsufficientOutputAmount()", []},
-    IR.Bind{IR.SLoad{IR.Plain{IR.Lit{5n}}}, 6n,
-    IR.Bind{IR.SLoad{IR.Plain{IR.Lit{6n}}}, 7n,
-    IR.Then{IR.Ensure{IR.Lt{IR.Var{0n}, IR.Var{6n}}, "InsufficientLiquidity()", []},
-    IR.Then{IR.Ensure{IR.Lt{IR.Var{1n}, IR.Var{7n}}, "InsufficientLiquidity()", []},
-    IR.Bind{IR.SLoad{IR.Plain{IR.Lit{3n}}}, 10n,
-    IR.Bind{IR.SLoad{IR.Plain{IR.Lit{4n}}}, 11n,
-    IR.Then{IR.Ensure{IR.Not{IR.Eq{IR.Var{2n}, IR.Var{10n}}}, "InvalidTo()", []},
+  IR.Bind{IR.Caller{}, 4n,
+    IR.Bind{IR.Math{Evm.Or{}, [IR.Var{0n}, IR.Var{1n}]}, 5n,
+    IR.Then{IR.Ensure{IR.Lt{IR.Lit{0n}, IR.Var{5n}}, "InsufficientOutputAmount()", []},
+    IR.Bind{IR.SLoad{IR.Plain{IR.Lit{5n}}}, 7n,
+    IR.Bind{IR.SLoad{IR.Plain{IR.Lit{6n}}}, 8n,
+    IR.Then{IR.Ensure{IR.Lt{IR.Var{0n}, IR.Var{7n}}, "InsufficientLiquidity()", []},
+    IR.Then{IR.Ensure{IR.Lt{IR.Var{1n}, IR.Var{8n}}, "InsufficientLiquidity()", []},
+    IR.Bind{IR.SLoad{IR.Plain{IR.Lit{3n}}}, 11n,
+    IR.Bind{IR.SLoad{IR.Plain{IR.Lit{4n}}}, 12n,
     IR.Then{IR.Ensure{IR.Not{IR.Eq{IR.Var{2n}, IR.Var{11n}}}, "InvalidTo()", []},
-    IR.Bind{IR.Call{IR.Var{10n}, "transfer(address,uint256)", [IR.Var{2n}, IR.Var{0n}]}, 111n,
-    IR.Then{IR.Ensure{IR.Eq{IR.Var{111n}, IR.Lit{1n}}, "TransferFailed()", []},
-    IR.Bind{IR.Call{IR.Var{11n}, "transfer(address,uint256)", [IR.Var{2n}, IR.Var{1n}]}, 107n,
-    IR.Then{IR.Ensure{IR.Eq{IR.Var{107n}, IR.Lit{1n}}, "TransferFailed()", []},
+    IR.Then{IR.Ensure{IR.Not{IR.Eq{IR.Var{2n}, IR.Var{12n}}}, "InvalidTo()", []},
+    IR.Bind{IR.Call{IR.Var{11n}, "transfer(address,uint256)", [IR.Var{2n}, IR.Var{0n}]}, 215n,
+    IR.Then{IR.Ensure{IR.Eq{IR.Var{215n}, IR.Lit{1n}}, "TransferFailed()", []},
+    IR.Bind{IR.Call{IR.Var{12n}, "transfer(address,uint256)", [IR.Var{2n}, IR.Var{1n}]}, 211n,
+    IR.Then{IR.Ensure{IR.Eq{IR.Var{211n}, IR.Lit{1n}}, "TransferFailed()", []},
+    IR.If{IR.Eq{IR.Length{3n}, IR.Lit{0n}},
     IR.Bind{IR.Self{}, 58n,
     IR.Bind{IR.SLoad{IR.Plain{IR.Lit{3n}}}, 59n,
     IR.Bind{IR.SLoad{IR.Plain{IR.Lit{4n}}}, 60n,
     IR.Bind{IR.View{IR.Var{59n}, "balanceOf(address)", [IR.Var{58n}]}, 61n,
     IR.Bind{IR.View{IR.Var{60n}, "balanceOf(address)", [IR.Var{58n}]}, 62n,
-    IR.Bind{IR.Sub{IR.Var{6n}, IR.Var{0n}}, 86n,
-    IR.Bind{IR.Sub{IR.Var{7n}, IR.Var{1n}}, 87n,
+    IR.Bind{IR.Sub{IR.Var{7n}, IR.Var{0n}}, 86n,
+    IR.Bind{IR.Sub{IR.Var{8n}, IR.Var{1n}}, 87n,
     IR.Bind{IR.Math{Evm.Sub{}, [IR.Var{61n}, IR.Var{86n}]}, 88n,
     IR.Bind{IR.Math{Evm.Sub{}, [IR.Var{62n}, IR.Var{87n}]}, 89n,
     IR.Bind{IR.Select{IR.Lt{IR.Var{86n}, IR.Var{61n}}, IR.Var{88n}, IR.Lit{0n}}, 90n,
@@ -363,22 +364,52 @@ def ir.swap() -> IR.Cmd:
     IR.Bind{IR.Mul{IR.Var{91n}, IR.Lit{3n}}, 98n,
     IR.Bind{IR.Sub{IR.Var{97n}, IR.Var{98n}}, 99n,
     IR.Bind{IR.Mul{IR.Var{96n}, IR.Var{99n}}, 100n,
-    IR.Bind{IR.Mul{IR.Var{6n}, IR.Var{7n}}, 101n,
+    IR.Bind{IR.Mul{IR.Var{7n}, IR.Var{8n}}, 101n,
     IR.Bind{IR.Mul{IR.Var{101n}, IR.Lit{1000n}}, 102n,
     IR.Bind{IR.Mul{IR.Var{102n}, IR.Lit{1000n}}, 103n,
     IR.Then{IR.Ensure{IR.Not{IR.Lt{IR.Var{100n}, IR.Var{103n}}}, "K()", []},
     IR.Then{IR.SStore{IR.Plain{IR.Lit{5n}}, IR.Var{61n}},
     IR.Then{IR.SStore{IR.Plain{IR.Lit{6n}}, IR.Var{62n}},
     IR.Then{IR.Log{"Sync(uint256,uint256)", [], [IR.Var{61n}, IR.Var{62n}]},
-    IR.Finish{IR.Log{"Swap(address,address,uint256,uint256,uint256,uint256)", [IR.Var{3n}, IR.Var{2n}], [IR.Var{90n}, IR.Var{91n}, IR.Var{0n}, IR.Var{1n}]}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}
+    IR.Finish{IR.Log{"Swap(address,address,uint256,uint256,uint256,uint256)", [IR.Var{4n}, IR.Var{2n}], [IR.Var{90n}, IR.Var{91n}, IR.Var{0n}, IR.Var{1n}]}}}}}}}}}}}}}}}}}}}}}}}}}}}}},
+    IR.Then{IR.Invoke{IR.Var{2n}, "uniswapV2Call(address,uint256,uint256,bytes)", [IR.Var{4n}, IR.Var{0n}, IR.Var{1n}, IR.Bytes{3n}]},
+    IR.Bind{IR.Self{}, 162n,
+    IR.Bind{IR.SLoad{IR.Plain{IR.Lit{3n}}}, 163n,
+    IR.Bind{IR.SLoad{IR.Plain{IR.Lit{4n}}}, 164n,
+    IR.Bind{IR.View{IR.Var{163n}, "balanceOf(address)", [IR.Var{162n}]}, 165n,
+    IR.Bind{IR.View{IR.Var{164n}, "balanceOf(address)", [IR.Var{162n}]}, 166n,
+    IR.Bind{IR.Sub{IR.Var{7n}, IR.Var{0n}}, 190n,
+    IR.Bind{IR.Sub{IR.Var{8n}, IR.Var{1n}}, 191n,
+    IR.Bind{IR.Math{Evm.Sub{}, [IR.Var{165n}, IR.Var{190n}]}, 192n,
+    IR.Bind{IR.Math{Evm.Sub{}, [IR.Var{166n}, IR.Var{191n}]}, 193n,
+    IR.Bind{IR.Select{IR.Lt{IR.Var{190n}, IR.Var{165n}}, IR.Var{192n}, IR.Lit{0n}}, 194n,
+    IR.Bind{IR.Select{IR.Lt{IR.Var{191n}, IR.Var{166n}}, IR.Var{193n}, IR.Lit{0n}}, 195n,
+    IR.Bind{IR.Math{Evm.Or{}, [IR.Var{194n}, IR.Var{195n}]}, 196n,
+    IR.Then{IR.Ensure{IR.Lt{IR.Lit{0n}, IR.Var{196n}}, "InsufficientInputAmount()", []},
+    IR.Bind{IR.Mul{IR.Var{165n}, IR.Lit{1000n}}, 198n,
+    IR.Bind{IR.Mul{IR.Var{194n}, IR.Lit{3n}}, 199n,
+    IR.Bind{IR.Sub{IR.Var{198n}, IR.Var{199n}}, 200n,
+    IR.Bind{IR.Mul{IR.Var{166n}, IR.Lit{1000n}}, 201n,
+    IR.Bind{IR.Mul{IR.Var{195n}, IR.Lit{3n}}, 202n,
+    IR.Bind{IR.Sub{IR.Var{201n}, IR.Var{202n}}, 203n,
+    IR.Bind{IR.Mul{IR.Var{200n}, IR.Var{203n}}, 204n,
+    IR.Bind{IR.Mul{IR.Var{7n}, IR.Var{8n}}, 205n,
+    IR.Bind{IR.Mul{IR.Var{205n}, IR.Lit{1000n}}, 206n,
+    IR.Bind{IR.Mul{IR.Var{206n}, IR.Lit{1000n}}, 207n,
+    IR.Then{IR.Ensure{IR.Not{IR.Lt{IR.Var{204n}, IR.Var{207n}}}, "K()", []},
+    IR.Then{IR.SStore{IR.Plain{IR.Lit{5n}}, IR.Var{165n}},
+    IR.Then{IR.SStore{IR.Plain{IR.Lit{6n}}, IR.Var{166n}},
+    IR.Then{IR.Log{"Sync(uint256,uint256)", [], [IR.Var{165n}, IR.Var{166n}]},
+    IR.Finish{IR.Log{"Swap(address,address,uint256,uint256,uint256,uint256)", [IR.Var{4n}, IR.Var{2n}], [IR.Var{194n}, IR.Var{195n}, IR.Var{0n}, IR.Var{1n}]}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}
 
 law swap:
   for +p0: Nat
   for +p1: Nat
   for +p2: Nat
-  {IR.call(ir.swap(), IR.Stops{}, [IR.Binding{0n, p0}, IR.Binding{1n, p1}, IR.Binding{2n, p2}]) == Program.swap(p0, p1, p2) : Evm.Contract(Unit)}
+  for +p3: Evm.Bytes
+  {IR.call(ir.swap(), IR.Stops{}, [IR.Binding{0n, p0}, IR.Binding{1n, p1}, IR.Binding{2n, p2}, IR.Blob{3n, p3}]) == Program.swap(p0, p1, p2, p3) : Evm.Contract(Unit)}
 
-def swap(p0, p1, p2):
+def swap(p0, p1, p2, p3):
   {==}
 
 def ir.getReserves() -> IR.Cmd:
@@ -407,5 +438,5 @@ def entry.table() -> List<&2, Calls.Entry>:
   Calls.Entry{ir.sync(), IR.Stops{}, []},
   Calls.Entry{ir.mint(), IR.Returns{}, [Calls.Word{}]},
   Calls.Entry{ir.burn(), IR.Stops{}, [Calls.Word{}]},
-  Calls.Entry{ir.swap(), IR.Stops{}, [Calls.Word{}, Calls.Word{}, Calls.Word{}]},
+  Calls.Entry{ir.swap(), IR.Stops{}, [Calls.Word{}, Calls.Word{}, Calls.Word{}, Calls.Dynamic{}]},
   Calls.Entry{ir.getReserves(), IR.Gives{}, []}]

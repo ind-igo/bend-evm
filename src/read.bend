@@ -110,6 +110,7 @@ type Tag is Data:
   View{}
   CallOut{}
   PayOut{}
+  InvokeOut{}
   IsEq{}
   IsLt{}
   Not{}
@@ -184,6 +185,7 @@ def tags() -> List<&2, Named>:
   Named{"Evm.view", View{}},
   Named{"Evm.call", CallOut{}},
   Named{"Evm.pay", PayOut{}},
+  Named{"Evm.invoke", InvokeOut{}},
   Named{"Nat.is_eq", IsEq{}},
   Named{"Nat.is_lt", IsLt{}},
   Named{"Bool.not", Not{}},
@@ -1041,6 +1043,13 @@ def names(+k: Declared, +evm: String, +decls: List<&2, Core.Declaration>, +short
   Maybe<&2, List<&2, String>>:
   names.agreed(matches(k, evm, decls, short, signature))
 
+def invoked(a: IR.Action) -> Result<&2, &2, String, IR.Effect>:
+  match a:
+    case IR.Call{t, g, args}:
+      Done{IR.Invoke{t, g, args}}
+    case _:
+      Fail{"Evm.invoke takes a call"}
+
 def effect(c: Call, +evm: String, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Effect>:
   match c:
     case Call{Sstore{}, _, slot <> value <> Nil{}}:
@@ -1081,6 +1090,10 @@ def effect(c: Call, +evm: String, +decls: List<&2, Core.Declaration>) -> Result<
         t : IR.Expr <- expr(to, decls)
         a : IR.Expr <- expr(amount, decls)
         return IR.Pay{t, a}
+    case Call{InvokeOut{}, _, called <> Nil{}}:
+      do Result<&2, &2, String, IR.Effect>:
+        a : IR.Action <- view(True{}, call(called, Nil{}), evm, decls)
+        invoked(a)
     case _:
       Fail{"Unsupported effect"}
 

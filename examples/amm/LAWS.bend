@@ -30,18 +30,20 @@ def kept(+k: Nat, o: Evm.Outcome<Unit>) -> Bool:
       True{}
 
 # A swap does not make x·y go down. This holds for every answer that the
-# two tokens give and for every callback that they make into the pair while
-# it pays, at any depth: other swaps, mints, burns and syncs. There is no
-# lock. The swap reads the reserves before it pays, checks the balances
-# after it against them, and then writes those balances as the reserves, so
-# what the callbacks did in between cannot pass the check.
+# two tokens and a flash swap's receiver give, and for every callback that
+# they make into the pair while it pays, at any depth: other swaps, flash
+# swaps, mints, burns and syncs. There is no lock. The swap reads the
+# reserves before it pays, checks the balances after it against them, and
+# then writes those balances as the reserves, so what the callbacks did in
+# between cannot pass the check.
 law swap:
   for +steps: List<&2, Calls.Step>
   for +s: Evm.State
   for +amount0Out: Nat
   for +amount1Out: Nat
   for +to: Nat
-  {True{} == kept(product(s), Calls.run(Cert.entry.table(), Unit, Pair.swap(amount0Out, amount1Out, to), steps, s)) : Bool}
+  for +data: Evm.Bytes
+  {True{} == kept(product(s), Calls.run(Cert.entry.table(), Unit, Pair.swap(amount0Out, amount1Out, to, data), steps, s)) : Bool}
 
 def supply(+storage: List<&2, Evm.Slot>) -> Nat:
   Evm.lookup(storage, Evm.Plain{ERC20.SUPPLY()})

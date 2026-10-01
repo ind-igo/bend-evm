@@ -22,6 +22,7 @@ test('the preservation proof rejects a wrong lowering', () => {
       ['      Sensed{e, args}\n', '      Sensed{Evm.Number{}, args}\n'],
       ['<> env, R, k, Evm.sensed(e, s))', '<> env, R, k, s)'],
       ['Pay{target, amount, lower(body, o)}', 'Pay{amount, target, lower(body, o)}'],
+      ['Invoke{target, signature, args, lower(body, o)}', 'Invoke{target, signature, Nil{}, lower(body, o)}'],
       ['Fetch{level, target, signature, args, count, lower(body, o)}', 'Fetch{level, target, signature, Nil{}, count, lower(body, o)}'],
       ['      Results{values}\n', '      Results{Nil{}}\n'],
       ['    case IR.Hash{level}:\n      Hash{level}', '    case IR.Hash{level}:\n      Address{}'],

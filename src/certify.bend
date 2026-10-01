@@ -111,6 +111,8 @@ def show.effect(e: IR.Effect) -> String:
       "IR.Ensure{" ++ show.cond(c) ++ ", \"" ++ error ++ "\", [" ++ String.join(show.list(args), ", ") ++ "]}"
     case IR.Pay{target, amount}:
       show.two("IR.Pay", target, amount)
+    case IR.Invoke{target, signature, args}:
+      "IR.Invoke{" ++ show.expr(target) ++ ", \"" ++ signature ++ "\", [" ++ String.join(show.list(args), ", ") ++ "]}"
 
 def show.cmd(c: IR.Cmd) -> String:
   match c:

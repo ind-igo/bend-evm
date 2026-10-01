@@ -428,6 +428,11 @@ def sim(+cmd: IR.Cmd, +out: IR.Output, +env: List<&2, IR.Binding>, -R: Data,
         _ => Yul.exec(Yul.lower(body, o), o, env, R, k),
         _ => IR.run(body, o, env, R, k),
         s, entries, steps, open, rest => _ => u => sim(body, o, env, R, k, u, entries, rest, False{}))
+    case IR.Then{IR.Invoke{t, g, args}, body} o:
+      call_step(Evm.Call{IR.eval(t, env), IR.name(g), IR.encode(args, env)}, R,
+        _ => Yul.exec(Yul.lower(body, o), o, env, R, k),
+        _ => IR.run(body, o, env, R, k),
+        s, entries, steps, open, rest => _ => u => sim(body, o, env, R, k, u, entries, rest, False{}))
     case IR.Return{_} IR.Returns{}:
       {==}
     case IR.Return{_} IR.Stops{}:
@@ -506,6 +511,8 @@ def sim(+cmd: IR.Cmd, +out: IR.Output, +env: List<&2, IR.Binding>, -R: Data,
         == obs(entries, steps, R, open)(Bool.pick(Evm.Outcome<R>, IR.cond(c, env), k(Unit{}, s), Evm.Raise{e})) : Evm.Outcome<R>}
       require_step(IR.cond(c, env), R, Evm.Raise{e}, k(Unit{}, s), k(Unit{}, s), obs(entries, steps, R, open), {==})
     case IR.Finish{IR.Pay{_, _}} IR.Stops{}:
+      {==}
+    case IR.Finish{IR.Invoke{_, _, _}} IR.Stops{}:
       {==}
     case IR.Fetch{t, g, args, n, level, body} o:
       gather_step(n, Evm.Call{IR.eval(t, env), IR.name(g), IR.encode(args, env)}, R,

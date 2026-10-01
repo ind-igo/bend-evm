@@ -2,6 +2,7 @@ import Base
 import ../../src/Evm.bend as Evm
 import ../erc20/ERC20.bend as ERC20
 import ./IERC20.bend as IERC20
+import ./ICallee.bend as ICallee
 import ./Math.bend as Math
 
 # A constant-product pair of two tokens, after Uniswap V2's UniswapV2Pair,
@@ -10,11 +11,11 @@ import ./Math.bend as Math
 # tokens to the pair, then calls mint or swap; for burn, the user first
 # sends liquidity tokens to the pair.
 #
-# There is no lock. A token may call back into the pair from a transfer,
-# and LAWS.bend proves that x·y still does not go down.
+# There is no lock. A token, or the receiver of a flash swap, may call back
+# into the pair, and LAWS.bend proves that x·y still does not go down.
 #
-# Not here: the price oracle, flash swaps, skim, the protocol fee and the
-# 112-bit reserves. Reserves are full words, and the checked arithmetic
+# Not here: the price oracle, skim, the protocol fee and the 112-bit
+# reserves. Reserves are full words, and the checked arithmetic
 # reverts where a product would overflow.
 
 # Storage after the ERC20 core.
@@ -259,9 +260,18 @@ def settle(+who: Nat, +to: Nat, +amount0Out: Nat, +amount1Out: Nat, +r0: Nat, +r
     +balance1 : Nat <- Evm.view(IERC20.balanceOf(t1, me))
     check(who, to, amount0Out, amount1Out, r0, r1, balance0, balance1)
 
-# Sends to the amounts out. The tokens that the caller sent in before, less
-# the 0.3% fee, must keep the product of the reserves.
-def swap(+amount0Out: Nat, +amount1Out: Nat, +to: Evm.Address) -> Evm.Contract(Unit):
+# A flash swap: the receiver gets the tokens out first, and pays for them
+# in its uniswapV2Call.
+def flash(+who: Nat, +to: Nat, +amount0Out: Nat, +amount1Out: Nat, +r0: Nat, +r1: Nat, +data: Evm.Bytes) ->
+  Evm.Contract(Unit):
+  do Evm.Contract<Unit>:
+    Evm.invoke(ICallee.uniswapV2Call(to, who, amount0Out, amount1Out, data))
+    settle(who, to, amount0Out, amount1Out, r0, r1)
+
+# Sends to the amounts out. The tokens that the caller sent in, before the
+# swap or in the flash swap's call when data is not empty, less the 0.3%
+# fee, must keep the product of the reserves.
+def swap(+amount0Out: Nat, +amount1Out: Nat, +to: Evm.Address, +data: Evm.Bytes) -> Evm.Contract(Unit):
   do Evm.Contract<Unit>:
     +who : Nat <- Evm.caller()
     +out : Nat <- Evm.or(amount0Out, amount1Out)
@@ -276,4 +286,5 @@ def swap(+amount0Out: Nat, +amount1Out: Nat, +to: Evm.Address) -> Evm.Contract(U
     Evm.ensure(Bool.not(Nat.is_eq(to, t1)), InvalidTo())
     pay(t0, to, amount0Out)
     pay(t1, to, amount1Out)
-    settle(who, to, amount0Out, amount1Out, r0, r1)
+    Evm.branch(Unit, Nat.is_eq(Evm.length(data), 0n), settle(who, to, amount0Out, amount1Out, r0, r1),
+      flash(who, to, amount0Out, amount1Out, r0, r1, data))

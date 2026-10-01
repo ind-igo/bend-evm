@@ -53,6 +53,7 @@ type Effect is Data:
   Require{cond: Cond}
   Ensure{cond: Cond, error: String, args: List<&2, Expr>}
   Pay{target: Expr, amount: Expr}
+  Invoke{target: Expr, signature: String, args: List<&2, Expr>}
 
 type Cmd is Data:
   Bind{word: Action, level: Nat, body: Cmd}
@@ -245,6 +246,8 @@ def effect(e: Effect, +env: List<&2, Binding>) -> Evm.Contract(Unit):
       Evm.ensure(cond(c, env), Evm.Error{name(error), encode(args, env)})
     case Pay{target, amount}:
       Evm.pay(eval(target, env), eval(amount, env))
+    case Invoke{target, signature, args}:
+      Evm.invoke(Evm.Call{eval(target, env), name(signature), encode(args, env)})
 
 def abort(-A: Data) -> Evm.Contract(A):
   R => k => s => Evm.Revert{}
@@ -392,6 +395,8 @@ def closed.effect(e: Effect, +scope: List<&2, Nat>) -> Bool:
       Bool.and(closed.cond(c, scope), closed.parts(args, scope))
     case Pay{target, amount}:
       closed.two(target, amount, scope)
+    case Invoke{target, _, args}:
+      Bool.and(closed.expr(target, scope), closed.parts(args, scope))
 
 def closed(cmd: Cmd, +scope: List<&2, Nat>) -> Bool:
   match cmd:

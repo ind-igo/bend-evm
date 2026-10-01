@@ -198,7 +198,7 @@ def external(+pad: String, +writes: Bool, +target: IR.Expr, +signature: String, 
   +out = nat(Nat.mul(32n, words))
   pad ++ call("mstore", ["0", call("shl", ["224", Keccak.hex(Keccak.selector(signature))])]) ++ "\n"
     ++ encoded(pad, args, 4n, p => size => made(p, writes, target, out, size))
-    ++ pad ++ "if lt(returndatasize(), " ++ out ++ ") { " ++ revert() ++ " }\n"
+    ++ Bool.pick(String, Nat.is_eq(words, 0n), "", pad ++ "if lt(returndatasize(), " ++ out ++ ") { " ++ revert() ++ " }\n")
 
 # The locals of a Fetch at level: one for each word.
 def fetched(n: Nat, +pad: String, +level: Nat, +i: Nat) -> String:
@@ -243,6 +243,9 @@ def stmt(+pad: String, +halt: String, s: Yul.Stmt) -> String:
     case Yul.Pay{target, amount, body}:
       pad ++ "if iszero(" ++ call("call", ["gas()", atom(target), atom(amount), "0", "0", "0", "0"]) ++ ") { " ++ revert() ++ " }\n"
         ++ stmt(pad, halt, body)
+    case Yul.Invoke{+target, +signature, +args, body}:
+      pad ++ "if iszero(extcodesize(" ++ atom(target) ++ ")) { " ++ revert() ++ " }\n"
+        ++ external(pad, True{}, target, signature, args, 0n) ++ stmt(pad, halt, body)
     case Yul.Sense{level, e, args, body}:
       pad ++ "let " ++ var(level) ++ " := " ++ sense(e, args) ++ "\n" ++ stmt(pad, halt, body)
     case Yul.Sensed{e, args}:

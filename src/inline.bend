@@ -109,6 +109,8 @@ def top.effect(e: IR.Effect) -> Nat:
       max(top.cond(c), top.list(args))
     case IR.Pay{target, amount}:
       top.two(target, amount)
+    case IR.Invoke{target, _, args}:
+      max(top.expr(target), top.list(args))
 
 # The largest level that cmd binds or reads.
 def top(cmd: IR.Cmd) -> Nat:
@@ -253,6 +255,8 @@ def rename.effect(e: IR.Effect, +parameters: List<&2, Nat>, +args: List<&2, IR.E
       IR.Ensure{rename.cond(c, parameters, args, offset), error, rename.list(words, parameters, args, offset)}
     case IR.Pay{target, amount}:
       IR.Pay{rename.expr(target, parameters, args, offset), rename.expr(amount, parameters, args, offset)}
+    case IR.Invoke{target, signature, words}:
+      IR.Invoke{rename.expr(target, parameters, args, offset), signature, rename.list(words, parameters, args, offset)}
 
 def rename(cmd: IR.Cmd, +parameters: List<&2, Nat>, +args: List<&2, IR.Expr>, +offset: Nat) -> IR.Cmd:
   match cmd:

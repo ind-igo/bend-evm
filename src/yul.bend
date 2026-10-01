@@ -40,6 +40,7 @@ type Stmt is Data:
   Call{level: Nat, target: IR.Expr, signature: String, args: List<&2, IR.Expr>, body: Stmt}
   Reply{target: IR.Expr, signature: String, args: List<&2, IR.Expr>}
   Pay{target: IR.Expr, amount: IR.Expr, body: Stmt}
+  Invoke{target: IR.Expr, signature: String, args: List<&2, IR.Expr>, body: Stmt}
   Sense{level: Nat, env: Evm.Env, args: List<&2, IR.Expr>, body: Stmt}
   Sensed{env: Evm.Env, args: List<&2, IR.Expr>}
   Fetch{level: Nat, target: IR.Expr, signature: String, args: List<&2, IR.Expr>, count: Nat, body: Stmt}
@@ -154,6 +155,8 @@ def exec(stmt: Stmt, +out: IR.Output, +env: List<&2, IR.Binding>) -> Evm.Contrac
       Evm.call(Evm.Call{IR.eval(target, env), IR.name(signature), IR.encode(args, env)})
     case Pay{target, amount, body} o:
       R => k => Evm.pay(IR.eval(target, env), IR.eval(amount, env), R, _ => exec(body, o, env, R, k))
+    case Invoke{target, signature, args, body} o:
+      R => k => Evm.invoke(Evm.Call{IR.eval(target, env), IR.name(signature), IR.encode(args, env)}, R, _ => exec(body, o, env, R, k))
     case Sense{level, +e, args, body} o:
       R => k => +s => exec(body, o, IR.Binding{level, Evm.sense(e, IR.evals(args, env), s)} <> env, R, k, Evm.sensed(e, s))
     case Sensed{e, args} IR.Returns{}:
@@ -283,6 +286,8 @@ def lower.finish(e: IR.Effect) -> Stmt:
       Guard{lower.cond(c), error, args, Stop{}}
     case IR.Pay{target, amount}:
       Pay{target, amount, Stop{}}
+    case IR.Invoke{target, signature, args}:
+      Invoke{target, signature, args, Stop{}}
 
 # The entry's output is known, so a tail of the wrong kind lowers to a
 # revert. Each looks at the output first, so a proof about a tail of the
@@ -352,6 +357,8 @@ def lower(cmd: IR.Cmd, +out: IR.Output) -> Stmt:
       Guard{lower.cond(c), error, args, lower(body, o)}
     case IR.Then{IR.Pay{target, amount}, body} o:
       Pay{target, amount, lower(body, o)}
+    case IR.Then{IR.Invoke{target, signature, args}, body} o:
+      Invoke{target, signature, args, lower(body, o)}
     case IR.Return{value} o:
       tail.return(value, o)
     case IR.Tail{w} o:

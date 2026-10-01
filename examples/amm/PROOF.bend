@@ -291,39 +291,58 @@ def settled(+rest: List<&2, Calls.Step>, +who: Nat, +to: Nat, +out0: Nat, +out1:
             _ => viewed(rest, who, to, out0, out1, r0, r1, b0, st, ca, li, lo, facts, readings, self, hashes, signers, more),
             _ => closed_revert(rest, keeps(Nat.mul(r0, r1)), {==}))
 
+# The end of a swap after both payments: settle, or with data a flash
+# swap's call first, which may leave any state.
+def ending(+who: Nat, +to: Nat, +out0: Nat, +out1: Nat, +r0: Nat, +r1: Nat, +data: Evm.Bytes) -> Evm.Contract(Unit):
+  Evm.branch(Unit, Nat.is_eq(Evm.length(data), 0n), Pair.settle(who, to, out0, out1, r0, r1),
+    Pair.flash(who, to, out0, out1, r0, r1, data))
+
+def ended(c: Bool, +rest: List<&2, Calls.Step>, +u: Evm.State, +who: Nat, +to: Nat, +out0: Nat, +out1: Nat, +r0: Nat, +r1: Nat,
+  +data: Evm.Bytes) ->
+  {True{} == Laws.kept(Nat.mul(r0, r1), closed(rest, Evm.branch(Unit, c, Pair.settle(who, to, out0, out1, r0, r1),
+    Pair.flash(who, to, out0, out1, r0, r1, data))(Unit, ok(Unit), u))) : Bool}:
+  match c:
+    case True{}:
+      settled(rest, who, to, out0, out1, r0, r1, u)
+    case False{}:
+      calling(rest, Evm.Call{to, "uniswapV2Call", Evm.abi([Evm.Word{who}, Evm.Word{out0}, Evm.Word{out1}, Evm.Dynamic{data}])}, u,
+        _ => t => Pair.settle(who, to, out0, out1, r0, r1)(Unit, ok(Unit), t), keeps(Nat.mul(r0, r1)), {==},
+        _ => more => v => settled(more, who, to, out0, out1, r0, r1, v))
+
 # After the second call: the token must return 1.
-def paid1(+x: Nat, +rest: List<&2, Calls.Step>, u: Evm.State, +who: Nat, +to: Nat, +out0: Nat, +out1: Nat, +r0: Nat, +r1: Nat) ->
+def paid1(+x: Nat, +rest: List<&2, Calls.Step>, +u: Evm.State, +who: Nat, +to: Nat, +out0: Nat, +out1: Nat, +r0: Nat, +r1: Nat,
+  +data: Evm.Bytes) ->
   {True{} == Laws.kept(Nat.mul(r0, r1), closed(rest, Bool.pick(Evm.Outcome<Unit>, Nat.is_eq(x, 1n),
-    Pair.settle(who, to, out0, out1, r0, r1)(Unit, ok(Unit), u), Evm.Raise{Pair.TransferFailed()}))) : Bool}:
-  closed_pick(rest, Nat.is_eq(x, 1n), Pair.settle(who, to, out0, out1, r0, r1)(Unit, ok(Unit), u), Evm.Raise{Pair.TransferFailed()},
+    ending(who, to, out0, out1, r0, r1, data)(Unit, ok(Unit), u), Evm.Raise{Pair.TransferFailed()}))) : Bool}:
+  closed_pick(rest, Nat.is_eq(x, 1n), ending(who, to, out0, out1, r0, r1, data)(Unit, ok(Unit), u), Evm.Raise{Pair.TransferFailed()},
     keeps(Nat.mul(r0, r1)),
-    _ => settled(rest, who, to, out0, out1, r0, r1, u),
+    _ => ended(Nat.is_eq(Evm.length(data), 0n), rest, u, who, to, out0, out1, r0, r1, data),
     _ => closed_raise(rest, Pair.TransferFailed(), keeps(Nat.mul(r0, r1)), {==}))
 
-def after1(+who: Nat, +to: Nat, +out0: Nat, +out1: Nat, +r0: Nat, +r1: Nat) -> Nat -> Evm.State -> Evm.Outcome<Unit>:
-  x => u => Bool.pick(Evm.Outcome<Unit>, Nat.is_eq(x, 1n), Pair.settle(who, to, out0, out1, r0, r1)(Unit, ok(Unit), u),
+def after1(+who: Nat, +to: Nat, +out0: Nat, +out1: Nat, +r0: Nat, +r1: Nat, +data: Evm.Bytes) -> Nat -> Evm.State -> Evm.Outcome<Unit>:
+  x => u => Bool.pick(Evm.Outcome<Unit>, Nat.is_eq(x, 1n), ending(who, to, out0, out1, r0, r1, data)(Unit, ok(Unit), u),
     Evm.Raise{Pair.TransferFailed()})
 
 # After the first call: the token must return 1, then the second call.
 def paid0(+x: Nat, +rest: List<&2, Calls.Step>, +u: Evm.State, +who: Nat, +to: Nat, +out0: Nat, +out1: Nat, +r0: Nat, +r1: Nat,
-  +t1: Nat) ->
+  +t1: Nat, +data: Evm.Bytes) ->
   {True{} == Laws.kept(Nat.mul(r0, r1), closed(rest, Bool.pick(Evm.Outcome<Unit>, Nat.is_eq(x, 1n),
-    Pair.pay(t1, to, out1)(Unit, v => w => Pair.settle(who, to, out0, out1, r0, r1)(Unit, ok(Unit), w), u),
+    Pair.pay(t1, to, out1)(Unit, v => w => ending(who, to, out0, out1, r0, r1, data)(Unit, ok(Unit), w), u),
     Evm.Raise{Pair.TransferFailed()}))) : Bool}:
-  closed_pick(rest, Nat.is_eq(x, 1n), Pair.pay(t1, to, out1)(Unit, v => w => Pair.settle(who, to, out0, out1, r0, r1)(Unit, ok(Unit), w), u),
+  closed_pick(rest, Nat.is_eq(x, 1n), Pair.pay(t1, to, out1)(Unit, v => w => ending(who, to, out0, out1, r0, r1, data)(Unit, ok(Unit), w), u),
     Evm.Raise{Pair.TransferFailed()}, keeps(Nat.mul(r0, r1)),
-    _ => calling(rest, Evm.Call{t1, "transfer", [to, out1]}, u, after1(who, to, out0, out1, r0, r1), keeps(Nat.mul(r0, r1)), {==},
-      y => more => v => paid1(y, more, v, who, to, out0, out1, r0, r1)),
+    _ => calling(rest, Evm.Call{t1, "transfer", [to, out1]}, u, after1(who, to, out0, out1, r0, r1, data), keeps(Nat.mul(r0, r1)), {==},
+      y => more => v => paid1(y, more, v, who, to, out0, out1, r0, r1, data)),
     _ => closed_raise(rest, Pair.TransferFailed(), keeps(Nat.mul(r0, r1)), {==}))
 
-def after0(+who: Nat, +to: Nat, +out0: Nat, +out1: Nat, +r0: Nat, +r1: Nat, +t1: Nat) -> Nat -> Evm.State -> Evm.Outcome<Unit>:
+def after0(+who: Nat, +to: Nat, +out0: Nat, +out1: Nat, +r0: Nat, +r1: Nat, +t1: Nat, +data: Evm.Bytes) -> Nat -> Evm.State -> Evm.Outcome<Unit>:
   x => u => Bool.pick(Evm.Outcome<Unit>, Nat.is_eq(x, 1n),
-    Pair.pay(t1, to, out1)(Unit, v => w => Pair.settle(who, to, out0, out1, r0, r1)(Unit, ok(Unit), w), u),
+    Pair.pay(t1, to, out1)(Unit, v => w => ending(who, to, out0, out1, r0, r1, data)(Unit, ok(Unit), w), u),
     Evm.Raise{Pair.TransferFailed()})
 
 # The checks before the first call, then the call.
 def top(steps: List<&2, Calls.Step>, +st: List<&2, Evm.Slot>, +ca: Nat, +li: Nat, +lo: List<&2, Evm.Log>, +w: Evm.World,
-  +out0: Nat, +out1: Nat, +to: Nat, c1: Bool, c2: Bool, c3: Bool, c4: Bool, c5: Bool) ->
+  +out0: Nat, +out1: Nat, +to: Nat, +data: Evm.Bytes, c1: Bool, c2: Bool, c3: Bool, c4: Bool, c5: Bool) ->
   {True{} == Laws.kept(Nat.mul(at(st, 5n), at(st, 6n)), closed(steps,
     Bool.pick(Evm.Outcome<Unit>, c1,
     Bool.pick(Evm.Outcome<Unit>, c2,
@@ -331,7 +350,7 @@ def top(steps: List<&2, Calls.Step>, +st: List<&2, Evm.Slot>, +ca: Nat, +li: Nat
     Bool.pick(Evm.Outcome<Unit>, c4,
     Bool.pick(Evm.Outcome<Unit>, c5,
       Evm.Calling{Evm.Call{at(st, 3n), "transfer", [to, out0]}, Evm.State{st, ca, li, lo, w},
-        after0(ca, to, out0, out1, at(st, 5n), at(st, 6n), at(st, 4n))},
+        after0(ca, to, out0, out1, at(st, 5n), at(st, 6n), at(st, 4n), data)},
       Evm.Raise{Pair.InvalidTo()}), Evm.Raise{Pair.InvalidTo()}),
       Evm.Raise{Pair.InsufficientLiquidity()}), Evm.Raise{Pair.InsufficientLiquidity()}),
       Evm.Raise{Pair.InsufficientOutputAmount()}))) : Bool}:
@@ -356,13 +375,13 @@ def top(steps: List<&2, Calls.Step>, +st: List<&2, Evm.Slot>, +ca: Nat, +li: Nat
                       closed_raise(steps, Pair.InvalidTo(), keeps(Nat.mul(at(st, 5n), at(st, 6n))), {==})
                     case True{}:
                       calling(steps, Evm.Call{at(st, 3n), "transfer", [to, out0]}, Evm.State{st, ca, li, lo, w},
-                        after0(ca, to, out0, out1, at(st, 5n), at(st, 6n), at(st, 4n)), keeps(Nat.mul(at(st, 5n), at(st, 6n))), {==},
-                        x => rest => u => paid0(x, rest, u, ca, to, out0, out1, at(st, 5n), at(st, 6n), at(st, 4n)))
+                        after0(ca, to, out0, out1, at(st, 5n), at(st, 6n), at(st, 4n), data), keeps(Nat.mul(at(st, 5n), at(st, 6n))), {==},
+                        x => rest => u => paid0(x, rest, u, ca, to, out0, out1, at(st, 5n), at(st, 6n), at(st, 4n), data))
 
-def Laws.swap(steps, s, amount0Out, amount1Out, to):
+def Laws.swap(steps, s, amount0Out, amount1Out, to, data):
   match s:
     case Evm.State{+st, +ca, +li, +lo, +w}:
-      top(steps, st, ca, li, lo, w, amount0Out, amount1Out, to,
+      top(steps, st, ca, li, lo, w, amount0Out, amount1Out, to, data,
         Nat.is_lt(0n, Evm.op(Evm.Or{}, [amount0Out, amount1Out], li)), Nat.is_lt(amount0Out, at(st, 5n)),
         Nat.is_lt(amount1Out, at(st, 6n)), Bool.not(Nat.is_eq(to, at(st, 3n))), Bool.not(Nat.is_eq(to, at(st, 4n))))
 

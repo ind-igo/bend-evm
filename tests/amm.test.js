@@ -5,7 +5,9 @@ import { generator } from './random.js';
 
 // A differential test against Solidity. The Bend pair (examples/amm) and
 // the same pair in Solidity (tests/fixtures/reference/Pair.sol) each get two
-// Coins, which can misbehave or call back into the pair when it pays. Both
+// Coins, which can misbehave or call back into the pair when it pays, and
+// share a Borrower for flash swaps, which pays back or not, and can flash
+// swap again inside its call. Both
 // get the same random steps on one anvil chain, and must give the same
 // results, revert data, logs and state after each step. Addresses become
 // names first, as the two sides have their own. Solidity's arithmetic
@@ -14,7 +16,7 @@ import { generator } from './random.js';
 const seed = Number(process.env.SEED ?? 1);
 const solidity = must(run('solc', '--evm-version', 'cancun', '--bin', 'tests/fixtures/reference/Pair.sol'));
 const code = name => solidity.split(`:${name} =======`)[1].split('Binary:')[1].trim().split('\n')[0];
-let chain, people, sides, names;
+let chain, people, sides, names, borrower;
 
 const create = (from, bytecode, args = '') =>
   JSON.parse(must(chain.cast('send', '--unlocked', '--from', from, '--json', '--create', '0x' + bytecode + args))).contractAddress;
@@ -27,9 +29,10 @@ beforeAll(async () => {
   const ours = create(people[0], bytecode(must(bend('src/compile.bend', 'examples/amm/Pair.bend', ...entries.amm))),
     encode(coins[0], coins[1]));
   const sol = create(people[0], code('Pair'), encode(coins[2], coins[3]));
+  borrower = create(people[0], code('Borrower'));
   sides = [{ pair: ours, coins: coins.slice(0, 2) }, { pair: sol, coins: coins.slice(2) }];
   names = new Map([[ours, 'pair'], [sol, 'pair'], [coins[0], 'coin0'], [coins[2], 'coin0'], [coins[1], 'coin1'],
-    [coins[3], 'coin1'], ...people.map((p, i) => [p, `person${i}`])].map(([a, n]) => [a.slice(2).toLowerCase(), n]));
+    [coins[3], 'coin1'], [borrower, 'borrower'], ...people.map((p, i) => [p, `person${i}`])].map(([a, n]) => [a.slice(2).toLowerCase(), n]));
 }, 120_000);
 
 afterAll(() => chain?.stop());
@@ -81,6 +84,7 @@ function steps(random, length) {
       { kind: 'swap', coin: pick([0, 1]), amount: amount(), extra: 0n, who },
       { kind: 'swap', coin: pick([0, 1]), amount: amount(), extra: 0n, who },
       { kind: 'raw', a0: amount(), a1: amount(), to: pick([...people, 'coin0', 'coin1']), who },
+      { kind: 'flash', coin: pick([0, 1]), amount: amount(), extra: pick([0n, 0n, 1n, -1n]), mode: pick([0, 0, 1, 2]), who },
       { kind: 'sync', who },
       { kind: 'mode', coin: pick([0, 1]), mode: pick([0, 0, 0, 1, 2, 3, 4, 4, 5, 5]) },
     ]));
@@ -103,6 +107,9 @@ function scripted() {
     { kind: 'add', a0: 10n ** 18n, a1: 10n ** 18n, who: b },
     { kind: 'remove', part: 0.5, who: a },
     mode(1, 4), { kind: 'remove', part: 0.5, who: b }, mode(1, 0),
+    ...[0n, -1n].flatMap(extra => [0, 1, 2].map(m => ({ kind: 'flash', coin: 0, amount: 10n ** 18n, extra, mode: m, who: b }))),
+    // A flash swap to an account with no code reverts before the call.
+    { kind: 'raw', a0: 1n, a1: 0n, to: a, data: '0x01', who: b },
   ];
 }
 
@@ -130,11 +137,22 @@ function apply(side, step) {
       const [rIn, rOut] = step.coin === 0 ? [r0, r1] : [r1, r0];
       const o = out(step.amount, rIn, rOut) + step.extra;
       const outs = step.coin === 0 ? ['0', String(o < 0n ? 0n : o)] : [String(o < 0n ? 0n : o), '0'];
-      return [fund(step.coin, step.amount), effect(step.who, pair, 'swap(uint256,uint256,address)', ...outs, step.who)];
+      return [fund(step.coin, step.amount), effect(step.who, pair, 'swap(uint256,uint256,address,bytes)', ...outs, step.who, '0x')];
     }
     case 'raw': {
       const to = step.to === 'coin0' ? coins[0] : step.to === 'coin1' ? coins[1] : step.to;
-      return [effect(step.who, pair, 'swap(uint256,uint256,address)', String(step.a0), String(step.a1), to)];
+      return [effect(step.who, pair, 'swap(uint256,uint256,address,bytes)', String(step.a0), String(step.a1), to, step.data ?? '0x')];
+    }
+    case 'flash': {
+      // Out of one coin, paid back in the same coin: the amount less the
+      // fee, rounded up, is enough; one less is not.
+      const [r0, r1] = r();
+      const o = step.amount < (step.coin === 0 ? r0 : r1) ? step.amount : 1n;
+      const paid = o * 1000n / 997n + 1n + step.extra;
+      const pays = step.coin === 0 ? [paid, 0n] : [0n, paid];
+      const outs = step.coin === 0 ? [o, 0n] : [0n, o];
+      const data = must(run('cast', 'abi-encode', 'f(uint256,uint256,uint256)', ...pays.map(String), String(step.mode)));
+      return [effect(step.who, pair, 'swap(uint256,uint256,address,bytes)', ...outs.map(String), borrower, data)];
     }
     case 'sync':
       return [effect(step.who, pair, 'sync()')];
@@ -152,8 +170,12 @@ test(`the Bend pair and the Solidity pair agree on random steps (SEED=${seed})`,
   }
   expect(lines[0]).toEqual(lines[1]);
   if (process.env.DUMP) Bun.write(process.env.DUMP, lines[0].join("\n"));
-  // The steps must reach the paths that matter.
+  // The steps must reach the paths that matter: flash swaps that pay back
+  // and pass, and ones that do not.
   const all = lines[0].join('\n');
+  const flashes = lines[0].map((l, i) => [l, lines[0][i + 1]]).filter(([l]) => l.includes('"flash"'));
+  expect(flashes.filter(([, r]) => r.startsWith('ok')).length).toBeGreaterThan(2);
+  expect(flashes.filter(([, r]) => r.startsWith('revert')).length).toBeGreaterThan(2);
   for (const error of ['K()', 'InsufficientInputAmount()', 'InsufficientLiquidity()', 'TransferFailed()', 'InvalidTo()',
     'InsufficientLiquidityMinted()', 'InsufficientLiquidityBurned()']) {
     expect(all).toContain(`revert ${must(run('cast', 'sig', error)).slice(2)}`);
