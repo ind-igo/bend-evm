@@ -23,6 +23,10 @@ def top.expr(e: IR.Expr) -> Nat:
       level
     case IR.Item{level, _}:
       level
+    case IR.Bytes{level}:
+      level
+    case IR.Length{level}:
+      level
 
 def top.list(exprs: List<&2, IR.Expr>) -> Nat:
   match exprs:
@@ -90,6 +94,8 @@ def top.word(w: IR.Action) -> Nat:
       0n
     case IR.Id{_}:
       0n
+    case IR.Hash{level}:
+      level
 
 def top.effect(e: IR.Effect) -> Nat:
   match e:
@@ -126,6 +132,16 @@ def top(cmd: IR.Cmd) -> Nat:
     case IR.Fetch{target, _, args, _, +level, body}:
       max(max(max(top.expr(target), top.list(args)), level), top(body))
 
+# The level that an argument for a bytes parameter names.
+def bytes.level(a: IR.Expr, +otherwise: Nat) -> Nat:
+  match a:
+    case IR.Var{level}:
+      level
+    case IR.Bytes{level}:
+      level
+    case _:
+      otherwise
+
 # A level is a parameter, replaced by its argument, or moves up by offset.
 def rename.var(+level: Nat, parameters: List<&2, Nat>, args: List<&2, IR.Expr>, +offset: Nat) -> IR.Expr:
   match parameters args:
@@ -133,6 +149,15 @@ def rename.var(+level: Nat, parameters: List<&2, Nat>, args: List<&2, IR.Expr>, 
       Bool.pick(IR.Expr, Nat.is_eq(p, level), a, rename.var(level, ps, rest, offset))
     case _ _:
       IR.Var{Nat.add(level, offset)}
+
+# The level of a bytes value: a parameter's argument names it, and other
+# levels move up by offset.
+def rename.level(+level: Nat, parameters: List<&2, Nat>, args: List<&2, IR.Expr>, +offset: Nat) -> Nat:
+  match parameters args:
+    case +p <> ps a <> rest:
+      Bool.pick(Nat, Nat.is_eq(p, level), bytes.level(a, Nat.add(level, offset)), rename.level(level, ps, rest, offset))
+    case _ _:
+      Nat.add(level, offset)
 
 def rename.expr(e: IR.Expr, +parameters: List<&2, Nat>, +args: List<&2, IR.Expr>, +offset: Nat) -> IR.Expr:
   match e:
@@ -142,6 +167,10 @@ def rename.expr(e: IR.Expr, +parameters: List<&2, Nat>, +args: List<&2, IR.Expr>
       rename.var(level, parameters, args, offset)
     case IR.Item{level, index}:
       IR.Item{Nat.add(level, offset), index}
+    case IR.Bytes{level}:
+      IR.Bytes{rename.level(level, parameters, args, offset)}
+    case IR.Length{level}:
+      IR.Length{rename.level(level, parameters, args, offset)}
 
 def rename.list(exprs: List<&2, IR.Expr>, +parameters: List<&2, Nat>, +args: List<&2, IR.Expr>, +offset: Nat) ->
   List<&2, IR.Expr>:
@@ -209,6 +238,8 @@ def rename.word(w: IR.Action, +parameters: List<&2, Nat>, +args: List<&2, IR.Exp
       IR.View{rename.expr(target, parameters, args, offset), signature, rename.list(words, parameters, args, offset)}
     case IR.Call{target, signature, words}:
       IR.Call{rename.expr(target, parameters, args, offset), signature, rename.list(words, parameters, args, offset)}
+    case IR.Hash{level}:
+      IR.Hash{rename.level(level, parameters, args, offset)}
 
 def rename.effect(e: IR.Effect, +parameters: List<&2, Nat>, +args: List<&2, IR.Expr>, +offset: Nat) -> IR.Effect:
   match e:

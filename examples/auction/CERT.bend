@@ -144,13 +144,13 @@ def auctionEnd():
   {==}
 
 def entry.table() -> List<&2, Calls.Entry>:
-  [Calls.Entry{ir.beneficiary(), IR.Returns{}, 0n},
-  Calls.Entry{ir.auctionEndTime(), IR.Returns{}, 0n},
-  Calls.Entry{ir.highestBidder(), IR.Returns{}, 0n},
-  Calls.Entry{ir.highestBid(), IR.Returns{}, 0n},
-  Calls.Entry{ir.pendingReturns(), IR.Returns{}, 1n},
-  Calls.Entry{ir.ended(), IR.Returns{}, 0n},
-  Calls.Entry{ir.status(), IR.Gives{}, 0n},
-  Calls.Entry{ir.bid(), IR.Stops{}, 0n},
-  Calls.Entry{ir.withdraw(), IR.Stops{}, 0n},
-  Calls.Entry{ir.auctionEnd(), IR.Stops{}, 0n}]
+  [Calls.Entry{ir.beneficiary(), IR.Returns{}, []},
+  Calls.Entry{ir.auctionEndTime(), IR.Returns{}, []},
+  Calls.Entry{ir.highestBidder(), IR.Returns{}, []},
+  Calls.Entry{ir.highestBid(), IR.Returns{}, []},
+  Calls.Entry{ir.pendingReturns(), IR.Returns{}, [Calls.Word{}]},
+  Calls.Entry{ir.ended(), IR.Returns{}, []},
+  Calls.Entry{ir.status(), IR.Gives{}, []},
+  Calls.Entry{ir.bid(), IR.Stops{}, []},
+  Calls.Entry{ir.withdraw(), IR.Stops{}, []},
+  Calls.Entry{ir.auctionEnd(), IR.Stops{}, []}]

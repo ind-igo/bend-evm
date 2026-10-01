@@ -26,6 +26,7 @@ type Exp is Data:
   Op{op: Evm.Op, args: List<&2, IR.Expr>}
   Div{left: Exp, right: Exp}
   And{left: Exp, right: Exp}
+  Hash{level: Nat}
 
 # Each statement holds the rest of its block, so a block is one Stmt.
 type Stmt is Data:
@@ -118,6 +119,8 @@ def eval(e: Exp, +env: List<&2, IR.Binding>, +s: Evm.State) -> Nat:
       a b = eval(left, env, s) eval(right, env, s)
       +l = Evm.limit.of(s)
       Bool.pick(Nat, Nat.is_eq(l, 0n), 1n, Evm.bitwise(Evm.And{}, a, b))
+    case Hash{level}:
+      Evm.hash.of(Evm.hashes.of(Evm.world.of(s)), Evm.Raw{IR.blob(env, level)})
 
 # `if cond { revert(0, 0) }` reverts when cond is not zero, and a Guard
 # reverts with its error's data. A View binds a staticcall's word, and an
@@ -133,22 +136,22 @@ def exec(stmt: Stmt, +out: IR.Output, +env: List<&2, IR.Binding>) -> Evm.Contrac
     case SStore{loc, value, body} o:
       R => k => +s => exec(body, o, env, R, k, Evm.write.go(IR.loc(loc, env), eval(value, env, s), s))
     case Log{event, topics, data, body} o:
-      R => k => +s => exec(body, o, env, R, k, Evm.log.go(IR.name(event), IR.evals(topics, env), IR.evals(data, env), s))
+      R => k => +s => exec(body, o, env, R, k, Evm.log.go(IR.name(event), IR.evals(topics, env), IR.encode(data, env), s))
     case Check{cond, body} o:
       R => k => +s => Bool.pick(Evm.Outcome<R>, Nat.is_eq(eval(cond, env, s), 0n), exec(body, o, env, R, k, s), Evm.Revert{})
     case Guard{cond, error, args, body} o:
       R => k => +s => Bool.pick(Evm.Outcome<R>, Nat.is_eq(eval(cond, env, s), 0n), exec(body, o, env, R, k, s),
-        Evm.Raise{Evm.Error{IR.name(error), IR.evals(args, env)}})
+        Evm.Raise{Evm.Error{IR.name(error), IR.encode(args, env)}})
     case View{level, target, signature, args, body} o:
-      R => k => Evm.view(Evm.Call{IR.eval(target, env), IR.name(signature), IR.evals(args, env)}, R,
+      R => k => Evm.view(Evm.Call{IR.eval(target, env), IR.name(signature), IR.encode(args, env)}, R,
         x => exec(body, o, IR.Binding{level, x} <> env, R, k))
     case Answer{target, signature, args} IR.Returns{}:
-      Evm.view(Evm.Call{IR.eval(target, env), IR.name(signature), IR.evals(args, env)})
+      Evm.view(Evm.Call{IR.eval(target, env), IR.name(signature), IR.encode(args, env)})
     case Call{level, target, signature, args, body} o:
-      R => k => Evm.call(Evm.Call{IR.eval(target, env), IR.name(signature), IR.evals(args, env)}, R,
+      R => k => Evm.call(Evm.Call{IR.eval(target, env), IR.name(signature), IR.encode(args, env)}, R,
         x => exec(body, o, IR.Binding{level, x} <> env, R, k))
     case Reply{target, signature, args} IR.Returns{}:
-      Evm.call(Evm.Call{IR.eval(target, env), IR.name(signature), IR.evals(args, env)})
+      Evm.call(Evm.Call{IR.eval(target, env), IR.name(signature), IR.encode(args, env)})
     case Pay{target, amount, body} o:
       R => k => Evm.pay(IR.eval(target, env), IR.eval(amount, env), R, _ => exec(body, o, env, R, k))
     case Sense{level, +e, args, body} o:
@@ -156,10 +159,10 @@ def exec(stmt: Stmt, +out: IR.Output, +env: List<&2, IR.Binding>) -> Evm.Contrac
     case Sensed{e, args} IR.Returns{}:
       Evm.env(e, IR.evals(args, env))
     case Fetch{level, target, signature, args, count, body} o:
-      R => k => Evm.views(Evm.Call{IR.eval(target, env), IR.name(signature), IR.evals(args, env)}, count, R,
+      R => k => Evm.views(Evm.Call{IR.eval(target, env), IR.name(signature), IR.encode(args, env)}, count, R,
         v => exec(body, o, IR.Bindings{level, v} <> env, R, k))
     case Results{values} IR.Gives{}:
-      R => k => s => k(Evm.Values{IR.evals(values, env)}, s)
+      R => k => s => k(Evm.Values{IR.encode(values, env)}, s)
     case Result{value} IR.Returns{}:
       R => k => +s => k(eval(value, env, s), s)
     case Stop{} IR.Stops{}:
@@ -242,6 +245,8 @@ def lower.word(w: IR.Action) -> Exp:
       Atom{IR.Lit{0n}}
     case IR.Env{_, _}:
       Atom{IR.Lit{0n}}
+    case IR.Hash{level}:
+      Hash{level}
 
 # A tail word of an entry that returns a word.
 def lower.tail(w: IR.Action) -> Stmt:

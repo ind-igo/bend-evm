@@ -24,6 +24,8 @@ test('the preservation proof rejects a wrong lowering', () => {
       ['Pay{target, amount, lower(body, o)}', 'Pay{amount, target, lower(body, o)}'],
       ['Fetch{level, target, signature, args, count, lower(body, o)}', 'Fetch{level, target, signature, Nil{}, count, lower(body, o)}'],
       ['      Results{values}\n', '      Results{Nil{}}\n'],
+      ['    case IR.Hash{level}:\n      Hash{level}', '    case IR.Hash{level}:\n      Address{}'],
+      ['IR.evals(topics, env), IR.encode(data, env), s)', 'IR.evals(topics, env), IR.evals(data, env), s)'],
       ['Gt{Atom{right}, Sub{', 'Lt{Atom{right}, Sub{'],
       ['Nat.sub(Nat.sub(l, 1n), x)', 'Nat.sub(l, x)'],
       ['Check{Lt{Atom{left}, Atom{right}}, Let{', 'Check{Lt{Atom{right}, Atom{left}}, Let{'],

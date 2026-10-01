@@ -390,6 +390,8 @@ def sim(+cmd: IR.Cmd, +out: IR.Output, +env: List<&2, IR.Binding>, -R: Data,
       sim(body, o, IR.Binding{level, Evm.self.of(Evm.world.of(s))} <> env, R, k, s, entries, steps, open)
     case IR.Bind{IR.Keccak{words}, level, body} o:
       sim(body, o, IR.Binding{level, Evm.hash.of(Evm.hashes.of(Evm.world.of(s)), Evm.Words{IR.evals(words, env)})} <> env, R, k, s, entries, steps, open)
+    case IR.Bind{IR.Hash{b}, level, body} o:
+      sim(body, o, IR.Binding{level, Evm.hash.of(Evm.hashes.of(Evm.world.of(s)), Evm.Raw{IR.blob(env, b)})} <> env, R, k, s, entries, steps, open)
     case IR.Bind{IR.Typed{d, m}, level, body} o:
       sim(body, o, IR.Binding{level, Evm.hash.of(Evm.hashes.of(Evm.world.of(s)), Evm.Typed{IR.eval(d, env), IR.eval(m, env)})} <> env, R, k, s, entries, steps, open)
     case IR.Bind{IR.Id{t}, level, body} o:
@@ -397,26 +399,26 @@ def sim(+cmd: IR.Cmd, +out: IR.Output, +env: List<&2, IR.Binding>, -R: Data,
     case IR.Bind{IR.Recover{d, v, r, g}, level, body} o:
       sim(body, o, IR.Binding{level, Evm.signer.of(Evm.signers.of(Evm.world.of(s)), IR.eval(d, env), IR.eval(v, env), IR.eval(r, env), IR.eval(g, env))} <> env, R, k, s, entries, steps, open)
     case IR.Bind{IR.View{t, g, args}, level, body} o:
-      view_step(Evm.Call{IR.eval(t, env), IR.name(g), IR.evals(args, env)}, R,
+      view_step(Evm.Call{IR.eval(t, env), IR.name(g), IR.encode(args, env)}, R,
         x => Yul.exec(Yul.lower(body, o), o, IR.Binding{level, x} <> env, R, k),
         x => IR.run(body, o, IR.Binding{level, x} <> env, R, k),
         s, obs(entries, steps, R, open), x => u => sim(body, o, IR.Binding{level, x} <> env, R, k, u, entries, steps, open))
     case IR.Bind{IR.Call{t, g, args}, level, body} o:
-      call_step(Evm.Call{IR.eval(t, env), IR.name(g), IR.evals(args, env)}, R,
+      call_step(Evm.Call{IR.eval(t, env), IR.name(g), IR.encode(args, env)}, R,
         x => Yul.exec(Yul.lower(body, o), o, IR.Binding{level, x} <> env, R, k),
         x => IR.run(body, o, IR.Binding{level, x} <> env, R, k),
         s, entries, steps, open, rest => x => u => sim(body, o, IR.Binding{level, x} <> env, R, k, u, entries, rest, False{}))
     case IR.Then{IR.SStore{loc, value}, body} o:
       sim(body, o, env, R, k, Evm.write.go(IR.loc(loc, env), IR.eval(value, env), s), entries, steps, open)
     case IR.Then{IR.Log{event, topics, data}, body} o:
-      sim(body, o, env, R, k, Evm.log.go(IR.name(event), IR.evals(topics, env), IR.evals(data, env), s), entries, steps, open)
+      sim(body, o, env, R, k, Evm.log.go(IR.name(event), IR.evals(topics, env), IR.encode(data, env), s), entries, steps, open)
     case IR.Then{IR.Require{+c}, body} o:
       %test_bit(c, env, s) : {obs(entries, steps, R, open)(Bool.pick(Evm.Outcome<R>, Nat.is_eq(Yul.bit(Nat.is_eq(_, 0n)), 0n), Yul.exec(Yul.lower(body, o), o, env, R, k, s),
         Evm.Revert{})) == obs(entries, steps, R, open)(Bool.pick(Evm.Outcome<R>, IR.cond(c, env), IR.run(body, o, env, R, k, s), Evm.Revert{})) : Evm.Outcome<R>}
       require_step(IR.cond(c, env), R, Evm.Revert{}, Yul.exec(Yul.lower(body, o), o, env, R, k, s),
         IR.run(body, o, env, R, k, s), obs(entries, steps, R, open), sim(body, o, env, R, k, s, entries, steps, open))
     case IR.Then{IR.Ensure{+c, +error, +args}, body} o:
-      +e : Evm.Error = Evm.Error{IR.name(error), IR.evals(args, env)}
+      +e : Evm.Error = Evm.Error{IR.name(error), IR.encode(args, env)}
       %test_bit(c, env, s) : {obs(entries, steps, R, open)(Bool.pick(Evm.Outcome<R>, Nat.is_eq(Yul.bit(Nat.is_eq(_, 0n)), 0n), Yul.exec(Yul.lower(body, o), o, env, R, k, s),
         Evm.Raise{e})) == obs(entries, steps, R, open)(Bool.pick(Evm.Outcome<R>, IR.cond(c, env), IR.run(body, o, env, R, k, s), Evm.Raise{e})) : Evm.Outcome<R>}
       require_step(IR.cond(c, env), R, Evm.Raise{e}, Yul.exec(Yul.lower(body, o), o, env, R, k, s), IR.run(body, o, env, R, k, s), obs(entries, steps, R, open),
@@ -478,6 +480,8 @@ def sim(+cmd: IR.Cmd, +out: IR.Output, +env: List<&2, IR.Binding>, -R: Data,
       {==}
     case IR.Tail{IR.Keccak{_}} IR.Returns{}:
       {==}
+    case IR.Tail{IR.Hash{_}} IR.Returns{}:
+      {==}
     case IR.Tail{IR.Typed{_, _}} IR.Returns{}:
       {==}
     case IR.Tail{IR.Id{_}} IR.Returns{}:
@@ -497,14 +501,14 @@ def sim(+cmd: IR.Cmd, +out: IR.Output, +env: List<&2, IR.Binding>, -R: Data,
         == obs(entries, steps, R, open)(Bool.pick(Evm.Outcome<R>, IR.cond(c, env), k(Unit{}, s), Evm.Revert{})) : Evm.Outcome<R>}
       require_step(IR.cond(c, env), R, Evm.Revert{}, k(Unit{}, s), k(Unit{}, s), obs(entries, steps, R, open), {==})
     case IR.Finish{IR.Ensure{+c, +error, +args}} IR.Stops{}:
-      +e : Evm.Error = Evm.Error{IR.name(error), IR.evals(args, env)}
+      +e : Evm.Error = Evm.Error{IR.name(error), IR.encode(args, env)}
       %test_bit(c, env, s) : {obs(entries, steps, R, open)(Bool.pick(Evm.Outcome<R>, Nat.is_eq(Yul.bit(Nat.is_eq(_, 0n)), 0n), k(Unit{}, s), Evm.Raise{e}))
         == obs(entries, steps, R, open)(Bool.pick(Evm.Outcome<R>, IR.cond(c, env), k(Unit{}, s), Evm.Raise{e})) : Evm.Outcome<R>}
       require_step(IR.cond(c, env), R, Evm.Raise{e}, k(Unit{}, s), k(Unit{}, s), obs(entries, steps, R, open), {==})
     case IR.Finish{IR.Pay{_, _}} IR.Stops{}:
       {==}
     case IR.Fetch{t, g, args, n, level, body} o:
-      gather_step(n, Evm.Call{IR.eval(t, env), IR.name(g), IR.evals(args, env)}, R,
+      gather_step(n, Evm.Call{IR.eval(t, env), IR.name(g), IR.encode(args, env)}, R,
         v => Yul.exec(Yul.lower(body, o), o, IR.Bindings{level, v} <> env, R, k),
         v => IR.run(body, o, IR.Bindings{level, v} <> env, R, k),
         s, obs(entries, steps, R, open), v => u => sim(body, o, IR.Bindings{level, v} <> env, R, k, u, entries, steps, open))
@@ -559,15 +563,15 @@ def started_step(+cmd: IR.Cmd, +out: IR.Output, env: Maybe<&2, List<&2, IR.Bindi
         IR.abort(IR.value(out)), x => Evm.Contract.pure(Unit, Unit{}, Unit, k), s, obs(entries, inner, Unit, False{}),
         sim(cmd, out, bs, Unit, x => Evm.Contract.pure(Unit, Unit{}, Unit, k), s, entries, inner, False{}))
 
-def found_step(e: Maybe<&2, Calls.Entry>, args: List<&2, Nat>, +entries: List<&2, Calls.Entry>,
+def found_step(e: Maybe<&2, Calls.Entry>, +args: List<&2, Nat>, +entries: List<&2, Calls.Entry>,
   +inner: List<&2, Calls.Step>, -k: Unit -> Evm.State -> Evm.Outcome<Unit>, +s: Evm.State) ->
   {Calls.drive(Calls.Model{}, entries, inner, Unit, False{}, Calls.found(Calls.Lowered{}, e, args, Unit, k, s))
     == Calls.drive(Calls.Model{}, entries, inner, Unit, False{}, Calls.found(Calls.Model{}, e, args, Unit, k, s)) : Evm.Outcome<Unit>}:
   match e:
     case None{}:
       {==}
-    case Some{Calls.Entry{+cmd, +out, arity}}:
-      started_step(cmd, out, Calls.bind(arity, 0n, args), entries, inner, k, s)
+    case Some{Calls.Entry{+cmd, +out, params}}:
+      started_step(cmd, out, Calls.bind(params, 0n, args, args), entries, inner, k, s)
 
 # Induction on the answers: callbacks into the lowered entries and into
 # their IR give the same outcome.
@@ -638,4 +642,19 @@ def Laws.callbacks(entries, steps, A, open, o):
 
 def Laws.fixed(e, s, h):
   %h : {Bool.pick(Evm.State, _, s, Evm.used(s)) == s : Evm.State}
+  {==}
+
+# take of a list's length gives the list back, whatever follows it.
+def take_append(+ws: List<&2, Nat>, +rest: List<&2, Nat>) ->
+  {Some{ws} == Calls.take(List.length(&2, Nat, ws), List.append(&2, Nat, ws, rest)) : Maybe<&2, List<&2, Nat>>}:
+  match ws:
+    case Nil{}:
+      {==}
+    case +w <> +more:
+      %take_append(more, rest) : {Some{w <> more} == Calls.taken.cons(w, _) : Maybe<&2, List<&2, Nat>>}
+      {==}
+
+def Laws.decodes(n, ws, h):
+  %h : {Calls.made(n, Calls.take(_, List.append(&2, Nat, ws, Nil{}))) == Some{Evm.Bytes{n, ws}} : Maybe<&2, Evm.Bytes>}
+  %take_append(ws, Nil{}) : {Calls.made(n, _) == Some{Evm.Bytes{n, ws}} : Maybe<&2, Evm.Bytes>}
   {==}

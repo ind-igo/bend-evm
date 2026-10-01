@@ -104,6 +104,8 @@ Every word is a `Nat`. These aliases give it an ABI type:
 | `Evm.Boolean` | `bool` | it is above 1 |
 | `Evm.Bytes32` | `bytes32` | never |
 | `Evm.Int` | `int256` | never |
+| `Evm.Bytes` | `bytes` | it is not well encoded |
+| `Evm.Str` | `string` | it is not well encoded |
 
 The dispatcher checks parameters only. A result, an event field or an error argument goes out as it is, so the function must keep it in range, or the output is not a valid ABI encoding. A result of `Unit` has no outputs. A string entry, such as `name()`, is a def with no parameters whose body is a text literal; it returns the ABI encoding of a `string`.
 
@@ -183,6 +185,22 @@ def reserves(+pair: Evm.Address) -> Evm.Contract(Evm.Values):
 ```
 
 In the model, a view of `n` words takes `n` answers for the same call, one for each word. [tests/fixtures/values](tests/fixtures/values) has a law about it, and [tests/values.test.js](tests/values.test.js) runs it on `anvil`, with a call that fails and whose revert data the contract passes on.
+
+## Bytes and strings
+
+A parameter of type `Evm.Bytes` or `Evm.Str` is ABI `bytes` or `string`. In the model it is its ABI words: `Evm.Bytes{length, words}`, the length in bytes and the bytes in 32-byte words, zero-padded. A contract passes one on in a log, an error, a call or a tuple result, gets its length with `Evm.length(b)`, and hashes it with `Evm.keccak.bytes(b)`. The def gives its encoding with `Evm.abi`, which puts each bytes value after the words, as `abi.encode` does:
+
+```bend
+def Note(id: Evm.Indexed(Nat), text: Evm.Str, data: Evm.Bytes) -> Evm.Log:
+  Evm.Log{"Note", [id], Evm.abi([Evm.Dynamic{text}, Evm.Dynamic{data}])}
+
+def onData(target: Evm.Address, sender: Evm.Address, data: Evm.Bytes) -> Evm.Call:
+  Evm.Call{target, "onData", Evm.abi([Evm.Word{sender}, Evm.Dynamic{data}])}
+```
+
+Words alone encode as themselves, so a def with no bytes keeps its list of words. A law sees the exact words: [tests/fixtures/bytes/LAWS.bend](tests/fixtures/bytes/LAWS.bend) gives the data of a log with two texts, and the offsets in it. A callback's arguments are the ABI words too, and the model decodes its bytes from them; the `decodes` law in [LAWS.bend](src/LAWS.bend) proves that it reads the bytes back as the encoder wrote them.
+
+On the chain a bytes parameter stays in the calldata, and the encoding of a log, an error, a call or a result is built in memory with `calldatacopy`. The dispatcher reverts unless the offset is a multiple of 32, the bytes end in the calldata, and the padding is zero. Solidity accepts the last two, but the model of callbacks decodes whole words. [tests/bytes.test.js](tests/bytes.test.js) compares results, revert data and logs with the same functions in Solidity, for lengths around the word size, and through a call to a contract that calls back with the bytes.
 
 ## An auction
 
@@ -265,7 +283,8 @@ The proofs cover deployed code only when the certificate covers the same entries
 - The certificate's imports are relative. Save it as `CERT.bend` beside the contract, or it names other files.
 - certify.bend must run through the frontend's `host/run.js`, which gives it its own path in `BEND_ENTRY`.
 - Literals are limited by `Nat.read` (about 2^48). Source Nat literals already stop at 2^32 - 1.
-- Parameters, results, event fields and error arguments are words with the ABI types above; only parameters are range-checked.
+- Parameters, results, event fields and error arguments are words or bytes with the ABI types above; only parameters are range-checked.
+- A contract gets bytes only as parameters, not from a call's result or from its own words, and cannot read their bytes. `init` takes no bytes, an event cannot index them, and arrays are not supported. See ROADMAP.md (M27).
 - A view or a call gives one word, and `views(call, n)` gives the first `n` words of a view, with no range check. When the called function fails, the contract reverts with its revert data, as Solidity does, and the model says only that it reverts: `Revert{}` is a revert whose data no law gives. A call that returns too few words reverts with no data. `Evm.call` sends no ether; `Evm.pay` sends ether with no data.
 - Nothing stops a callback. A law states what callbacks can do, and an invariant across every callback is proved by hand, by induction on the answers, with one lemma for each entry (see the vault's proof). A law about one call needs no induction when it holds for any state that the callbacks leave, as the AMM's `swap` law does. There is no reentrancy guard yet. While a call runs, the called contract can also read this contract's state, so update the state before the call.
 - Calls and branches nest at most 8 deep together, so a function cannot call itself. An `else if` chain of 8 branches is too deep.

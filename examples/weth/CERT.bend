@@ -166,13 +166,13 @@ def receive():
   {==}
 
 def entry.table() -> List<&2, Calls.Entry>:
-  [Calls.Entry{ir.decimals(), IR.Returns{}, 0n},
-  Calls.Entry{ir.totalSupply(), IR.Returns{}, 0n},
-  Calls.Entry{ir.balanceOf(), IR.Returns{}, 1n},
-  Calls.Entry{ir.allowance(), IR.Returns{}, 2n},
-  Calls.Entry{ir.approve(), IR.Returns{}, 2n},
-  Calls.Entry{ir.transfer(), IR.Returns{}, 2n},
-  Calls.Entry{ir.transferFrom(), IR.Returns{}, 3n},
-  Calls.Entry{ir.deposit(), IR.Stops{}, 0n},
-  Calls.Entry{ir.withdraw(), IR.Stops{}, 1n},
-  Calls.Entry{ir.receive(), IR.Stops{}, 0n}]
+  [Calls.Entry{ir.decimals(), IR.Returns{}, []},
+  Calls.Entry{ir.totalSupply(), IR.Returns{}, []},
+  Calls.Entry{ir.balanceOf(), IR.Returns{}, [Calls.Word{}]},
+  Calls.Entry{ir.allowance(), IR.Returns{}, [Calls.Word{}, Calls.Word{}]},
+  Calls.Entry{ir.approve(), IR.Returns{}, [Calls.Word{}, Calls.Word{}]},
+  Calls.Entry{ir.transfer(), IR.Returns{}, [Calls.Word{}, Calls.Word{}]},
+  Calls.Entry{ir.transferFrom(), IR.Returns{}, [Calls.Word{}, Calls.Word{}, Calls.Word{}]},
+  Calls.Entry{ir.deposit(), IR.Stops{}, []},
+  Calls.Entry{ir.withdraw(), IR.Stops{}, [Calls.Word{}]},
+  Calls.Entry{ir.receive(), IR.Stops{}, []}]

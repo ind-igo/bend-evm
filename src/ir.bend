@@ -3,10 +3,15 @@ import ./Evm.bend as Evm
 
 # The contract IR. Each constructor is one DSL call, so run(cmd) normalizes to
 # the same term as the source contract; certificates check that with {==}.
+#
+# Bytes is a bytes parameter, which only an argument list can hold, and
+# Length its length in bytes.
 type Expr is Data:
   Lit{value: Nat}
   Var{level: Nat}
   Item{level: Nat, index: Nat}
+  Bytes{level: Nat}
+  Length{level: Nat}
 
 type Cond is Data:
   Eq{left: Expr, right: Expr}
@@ -40,6 +45,7 @@ type Action is Data:
   Recover{digest: Expr, v: Expr, r: Expr, s: Expr}
   View{target: Expr, signature: String, args: List<&2, Expr>}
   Call{target: Expr, signature: String, args: List<&2, Expr>}
+  Hash{level: Nat}
 
 type Effect is Data:
   SStore{loc: Loc, value: Expr}
@@ -77,12 +83,14 @@ def value(out: Output) -> Data:
     case Gives{}:
       Evm.Values
 
-# A level holds a word, or the words of a Fetch. The printer names each
-# word of a Fetch at level l as its own local, so an Item of a word level,
-# or a Var of a Fetch level, names no local and solc rejects it.
+# A level holds a word, the words of a Fetch, or a bytes parameter. The
+# printer names each word of a Fetch at level l as its own local, so an Item
+# of a word level, or a Var of a Fetch level, names no local and solc
+# rejects it.
 type Binding is Data:
   Binding{level: Nat, value: Nat}
   Bindings{level: Nat, values: Evm.Values}
+  Blob{level: Nat, value: Evm.Bytes}
 
 def lookup(env: List<&2, Binding>, +level: Nat) -> Nat:
   match env:
@@ -91,6 +99,8 @@ def lookup(env: List<&2, Binding>, +level: Nat) -> Nat:
     case Binding{k, v} <> rest:
       Bool.pick(Nat, Nat.is_eq(k, level), v, lookup(rest, level))
     case Bindings{_, _} <> rest:
+      lookup(rest, level)
+    case Blob{_, _} <> rest:
       lookup(rest, level)
 
 def values(env: List<&2, Binding>, +level: Nat) -> Evm.Values:
@@ -101,6 +111,19 @@ def values(env: List<&2, Binding>, +level: Nat) -> Evm.Values:
       values(rest, level)
     case Bindings{k, v} <> rest:
       Bool.pick(Evm.Values, Nat.is_eq(k, level), v, values(rest, level))
+    case Blob{_, _} <> rest:
+      values(rest, level)
+
+def blob(env: List<&2, Binding>, +level: Nat) -> Evm.Bytes:
+  match env:
+    case Nil{}:
+      Evm.Bytes{0n, Nil{}}
+    case Binding{_, _} <> rest:
+      blob(rest, level)
+    case Bindings{_, _} <> rest:
+      blob(rest, level)
+    case Blob{k, b} <> rest:
+      Bool.pick(Evm.Bytes, Nat.is_eq(k, level), b, blob(rest, level))
 
 def eval(expr: Expr, +env: List<&2, Binding>) -> Nat:
   match expr:
@@ -110,6 +133,10 @@ def eval(expr: Expr, +env: List<&2, Binding>) -> Nat:
       lookup(env, level)
     case Item{level, index}:
       Evm.item(values(env, level), index)
+    case Bytes{_}:
+      0n
+    case Length{level}:
+      Evm.length(blob(env, level))
 
 def evals(exprs: List<&2, Expr>, +env: List<&2, Binding>) -> List<&2, Nat>:
   match exprs:
@@ -117,6 +144,25 @@ def evals(exprs: List<&2, Expr>, +env: List<&2, Binding>) -> List<&2, Nat>:
       Nil{}
     case e <> rest:
       eval(e, env) <> evals(rest, env)
+
+def part(e: Expr, +env: List<&2, Binding>) -> Evm.Part:
+  match e:
+    case Bytes{level}:
+      Evm.Dynamic{blob(env, level)}
+    case +other:
+      Evm.Word{eval(other, env)}
+
+def parts(exprs: List<&2, Expr>, +env: List<&2, Binding>) -> List<&2, Evm.Part>:
+  match exprs:
+    case Nil{}:
+      Nil{}
+    case e <> rest:
+      part(e, env) <> parts(rest, env)
+
+# The ABI encoding of an argument list: of a log's data, an error's or a
+# call's arguments, or a function's results.
+def encode(exprs: List<&2, Expr>, +env: List<&2, Binding>) -> List<&2, Nat>:
+  Evm.abi(parts(exprs, env))
 
 def loc(l: Loc, +env: List<&2, Binding>) -> Evm.Key:
   match l:
@@ -181,20 +227,22 @@ def word(w: Action, +env: List<&2, Binding>) -> Evm.Contract(Nat):
     case Recover{digest, v, r, s}:
       Evm.recover(eval(digest, env), eval(v, env), eval(r, env), eval(s, env))
     case View{target, signature, args}:
-      Evm.view(Evm.Call{eval(target, env), name(signature), evals(args, env)})
+      Evm.view(Evm.Call{eval(target, env), name(signature), encode(args, env)})
     case Call{target, signature, args}:
-      Evm.call(Evm.Call{eval(target, env), name(signature), evals(args, env)})
+      Evm.call(Evm.Call{eval(target, env), name(signature), encode(args, env)})
+    case Hash{level}:
+      Evm.keccak.bytes(blob(env, level))
 
 def effect(e: Effect, +env: List<&2, Binding>) -> Evm.Contract(Unit):
   match e:
     case SStore{l, value}:
       Evm.write(loc(l, env), eval(value, env))
     case Log{event, topics, data}:
-      Evm.log(name(event), evals(topics, env), evals(data, env))
+      Evm.log(name(event), evals(topics, env), encode(data, env))
     case Require{c}:
       Evm.require(cond(c, env))
     case Ensure{c, error, args}:
-      Evm.ensure(cond(c, env), Evm.Error{name(error), evals(args, env)})
+      Evm.ensure(cond(c, env), Evm.Error{name(error), encode(args, env)})
     case Pay{target, amount}:
       Evm.pay(eval(target, env), eval(amount, env))
 
@@ -219,9 +267,9 @@ def run(cmd: Cmd, +out: Output, +env: List<&2, Binding>) -> Evm.Contract(value(o
     case If{c, yes, no} o:
       Evm.branch(value(o), cond(c, env), run(yes, o, env), run(no, o, env))
     case Give{_, vs} Gives{}:
-      Evm.Contract.pure(Evm.Values, Evm.Values{evals(vs, env)})
+      Evm.Contract.pure(Evm.Values, Evm.Values{encode(vs, env)})
     case Fetch{target, signature, args, count, level, body} o:
-      Evm.Contract.bind(Evm.Values, value(o), Evm.views(Evm.Call{eval(target, env), name(signature), evals(args, env)}, count),
+      Evm.Contract.bind(Evm.Values, value(o), Evm.views(Evm.Call{eval(target, env), name(signature), encode(args, env)}, count),
         v => run(body, o, Bindings{level, v} <> env))
     case _ o:
       abort(value(o))
@@ -243,6 +291,10 @@ def closed.expr(e: Expr, +scope: List<&2, Nat>) -> Bool:
       has(scope, level)
     case Item{level, _}:
       has(scope, level)
+    case Bytes{_}:
+      False{}
+    case Length{level}:
+      has(scope, level)
 
 def closed.two(left: Expr, right: Expr, +scope: List<&2, Nat>) -> Bool:
   Bool.and(closed.expr(left, scope), closed.expr(right, scope))
@@ -253,6 +305,21 @@ def closed.list(exprs: List<&2, Expr>, +scope: List<&2, Nat>) -> Bool:
       True{}
     case e <> rest:
       Bool.and(closed.expr(e, scope), closed.list(rest, scope))
+
+# An argument list may also hold bytes.
+def closed.part(e: Expr, +scope: List<&2, Nat>) -> Bool:
+  match e:
+    case Bytes{level}:
+      has(scope, level)
+    case +other:
+      closed.expr(other, scope)
+
+def closed.parts(exprs: List<&2, Expr>, +scope: List<&2, Nat>) -> Bool:
+  match exprs:
+    case Nil{}:
+      True{}
+    case e <> rest:
+      Bool.and(closed.part(e, scope), closed.parts(rest, scope))
 
 def closed.cond(c: Cond, +scope: List<&2, Nat>) -> Bool:
   match c:
@@ -307,20 +374,22 @@ def closed.word(w: Action, +scope: List<&2, Nat>) -> Bool:
     case Recover{digest, v, r, s}:
       Bool.and(closed.two(digest, v, scope), closed.two(r, s, scope))
     case View{target, _, args}:
-      Bool.and(closed.expr(target, scope), closed.list(args, scope))
+      Bool.and(closed.expr(target, scope), closed.parts(args, scope))
     case Call{target, _, args}:
-      Bool.and(closed.expr(target, scope), closed.list(args, scope))
+      Bool.and(closed.expr(target, scope), closed.parts(args, scope))
+    case Hash{level}:
+      has(scope, level)
 
 def closed.effect(e: Effect, +scope: List<&2, Nat>) -> Bool:
   match e:
     case SStore{l, value}:
       Bool.and(closed.loc(l, scope), closed.expr(value, scope))
     case Log{_, topics, data}:
-      Bool.and(closed.list(topics, scope), closed.list(data, scope))
+      Bool.and(closed.list(topics, scope), closed.parts(data, scope))
     case Require{c}:
       closed.cond(c, scope)
     case Ensure{c, _, args}:
-      Bool.and(closed.cond(c, scope), closed.list(args, scope))
+      Bool.and(closed.cond(c, scope), closed.parts(args, scope))
     case Pay{target, amount}:
       closed.two(target, amount, scope)
 
@@ -341,9 +410,9 @@ def closed(cmd: Cmd, +scope: List<&2, Nat>) -> Bool:
     case If{c, yes, no}:
       Bool.and(closed.cond(c, scope), Bool.and(closed(yes, scope), closed(no, scope)))
     case Give{_, vs}:
-      closed.list(vs, scope)
+      closed.parts(vs, scope)
     case Fetch{target, _, args, _, level, body}:
-      Bool.and(Bool.and(closed.expr(target, scope), closed.list(args, scope)), closed(body, level <> scope))
+      Bool.and(Bool.and(closed.expr(target, scope), closed.parts(args, scope)), closed(body, level <> scope))
 
 def levels(env: List<&2, Binding>) -> List<&2, Nat>:
   match env:
@@ -352,6 +421,8 @@ def levels(env: List<&2, Binding>) -> List<&2, Nat>:
     case Binding{level, _} <> rest:
       level <> levels(rest)
     case Bindings{level, _} <> rest:
+      level <> levels(rest)
+    case Blob{level, _} <> rest:
       level <> levels(rest)
 
 # An entry point: reverts unless every variable is bound, then runs.

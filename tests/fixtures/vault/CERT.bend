@@ -107,10 +107,10 @@ def touch(p0):
   {==}
 
 def entry.table() -> List<&2, Calls.Entry>:
-  [Calls.Entry{ir.token(), IR.Returns{}, 0n},
-  Calls.Entry{ir.sharesOf(), IR.Returns{}, 1n},
-  Calls.Entry{ir.totalShares(), IR.Returns{}, 0n},
-  Calls.Entry{ir.deposit(), IR.Stops{}, 1n},
-  Calls.Entry{ir.withdraw(), IR.Stops{}, 1n},
-  Calls.Entry{ir.ping(), IR.Returns{}, 1n},
-  Calls.Entry{ir.touch(), IR.Stops{}, 1n}]
+  [Calls.Entry{ir.token(), IR.Returns{}, []},
+  Calls.Entry{ir.sharesOf(), IR.Returns{}, [Calls.Word{}]},
+  Calls.Entry{ir.totalShares(), IR.Returns{}, []},
+  Calls.Entry{ir.deposit(), IR.Stops{}, [Calls.Word{}]},
+  Calls.Entry{ir.withdraw(), IR.Stops{}, [Calls.Word{}]},
+  Calls.Entry{ir.ping(), IR.Returns{}, [Calls.Word{}]},
+  Calls.Entry{ir.touch(), IR.Stops{}, [Calls.Word{}]}]

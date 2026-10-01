@@ -10,6 +10,7 @@ for (const [program, functions] of [
   ['examples/weth/WETH.bend', entries.weth],
   ['examples/auction/Auction.bend', entries.auction],
   ['tests/fixtures/branch/program.bend', entries.branch],
+  ['tests/fixtures/bytes/program.bend', entries.bytes],
   ['tests/fixtures/emit/program.bend', entries.emit],
   ['tests/fixtures/env/program.bend', entries.env],
   ['tests/fixtures/transient/program.bend', entries.transient],

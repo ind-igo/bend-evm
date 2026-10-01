@@ -356,3 +356,16 @@ Not in M25: a model of the end of a transaction. A law about one call holds for 
 - [x] `Yul.lower` looks at the output before a tail, so a tail of the wrong kind needs one case in the lowering proof, not one for each word or effect (23 cases became 2).
 
 Not in M26: calls that write and give several words, and a call to one of the contract's own functions that returns a tuple. Add them when a contract needs them.
+
+## M27: dynamic data
+
+### Done when
+
+- [x] A parameter of type `Evm.Bytes` or `Evm.Str` is ABI `bytes` or `string`. The model holds it as its ABI words, `Evm.Bytes{length, words}`, and `Evm.abi(parts)` gives the ABI encoding of words and bytes, as `abi.encode` does. Log data, error and call arguments and tuple results are such encodings, so words alone encode as themselves and no existing law changed.
+- [x] A contract passes bytes on in a log, an error, a call and a tuple result, reads their length with `Evm.length(b)`, and hashes them with `Evm.keccak.bytes(b)`. The IR has `IR.Bytes{level}` in argument lists, `IR.Length{level}` and `IR.Hash{level}`, and `IR.encode` gives an argument list's encoding to both the IR and the Yul model, so the lowering proof needed one new case for the hash.
+- [x] A callback's arguments are ABI words, and an entry in the certificate's table lists the kind of each parameter, so the model decodes a callback's bytes. The law `decodes` in [src/LAWS.bend](src/LAWS.bend) proves that the decoder reads bytes back as the encoder wrote them.
+- [x] On the chain a bytes parameter stays in the calldata, and an encoding with bytes is built in memory with `calldatacopy`. The dispatcher reverts unless the offset is a multiple of 32, the bytes end in the calldata, and the padding is zero.
+- [x] [tests/fixtures/bytes](tests/fixtures/bytes) has laws for a log with two texts, a call and a tuple result, and [tests/bytes.test.js](tests/bytes.test.js) compares every function with Solidity, through a call that calls back with the bytes, and checks that badly encoded calldata reverts.
+- [ ] Flash swaps in the AMM: `swap` takes `bytes data`, and calls `uniswapV2Call` on the receiver when the data is not empty.
+
+Not in M27 yet: bytes from a call's result (`returndatacopy`) or made by the contract, reading the bytes themselves (`data[i]`, `abi.decode`), bytes in `init` and indexed bytes fields, and so `mcopy`. Arrays come after M28, as most uses of an array need a loop.

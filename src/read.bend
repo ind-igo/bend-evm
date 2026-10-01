@@ -125,6 +125,8 @@ type Tag is Data:
   ValuesType{}
   Views{}
   ItemOf{}
+  LengthOf{}
+  HashBytes{}
   Unknown{}
 
 type Named is Data:
@@ -196,7 +198,9 @@ def tags() -> List<&2, Named>:
   Named{"Evm.Call", CallType{}},
   Named{"Evm.Values", ValuesType{}},
   Named{"Evm.views", Views{}},
-  Named{"Evm.item", ItemOf{}}])
+  Named{"Evm.item", ItemOf{}},
+  Named{"Evm.length", LengthOf{}},
+  Named{"Evm.keccak.bytes", HashBytes{}}])
 
 def tag.go(table: List<&2, Named>, +name: String) -> Tag:
   match table:
@@ -295,10 +299,16 @@ def abi.go(table: List<&2, Abi>, +name: String) -> Result<&2, &2, String, String
     case Abi{n, a} <> rest:
       Bool.pick(Result<&2, &2, String, String>, String.eq(name, n), Done{a}, abi.go(rest, name))
 
-# The ABI type of a word: Nat is uint256, Evm.Address is address, and so on.
+# The ABI type of a value: Nat is uint256, Evm.Address is address, and so
+# on; Evm.Bytes is bytes and Evm.Str is string.
 def abi(+name: String) -> Result<&2, &2, String, String>:
   abi.go([Abi{"Nat", "uint256"}, Abi{"Evm.Address", "address"}, Abi{"Evm.Uint8", "uint8"},
-    Abi{"Evm.Boolean", "bool"}, Abi{"Evm.Bytes32", "bytes32"}, Abi{"Evm.Int", "int256"}], name)
+    Abi{"Evm.Boolean", "bool"}, Abi{"Evm.Bytes32", "bytes32"}, Abi{"Evm.Int", "int256"},
+    Abi{"Evm.Bytes", "bytes"}, Abi{"Evm.Str", "string"}], name)
+
+# Whether values of an ABI type are bytes, not words.
+def dynamic(+t: String) -> Bool:
+  Bool.or(String.eq(t, "bytes"), String.eq(t, "string"))
 
 def abi.term(+evm: String, typ: Core.Term) -> Result<&2, &2, String, String>:
   match typ:
@@ -396,7 +406,15 @@ def item.at(x: IR.Expr, n: IR.Expr) -> Result<&2, &2, String, IR.Expr>:
     case _ _:
       Fail{"Evm.item takes a variable that Evm.views bound and a literal index"}
 
-# Word i of the words that Evm.views bound, as Evm.item(v, 1n).
+def length.of(x: IR.Expr) -> Result<&2, &2, String, IR.Expr>:
+  match x:
+    case IR.Var{level}:
+      Done{IR.Length{level}}
+    case _:
+      Fail{"Evm.length takes a bytes parameter"}
+
+# Word i of the words that Evm.views bound, as Evm.item(v, 1n), or the
+# length of a bytes parameter, as Evm.length(data).
 def item(c: Call) -> Result<&2, &2, String, IR.Expr>:
   match c:
     case Call{ItemOf{}, _, v <> i <> Nil{}}:
@@ -404,6 +422,10 @@ def item(c: Call) -> Result<&2, &2, String, IR.Expr>:
         x : IR.Expr <- item.var(v)
         n : IR.Expr <- item.index(i)
         item.at(x, n)
+    case Call{LengthOf{}, _, v <> Nil{}}:
+      do Result<&2, &2, String, IR.Expr>:
+        x : IR.Expr <- item.var(v)
+        length.of(x)
     case _:
       Fail{"Unsupported expression"}
 
@@ -595,10 +617,24 @@ def parts.put(+wrong: Bool, +indexed: Bool, t: String, x: IR.Expr, p: Parts) -> 
     case False{} False{} Parts{types, topics, data}:
       Done{Parts{t <> types, topics, x <> data}}
 
-def parts.add(+indexed: Bool, +late: Bool, t: String, e: Result<&2, &2, String, IR.Expr>,
+# A bytes or string field takes a bytes parameter, which goes in the data.
+def bytes.of(+indexed: Bool, x: IR.Expr) -> Result<&2, &2, String, IR.Expr>:
+  match indexed x:
+    case True{} _:
+      Fail{"A bytes or string event field cannot be indexed"}
+    case False{} IR.Var{level}:
+      Done{IR.Bytes{level}}
+    case False{} _:
+      Fail{"A bytes or string field takes a bytes parameter"}
+
+def field.value(+indexed: Bool, +t: String, +x: IR.Expr) -> Result<&2, &2, String, IR.Expr>:
+  Bool.pick(Result<&2, &2, String, IR.Expr>, dynamic(t), bytes.of(indexed, x), Done{x})
+
+def parts.add(+indexed: Bool, +late: Bool, +t: String, e: Result<&2, &2, String, IR.Expr>,
   rest: Result<&2, &2, String, Parts>) -> Result<&2, &2, String, Parts>:
   do Result<&2, &2, String, Parts>:
-    x : IR.Expr <- e
+    v : IR.Expr <- e
+    x : IR.Expr <- field.value(indexed, t, v)
     p : Parts <- rest
     parts.put(Bool.and(indexed, late), indexed, t, x, p)
 
@@ -833,6 +869,13 @@ def sense(+e: Evm.Env, +args: List<&2, Core.Term>, +decls: List<&2, Core.Declara
       return IR.Env{e, es},
     Fail{"Evm." ++ op.name(i) ++ " takes " ++ Nat.show(op.arity(i)) ++ " words"})
 
+def hash.of(x: IR.Expr) -> Result<&2, &2, String, IR.Action>:
+  match x:
+    case IR.Var{level}:
+      Done{IR.Hash{level}}
+    case _:
+      Fail{"Evm.keccak.bytes takes a bytes parameter"}
+
 def word(c: Call, +evm: String, +decls: List<&2, Core.Declaration>) -> Result<&2, &2, String, IR.Action>:
   match c:
     case Call{Sload{}, _, slot <> Nil{}}:
@@ -912,6 +955,10 @@ def word(c: Call, +evm: String, +decls: List<&2, Core.Declaration>) -> Result<&2
       math(op, args, decls)
     case Call{EnvOp{e}, _, args}:
       sense(e, args, decls)
+    case Call{HashBytes{}, _, data <> Nil{}}:
+      do Result<&2, &2, String, IR.Action>:
+        x : IR.Expr <- item.var(data)
+        hash.of(x)
     case Call{View{}, _, called <> Nil{}}:
       view(False{}, call(called, Nil{}), evm, decls)
     case Call{CallOut{}, _, called <> Nil{}}:

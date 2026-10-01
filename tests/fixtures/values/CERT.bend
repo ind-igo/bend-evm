@@ -38,6 +38,6 @@ def failing(p0):
   {==}
 
 def entry.table() -> List<&2, Calls.Entry>:
-  [Calls.Entry{ir.reserves(), IR.Gives{}, 1n},
-  Calls.Entry{ir.total(), IR.Returns{}, 1n},
-  Calls.Entry{ir.failing(), IR.Returns{}, 1n}]
+  [Calls.Entry{ir.reserves(), IR.Gives{}, [Calls.Word{}]},
+  Calls.Entry{ir.total(), IR.Returns{}, [Calls.Word{}]},
+  Calls.Entry{ir.failing(), IR.Returns{}, [Calls.Word{}]}]

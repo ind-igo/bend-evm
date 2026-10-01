@@ -41,6 +41,6 @@ def locked():
   {==}
 
 def entry.table() -> List<&2, Calls.Entry>:
-  [Calls.Entry{ir.poke(), IR.Stops{}, 1n},
-  Calls.Entry{ir.count(), IR.Returns{}, 0n},
-  Calls.Entry{ir.locked(), IR.Returns{}, 0n}]
+  [Calls.Entry{ir.poke(), IR.Stops{}, [Calls.Word{}]},
+  Calls.Entry{ir.count(), IR.Returns{}, []},
+  Calls.Entry{ir.locked(), IR.Returns{}, []}]

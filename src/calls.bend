@@ -15,16 +15,23 @@ import ./yul.bend as Yul
 # contract and every callback that it makes. A real run gives one list: a
 # callback that the EVM rejects before the entry runs, such as one with a
 # bad selector or a bad argument, changes nothing and is not in the list.
+# A callback's args are the ABI encoding of its arguments.
 type Step is Data:
   Answer{call: Evm.Call, callbacks: List<&2, Step>, value: Nat}
   Enter{sender: Nat, entry: Nat, args: List<&2, Nat>, answers: List<&2, Step>}
 
-# An entry that a callback can run: its IR, its output, and its number of
+# The kind of a parameter: a word, or bytes, which the ABI encodes after the
+# words.
+type Param is Data:
+  Word{}
+  Dynamic{}
+
+# An entry that a callback can run: its IR, its output, and the kinds of its
 # parameters, which have the levels 0, 1, ... in order. The certificate's
 # entry.table lists the contract's entries, and a callback names one by its
 # index in that list.
 type Entry is Data:
-  Entry{cmd: IR.Cmd, out: IR.Output, arity: Nat}
+  Entry{cmd: IR.Cmd, out: IR.Output, params: List<&2, Param>}
 
 # The code that a callback runs: the IR, or its Yul lowering.
 type Code is Data:
@@ -47,17 +54,65 @@ def bind.cons(+b: IR.Binding, env: Maybe<&2, List<&2, IR.Binding>>) -> Maybe<&2,
     case None{}:
       None{}
 
-# The parameters from level on, bound to the argument words. Too few words
-# is a bad call; words after the last parameter are ignored, as the ABI
-# decoder ignores them.
-def bind(arity: Nat, +level: Nat, args: List<&2, Nat>) -> Maybe<&2, List<&2, IR.Binding>>:
-  match arity args:
+def bind.blob(+level: Nat, b: Maybe<&2, Evm.Bytes>, env: Maybe<&2, List<&2, IR.Binding>>) -> Maybe<&2, List<&2, IR.Binding>>:
+  match b:
+    case Some{v}:
+      bind.cons(IR.Blob{level, v}, env)
+    case None{}:
+      None{}
+
+def taken.cons(+w: Nat, ws: Maybe<&2, List<&2, Nat>>) -> Maybe<&2, List<&2, Nat>>:
+  match ws:
+    case Some{xs}:
+      Some{w <> xs}
+    case None{}:
+      None{}
+
+# The first n words, if there are n.
+def take(n: Nat, ws: List<&2, Nat>) -> Maybe<&2, List<&2, Nat>>:
+  match n ws:
     case 0n _:
       Some{Nil{}}
     case 1n+_ Nil{}:
       None{}
-    case 1n+n a <> rest:
-      bind.cons(IR.Binding{level, a}, bind(n, 1n+level, rest))
+    case 1n+m w <> rest:
+      taken.cons(w, take(m, rest))
+
+def made(+length: Nat, ws: Maybe<&2, List<&2, Nat>>) -> Maybe<&2, Evm.Bytes>:
+  match ws:
+    case Some{xs}:
+      Some{Evm.Bytes{length, xs}}
+    case None{}:
+      None{}
+
+def decode.at(ws: List<&2, Nat>) -> Maybe<&2, Evm.Bytes>:
+  match ws:
+    case Nil{}:
+      None{}
+    case +n <> rest:
+      made(n, take(Nat.div(Nat.add(n, 31n), 32n), rest))
+
+# The bytes at offset in an ABI encoding: the length, then its words. The
+# dispatcher rejects an offset that is not a multiple of 32, and bytes
+# past the end.
+def decode(+offset: Nat, all: List<&2, Nat>) -> Maybe<&2, Evm.Bytes>:
+  Bool.pick(Maybe<&2, Evm.Bytes>, Nat.is_eq(Nat.mod(offset, 32n), 0n),
+    decode.at(List.drop(&2, Nat, all, Nat.div(offset, 32n))), None{})
+
+# The parameters from level on, bound to the arguments: a word parameter to
+# its word, and a bytes parameter to the bytes at the offset that its word
+# gives in all, the whole encoding. Too few words is a bad call; words after
+# the last parameter are ignored, as the ABI decoder ignores them.
+def bind(params: List<&2, Param>, +level: Nat, heads: List<&2, Nat>, +all: List<&2, Nat>) -> Maybe<&2, List<&2, IR.Binding>>:
+  match params heads:
+    case Nil{} _:
+      Some{Nil{}}
+    case _ <> _ Nil{}:
+      None{}
+    case Word{} <> ps a <> rest:
+      bind.cons(IR.Binding{level, a}, bind(ps, 1n+level, rest, all))
+    case Dynamic{} <> ps a <> rest:
+      bind.blob(level, decode(a, all), bind(ps, 1n+level, rest, all))
 
 def start(code: Code, +cmd: IR.Cmd, +out: IR.Output, +env: List<&2, IR.Binding>) -> Evm.Contract(IR.value(out)):
   match code:
@@ -74,10 +129,10 @@ def started(+code: Code, +cmd: IR.Cmd, +out: IR.Output, env: Maybe<&2, List<&2, 
     case None{}:
       IR.abort(Unit)
 
-def found(+code: Code, e: Maybe<&2, Entry>, args: List<&2, Nat>) -> Evm.Contract(Unit):
+def found(+code: Code, e: Maybe<&2, Entry>, +args: List<&2, Nat>) -> Evm.Contract(Unit):
   match e:
-    case Some{Entry{+cmd, +out, arity}}:
-      started(code, cmd, out, bind(arity, 0n, args))
+    case Some{Entry{+cmd, +out, params}}:
+      started(code, cmd, out, bind(params, 0n, args, args))
     case None{}:
       IR.abort(Unit)
 

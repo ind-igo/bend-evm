@@ -55,6 +55,57 @@ def Boolean() -> Data:
 def Indexed(A: Data) -> Data:
   A
 
+# A bytes value of the ABI: its length in bytes, and its bytes in 32-byte
+# words, the last one zero-padded on the right, as the ABI encodes it. A
+# contract gets one as a parameter and passes it on in logs, errors, calls
+# and results, as Solidity's bytes calldata.
+type Bytes is Data:
+  Bytes{length: Nat, words: List<&2, Nat>}
+
+# A string of the ABI: bytes with another ABI type.
+def Str() -> Data:
+  Bytes
+
+def length(b: Bytes) -> Nat:
+  match b:
+    case Bytes{n, _}:
+      n
+
+# A value in an ABI encoding: a word, or bytes, which the encoding holds
+# after the words, at the offset that its word gives.
+type Part is Data:
+  Word{value: Nat}
+  Dynamic{value: Bytes}
+
+def tail(b: Bytes) -> List<&2, Nat>:
+  match b:
+    case Bytes{n, ws}:
+      n <> ws
+
+def heads(parts: List<&2, Part>, +offset: Nat) -> List<&2, Nat>:
+  match parts:
+    case Nil{}:
+      Nil{}
+    case Word{w} <> rest:
+      w <> heads(rest, offset)
+    case Dynamic{b} <> rest:
+      offset <> heads(rest, Nat.add(offset, Nat.mul(List.length(&2, Nat, tail(b)), 32n)))
+
+def tails(parts: List<&2, Part>) -> List<&2, Nat>:
+  match parts:
+    case Nil{}:
+      Nil{}
+    case Word{_} <> rest:
+      tails(rest)
+    case Dynamic{b} <> rest:
+      List.append(&2, Nat, tail(b), tails(rest))
+
+# The ABI encoding of parts, as abi.encode gives it: a word for each part,
+# then the length and the words of each bytes value. Words alone encode as
+# themselves, so a def with no bytes writes its words as a list.
+def abi(+parts: List<&2, Part>) -> List<&2, Nat>:
+  List.append(&2, Nat, heads(parts, Nat.mul(List.length(&2, Part, parts), 32n)), tails(parts))
+
 # A log entry: an event's name, such as "Transfer", the indexed words after
 # topic 0, and the data words. Topic 0 is the Keccak-256 of the signature,
 # such as "Transfer(address,address,uint256)", which the reader builds from
@@ -70,12 +121,17 @@ def Indexed(A: Data) -> Data:
 # written with this result type:
 #   def Transfer(from: Evm.Indexed(Evm.Address), to: Evm.Indexed(Evm.Address), amount: Nat) -> Evm.Log:
 #     Evm.Log{"Transfer", [from, to], [amount]}
+#
+# The data are the ABI encoding of the fields that are not indexed. An event
+# with a bytes or string field gives it with Evm.abi:
+#   def Note(id: Evm.Indexed(Nat), text: Evm.Str) -> Evm.Log:
+#     Evm.Log{"Note", [id], Evm.abi([Evm.Dynamic{text}])}
 type Log is Data:
   Log{name: String, topics: List<&2, Nat>, data: List<&2, Nat>}
 
 # A custom error: its name and its argument words. The revert data is the
 # 4-byte selector of its signature, such as "Unauthorized(address)", then
-# the words, which the printer encodes. An error def gives it, and
+# the words: the ABI encoding of the arguments, as for a log. An error def gives it, and
 # Evm.ensure reverts with it:
 #   def Unauthorized(account: Evm.Address) -> Evm.Error:
 #     Evm.Error{"Unauthorized", [account]}
@@ -83,11 +139,13 @@ type Error is Data:
   Error{name: String, args: List<&2, Nat>}
 
 # What keccak256 hashes: words of 32 bytes; an EIP-712 digest, which hashes
-# 0x1901 . domain . message; or an ASCII text, such as a type string.
+# 0x1901 . domain . message; an ASCII text, such as a type string; or the
+# bytes of a bytes value.
 type Preimage is Data:
   Words{words: List<&2, Nat>}
   Typed{domain: Nat, message: Nat}
   Text{text: String}
+  Raw{bytes: Bytes}
 
 type Hashed is Data:
   Hashed{preimage: Preimage, hash: Nat}
@@ -96,7 +154,7 @@ type Signed is Data:
   Signed{digest: Nat, v: Nat, r: Nat, s: Nat, signer: Nat}
 
 # A call to another contract: its address, the function's name and the
-# argument words. The calldata is the 4-byte selector of its signature, such
+# argument words, the ABI encoding of the arguments, as for a log. The calldata is the 4-byte selector of its signature, such
 # as "balanceOf(address)", then the words. An interface def gives it, and
 # Evm.view or Evm.call makes it:
 #   def balanceOf(token: Evm.Address, who: Evm.Address) -> Evm.Call:
@@ -310,6 +368,8 @@ def same.preimage(a: Preimage, b: Preimage) -> Bool:
       Bool.and(Nat.is_eq(d, e), Nat.is_eq(m, n))
     case Text{x} Text{y}:
       String.eq(x, y)
+    case Raw{Bytes{n, x}} Raw{Bytes{m, y}}:
+      Bool.and(Nat.is_eq(n, m), same.words(x, y))
     case _ _:
       False{}
 
@@ -534,6 +594,10 @@ def typed(domain: Nat, message: Nat) -> Contract(Nat):
 
 def id(text: String) -> Contract(Nat):
   R => k => +s => k(hash.of(hashes.of(world.of(s)), Text{text}), s)
+
+# keccak256 of the bytes of b, as Solidity's keccak256(b).
+def keccak.bytes(b: Bytes) -> Contract(Nat):
+  R => k => +s => k(hash.of(hashes.of(world.of(s)), Raw{b}), s)
 
 # The address that signed digest, or zero, like ecrecover.
 def recover(digest: Nat, v: Nat, r: Nat, sig: Nat) -> Contract(Nat):

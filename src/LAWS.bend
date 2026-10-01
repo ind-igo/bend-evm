@@ -44,3 +44,12 @@ law fixed:
   for +s: Evm.State
   for +h: {True{} == Evm.fixed(e) : Bool}
   {Evm.sensed(e, s) == s : Evm.State}
+
+# A callback's bytes argument decodes to the bytes that the ABI encoded,
+# when its words are as many as its length needs. So the model of callbacks
+# reads bytes as the encoder writes them.
+law decodes:
+  for +n: Nat
+  for +ws: List<&2, Nat>
+  for +h: {List.length(&2, Nat, ws) == Nat.div(Nat.add(n, 31n), 32n) : Nat}
+  {Calls.decode(32n, Evm.abi([Evm.Dynamic{Evm.Bytes{n, ws}}])) == Some{Evm.Bytes{n, ws}} : Maybe<&2, Evm.Bytes>}

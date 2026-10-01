@@ -8,7 +8,9 @@ import ./tool.bend as Tool
 
 # Prints a Yul object for the named entries, with an ABI dispatcher. The
 # dispatcher range-checks address, uint8 and bool parameters; results go out
-# as they are. An entry named init is the constructor.
+# as they are. A bytes or string parameter stays in the calldata: its local
+# is the position of its length word there. An entry named init is the
+# constructor.
 # Usage: compile.bend <contract.bend> <function>...
 
 def nat(n: Nat) -> String:
@@ -25,6 +27,10 @@ def atom(e: IR.Expr) -> String:
       var(level)
     case IR.Item{level, index}:
       var(level) ++ "_" ++ nat(index)
+    case IR.Bytes{level}:
+      var(level)
+    case IR.Length{level}:
+      "calldataload(" ++ var(level) ++ ")"
 
 def call(name: String, args: List<&2, String>) -> String:
   name ++ "(" ++ String.join(args, ", ") ++ ")"
@@ -112,6 +118,8 @@ def exp(e: Yul.Exp) -> String:
     case Yul.And{left, right}:
       a b = exp(left) exp(right)
       call("and", [a, b])
+    case Yul.Hash{level}:
+      call("keccak256", ["0", atom(IR.Length{level})])
 
 def sense(e: Evm.Env, args: List<&2, IR.Expr>) -> String:
   call(yul(Evm.info.of(Evm.sensor(e))), atoms(args))
@@ -128,13 +136,48 @@ def stores(+pad: String, data: List<&2, IR.Expr>, +offset: Nat) -> String:
     case d <> rest:
       pad ++ call("mstore", [nat(offset), atom(d)]) ++ "\n" ++ stores(pad, rest, Nat.add(32n, offset))
 
-# keccak256 of words reads them from memory at 0, so they are stored first.
+# keccak256 reads from memory at 0, so the words or the bytes go there first.
 def prelude(+pad: String, value: Yul.Exp) -> String:
   match value:
     case Yul.Keccak{words}:
       stores(pad, words, 0n)
+    case Yul.Hash{+level}:
+      pad ++ call("calldatacopy", ["0", call("add", [var(level), "32"]), atom(IR.Length{level})]) ++ "\n"
     case _:
       ""
+
+def has.bytes(args: List<&2, IR.Expr>) -> Bool:
+  match args:
+    case Nil{}:
+      False{}
+    case IR.Bytes{_} <> _:
+      True{}
+    case _ <> rest:
+      has.bytes(rest)
+
+# The heads of an encoding with bytes, from offset on: each bytes value's
+# head is its offset from base, and put copies it to end.
+def heads(+pad: String, args: List<&2, IR.Expr>, +base: Nat, +offset: Nat) -> String:
+  match args:
+    case Nil{}:
+      ""
+    case IR.Bytes{level} <> rest:
+      pad ++ call("mstore", [nat(offset), Bool.pick(String, Nat.is_eq(base, 0n), "end", call("sub", ["end", nat(base)]))]) ++ "\n"
+        ++ pad ++ "end := " ++ call("put", ["end", var(level)]) ++ "\n" ++ heads(pad, rest, base, Nat.add(32n, offset))
+    case e <> rest:
+      pad ++ call("mstore", [nat(offset), atom(e)]) ++ "\n" ++ heads(pad, rest, base, Nat.add(32n, offset))
+
+# The ABI encoding of args in memory from base, then use(pad, end), the
+# statement that reads it up to end. With bytes, the end is known only when
+# the code runs, so the encoding is a block with a local end.
+def encoded(+pad: String, +args: List<&2, IR.Expr>, +base: Nat, use: String -> String -> String) -> String:
+  +size = Nat.add(base, Nat.mul(32n, List.length(&2, IR.Expr, args)))
+  +inner = pad ++ "  "
+  +block = has.bytes(args)
+  Bool.pick(String, block, pad ++ "{\n" ++ inner ++ "let end := " ++ nat(size) ++ "\n" ++ heads(inner, args, base, base),
+    stores(pad, args, base))
+    ++ use(Bool.pick(String, block, inner, pad), Bool.pick(String, block, "end", nat(size)))
+    ++ Bool.pick(String, block, pad ++ "}\n", "")
 
 # A call to another contract, with staticcall for a view and with call and
 # no value otherwise: the selector and argument words go to memory at 0, and
@@ -142,18 +185,19 @@ def prelude(+pad: String, value: Yul.Exp) -> String:
 # contract reverts with the callee's revert data, as Solidity does; when it
 # returns fewer words, with no data. A callback into this contract runs in a
 # new frame with its own memory, so it cannot change these words.
-def external(+pad: String, +writes: Bool, +target: IR.Expr, +signature: String, +args: List<&2, IR.Expr>, +words: Nat) ->
-  String:
-  +size = Nat.add(4n, Nat.mul(32n, List.length(&2, IR.Expr, args)))
-  +out = nat(Nat.mul(32n, words))
-  +made = Bool.pick(String, writes, call("call", ["gas()", atom(target), "0", "0", nat(size), "0", out]),
-    call("staticcall", ["gas()", atom(target), "0", nat(size), "0", out]))
-  pad ++ call("mstore", ["0", call("shl", ["224", Keccak.hex(Keccak.selector(signature))])]) ++ "\n"
-    ++ stores(pad, args, 4n)
-    ++ pad ++ "if iszero(" ++ made ++ ") {\n"
+def made(+pad: String, +writes: Bool, +target: IR.Expr, +out: String, +size: String) -> String:
+  +sent = Bool.pick(String, writes, call("call", ["gas()", atom(target), "0", "0", size, "0", out]),
+    call("staticcall", ["gas()", atom(target), "0", size, "0", out]))
+  pad ++ "if iszero(" ++ sent ++ ") {\n"
     ++ pad ++ "  returndatacopy(0, 0, returndatasize())\n"
     ++ pad ++ "  revert(0, returndatasize())\n"
     ++ pad ++ "}\n"
+
+def external(+pad: String, +writes: Bool, +target: IR.Expr, +signature: String, +args: List<&2, IR.Expr>, +words: Nat) ->
+  String:
+  +out = nat(Nat.mul(32n, words))
+  pad ++ call("mstore", ["0", call("shl", ["224", Keccak.hex(Keccak.selector(signature))])]) ++ "\n"
+    ++ encoded(pad, args, 4n, p => size => made(p, writes, target, out, size))
     ++ pad ++ "if lt(returndatasize(), " ++ out ++ ") { " ++ revert() ++ " }\n"
 
 # The locals of a Fetch at level: one for each word.
@@ -173,19 +217,16 @@ def stmt(+pad: String, +halt: String, s: Yul.Stmt) -> String:
       prelude(pad, value) ++ pad ++ "let " ++ var(level) ++ " := " ++ exp(value) ++ "\n" ++ stmt(pad, halt, body)
     case Yul.SStore{+l, value, body}:
       pad ++ call(Bool.pick(String, transient(l), "tstore", "sstore"), [loc(l), exp(value)]) ++ "\n" ++ stmt(pad, halt, body)
-    case Yul.Log{event, +topics, +data, body}:
+    case Yul.Log{+event, +topics, +data, body}:
       +n = Nat.add(1n, List.length(&2, IR.Expr, topics))
-      +size = Nat.mul(32n, List.length(&2, IR.Expr, data))
-      stores(pad, data, 0n)
-        ++ pad ++ call("log" ++ nat(n), "0" <> nat(size) <> Keccak.digest(event) <> atoms(topics)) ++ "\n"
+      encoded(pad, data, 0n, p => size => p ++ call("log" ++ nat(n), "0" <> size <> Keccak.digest(event) <> atoms(topics)) ++ "\n")
         ++ stmt(pad, halt, body)
     case Yul.Check{cond, body}:
       pad ++ "if " ++ exp(cond) ++ " { " ++ revert() ++ " }\n" ++ stmt(pad, halt, body)
     case Yul.Guard{cond, +error, +args, body}:
       +inner = pad ++ "  "
-      +size = Nat.add(4n, Nat.mul(32n, List.length(&2, IR.Expr, args)))
       pad ++ "if " ++ exp(cond) ++ " {\n" ++ inner ++ call("mstore", ["0", call("shl", ["224", Keccak.hex(Keccak.selector(error))])])
-        ++ "\n" ++ stores(inner, args, 4n) ++ inner ++ call("revert", ["0", nat(size)]) ++ "\n" ++ pad ++ "}\n"
+        ++ "\n" ++ encoded(inner, args, 4n, p => size => p ++ call("revert", ["0", size]) ++ "\n") ++ pad ++ "}\n"
         ++ stmt(pad, halt, body)
     case Yul.View{level, target, +signature, +args, body}:
       external(pad, False{}, target, signature, args, 1n) ++ pad ++ "let " ++ var(level) ++ " := mload(0)\n" ++ stmt(pad, halt, body)
@@ -198,7 +239,7 @@ def stmt(+pad: String, +halt: String, s: Yul.Stmt) -> String:
     case Yul.Fetch{+level, target, +signature, +args, +count, body}:
       external(pad, False{}, target, signature, args, count) ++ fetched(count, pad, level, 0n) ++ stmt(pad, halt, body)
     case Yul.Results{+values}:
-      stores(pad, values, 0n) ++ pad ++ call("return", ["0", nat(Nat.mul(32n, List.length(&2, IR.Expr, values)))]) ++ "\n"
+      encoded(pad, values, 0n, p => size => p ++ call("return", ["0", size]) ++ "\n")
     case Yul.Pay{target, amount, body}:
       pad ++ "if iszero(" ++ call("call", ["gas()", atom(target), atom(amount), "0", "0", "0", "0"]) ++ ") { " ++ revert() ++ " }\n"
         ++ stmt(pad, halt, body)
@@ -228,13 +269,16 @@ def range(+pad: String, +typ: String, +level: Nat) -> String:
 
 # Parameter i has level i and is the ABI word at base + 32 * i, read with
 # load: calldataload in the runtime, mload of the copied arguments in init.
+# A bytes parameter, only in the runtime, is the position of its length
+# word, which dynamic checks.
 def parameters(+pad: String, +load: String, +base: Nat, types: List<&2, String>, +level: Nat) -> String:
   match types:
     case Nil{}:
       ""
     case +typ <> rest:
       +offset = Nat.add(base, Nat.mul(32n, level))
-      pad ++ "let " ++ var(level) ++ " := " ++ load ++ "(" ++ nat(offset) ++ ")\n" ++ range(pad, typ, level)
+      Bool.pick(String, Read.dynamic(typ), pad ++ "let " ++ var(level) ++ " := dynamic(" ++ nat(offset) ++ ")\n",
+        pad ++ "let " ++ var(level) ++ " := " ++ load ++ "(" ++ nat(offset) ++ ")\n" ++ range(pad, typ, level))
         ++ parameters(pad, load, base, rest, Nat.add(1n, level))
 
 def types(inputs: List<&2, Read.Input>) -> List<&2, String>:
@@ -251,22 +295,21 @@ def indent() -> String:
 # holds only when the slot is fixed: a slot from a variable could be
 # keccak256(key . base) and alias an entry. So every plain slot and mapping
 # base must be a literal. Keys may be variables.
+def literal(e: IR.Expr) -> Bool:
+  match e:
+    case IR.Lit{_}:
+      True{}
+    case _:
+      False{}
+
 def fixed.loc(l: IR.Loc) -> Bool:
   match l:
-    case IR.Plain{IR.Lit{_}}:
-      True{}
-    case IR.Plain{IR.Var{_}}:
-      False{}
-    case IR.Plain{IR.Item{_, _}}:
-      False{}
+    case IR.Plain{slot}:
+      literal(slot)
     case IR.Mapped{base, _}:
       fixed.loc(base)
-    case IR.Temp{IR.Lit{_}}:
-      True{}
-    case IR.Temp{IR.Var{_}}:
-      False{}
-    case IR.Temp{IR.Item{_, _}}:
-      False{}
+    case IR.Temp{slot}:
+      literal(slot)
 
 def fixed(cmd: IR.Cmd) -> Bool:
   match cmd:
@@ -416,6 +459,11 @@ def cases(+each: Bool, fs: List<&2, Read.Function>) -> Result<&2, &2, String, St
         return head ++ tail
 
 # Yul functions that lowered code calls. Each code block defines its own.
+# dynamic gives the position of a bytes parameter's length word from the
+# position of its head. It reverts unless the offset is a multiple of 32,
+# as the model of callbacks decodes words, the bytes end in the calldata,
+# and the padding after them is zero. put copies bytes from the calldata to
+# memory, as the ABI encodes them, zero-padded, and gives the end.
 def helpers(+pad: String) -> String:
   pad ++ "function mapped(slot, key) -> location {\n"
     ++ pad ++ "  mstore(0, key)\n"
@@ -440,6 +488,23 @@ def helpers(+pad: String) -> String:
     ++ pad ++ "  mstore(128, 0)\n"
     ++ pad ++ "  pop(staticcall(gas(), 1, 0, 128, 128, 32))\n"
     ++ pad ++ "  signer := mload(128)\n"
+    ++ pad ++ "}\n"
+    ++ pad ++ "function dynamic(head) -> at {\n"
+    ++ pad ++ "  let offset := calldataload(head)\n"
+    ++ pad ++ "  if or(and(offset, 31), gt(offset, 0xffffffff)) { revert(0, 0) }\n"
+    ++ pad ++ "  at := add(4, offset)\n"
+    ++ pad ++ "  if gt(add(at, 32), calldatasize()) { revert(0, 0) }\n"
+    ++ pad ++ "  let n := calldataload(at)\n"
+    ++ pad ++ "  if gt(n, sub(calldatasize(), add(at, 32))) { revert(0, 0) }\n"
+    ++ pad ++ "  let k := and(n, 31)\n"
+    ++ pad ++ "  if k { if shl(shl(3, k), calldataload(add(add(at, 32), sub(n, k)))) { revert(0, 0) } }\n"
+    ++ pad ++ "}\n"
+    ++ pad ++ "function put(at, from) -> next {\n"
+    ++ pad ++ "  let n := calldataload(from)\n"
+    ++ pad ++ "  mstore(at, n)\n"
+    ++ pad ++ "  mstore(add(add(at, 32), and(n, not(31))), 0)\n"
+    ++ pad ++ "  calldatacopy(add(at, 32), add(from, 32), n)\n"
+    ++ pad ++ "  next := add(add(at, 32), and(add(n, 31), not(31)))\n"
     ++ pad ++ "}\n"
 
 # deploy and runtime are the checks for ether, if any, and receive the code
@@ -478,13 +543,22 @@ def arguments(types: List<&2, String>) -> String:
         ++ "    codecopy(0, datasize(\"Contract\"), " ++ size ++ ")\n"
         ++ parameters("    ", "mload", 0n, typ <> rest, 0n)
 
+def any.dynamic(ts: List<&2, String>) -> Bool:
+  match ts:
+    case Nil{}:
+      False{}
+    case +t <> rest:
+      Bool.or(Read.dynamic(t), any.dynamic(rest))
+
 def init.stops(out: IR.Output, inputs: List<&2, Read.Input>, +levels: List<&2, Nat>, +body: IR.Cmd) ->
   Result<&2, &2, String, String>:
   match out:
     case IR.Stops{}:
-      do Result<&2, &2, String, String>:
-        checked : IR.Cmd <- valid("init", body, levels)
-        return arguments(types(inputs)) ++ stmt("    ", "", Yul.lower(checked, IR.Stops{}))
+      +ts = types(inputs)
+      Bool.pick(Result<&2, &2, String, String>, any.dynamic(ts), Fail{"init takes no bytes or string parameters"},
+        do Result<&2, &2, String, String>:
+          checked : IR.Cmd <- valid("init", body, levels)
+          return arguments(ts) ++ stmt("    ", "", Yul.lower(checked, IR.Stops{})))
     case _:
       Fail{"init must return Unit"}
 

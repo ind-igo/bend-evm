@@ -63,8 +63,8 @@ def others(p0, p1):
   {==}
 
 def entry.table() -> List<&2, Calls.Entry>:
-  [Calls.Entry{ir.mint(), IR.Stops{}, 2n},
-  Calls.Entry{ir.balanceOf(), IR.Returns{}, 1n},
-  Calls.Entry{ir.totalSupply(), IR.Returns{}, 0n},
-  Calls.Entry{ir.holding(), IR.Returns{}, 2n},
-  Calls.Entry{ir.others(), IR.Returns{}, 2n}]
+  [Calls.Entry{ir.mint(), IR.Stops{}, [Calls.Word{}, Calls.Word{}]},
+  Calls.Entry{ir.balanceOf(), IR.Returns{}, [Calls.Word{}]},
+  Calls.Entry{ir.totalSupply(), IR.Returns{}, []},
+  Calls.Entry{ir.holding(), IR.Returns{}, [Calls.Word{}, Calls.Word{}]},
+  Calls.Entry{ir.others(), IR.Returns{}, [Calls.Word{}, Calls.Word{}]}]

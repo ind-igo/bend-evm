@@ -18,6 +18,10 @@ def show.expr(e: IR.Expr) -> String:
       "IR.Var{" ++ nat(level) ++ "}"
     case IR.Item{level, index}:
       "IR.Item{" ++ nat(level) ++ ", " ++ nat(index) ++ "}"
+    case IR.Bytes{level}:
+      "IR.Bytes{" ++ nat(level) ++ "}"
+    case IR.Length{level}:
+      "IR.Length{" ++ nat(level) ++ "}"
 
 def show.two(name: String, left: IR.Expr, right: IR.Expr) -> String:
   l r = show.expr(left) show.expr(right)
@@ -91,6 +95,8 @@ def show.word(w: IR.Action) -> String:
       "IR.View{" ++ show.expr(target) ++ ", \"" ++ signature ++ "\", [" ++ String.join(show.list(args), ", ") ++ "]}"
     case IR.Call{target, signature, args}:
       "IR.Call{" ++ show.expr(target) ++ ", \"" ++ signature ++ "\", [" ++ String.join(show.list(args), ", ") ++ "]}"
+    case IR.Hash{level}:
+      "IR.Hash{" ++ nat(level) ++ "}"
 
 # The reader only accepts signature characters, so the quotes stay closed.
 def show.effect(e: IR.Effect) -> String:
@@ -134,19 +140,27 @@ def show.cmd(c: IR.Cmd) -> String:
 def param(+level: Nat) -> String:
   "p" ++ Nat.show(level)
 
-def fors(levels: List<&2, Nat>) -> String:
-  match levels:
-    case Nil{}:
-      ""
-    case +level <> rest:
-      "  for +" ++ param(level) ++ ": Nat\n" ++ fors(rest)
-
-def bindings(levels: List<&2, Nat>) -> List<&2, String>:
-  match levels:
+# Whether each parameter, in order, is bytes.
+def kinds(inputs: List<&2, Read.Input>) -> List<&2, Bool>:
+  match inputs:
     case Nil{}:
       Nil{}
-    case +level <> rest:
-      ("IR.Binding{" ++ nat(level) ++ ", " ++ param(level) ++ "}") <> bindings(rest)
+    case Read.Input{_, t} <> rest:
+      Read.dynamic(t) <> kinds(rest)
+
+def fors(levels: List<&2, Nat>, kinds: List<&2, Bool>) -> String:
+  match levels kinds:
+    case +level <> rest +k <> ks:
+      "  for +" ++ param(level) ++ ": " ++ Bool.pick(String, k, "Evm.Bytes", "Nat") ++ "\n" ++ fors(rest, ks)
+    case _ _:
+      ""
+
+def bindings(levels: List<&2, Nat>, kinds: List<&2, Bool>) -> List<&2, String>:
+  match levels kinds:
+    case +level <> rest +k <> ks:
+      (Bool.pick(String, k, "IR.Blob{", "IR.Binding{") ++ nat(level) ++ ", " ++ param(level) ++ "}") <> bindings(rest, ks)
+    case _ _:
+      Nil{}
 
 def names(levels: List<&2, Nat>) -> List<&2, String>:
   match levels:
@@ -164,13 +178,13 @@ def output(out: IR.Output) -> String & String:
     case IR.Gives{}:
       ("IR.Gives{}", "Evm.Values")
 
-def claim.text(+name: String, +levels: List<&2, Nat>, body: IR.Cmd, kind: String & String) -> String:
+def claim.text(+name: String, +levels: List<&2, Nat>, +ks: List<&2, Bool>, body: IR.Cmd, kind: String & String) -> String:
   match kind:
     case Tuple{out, typ}:
       +args = String.join(names(levels), ", ")
       "def ir." ++ name ++ "() -> IR.Cmd:\n  " ++ show.cmd(body) ++ "\n\n"
-        ++ "law " ++ name ++ ":\n" ++ fors(levels)
-        ++ "  {IR.call(ir." ++ name ++ "(), " ++ out ++ ", [" ++ String.join(bindings(levels), ", ") ++ "])"
+        ++ "law " ++ name ++ ":\n" ++ fors(levels, ks)
+        ++ "  {IR.call(ir." ++ name ++ "(), " ++ out ++ ", [" ++ String.join(bindings(levels, ks), ", ") ++ "])"
         ++ " == Program." ++ name ++ "(" ++ args ++ ") : Evm.Contract(" ++ typ ++ ")}\n\n"
         ++ "def " ++ name ++ "(" ++ args ++ "):\n  {==}\n\n"
 
@@ -179,8 +193,8 @@ def claim(f: Read.Function) -> String:
   match f:
     case Read.Constant{_, _}:
       ""
-    case Read.Contract{+name, _, _, _, Read.Entry{+levels, +body}}:
-      claim.text(name, levels, body, output(Read.output(body)))
+    case Read.Contract{+name, inputs, _, _, Read.Entry{+levels, +body}}:
+      claim.text(name, levels, kinds(inputs), body, output(Read.output(body)))
 
 def claims(fs: List<&2, Read.Function>) -> String:
   match fs:
@@ -192,18 +206,28 @@ def claims(fs: List<&2, Read.Function>) -> String:
 # The entries that a callback can run (calls.bend), in the order given: all
 # but init, which runs once at deploy time, and constants, which change
 # nothing and have no IR. A callback names an entry by its index in this list.
-def row.text(+name: String, levels: List<&2, Nat>, kind: String & String) -> String:
+def param.kind(+k: Bool) -> String:
+  Bool.pick(String, k, "Calls.Dynamic{}", "Calls.Word{}")
+
+def param.kinds(ks: List<&2, Bool>) -> List<&2, String>:
+  match ks:
+    case Nil{}:
+      Nil{}
+    case +k <> rest:
+      param.kind(k) <> param.kinds(rest)
+
+def row.text(+name: String, ks: List<&2, Bool>, kind: String & String) -> String:
   match kind:
     case Tuple{out, _}:
-      "Calls.Entry{ir." ++ name ++ "(), " ++ out ++ ", " ++ nat(List.length(&2, Nat, levels)) ++ "}"
+      "Calls.Entry{ir." ++ name ++ "(), " ++ out ++ ", [" ++ String.join(param.kinds(ks), ", ") ++ "]}"
 
 def row(f: Read.Function) -> List<&2, String>:
   match f:
     case Read.Constant{_, _}:
       Nil{}
-    case Read.Contract{+name, _, _, _, Read.Entry{+levels, +body}}:
+    case Read.Contract{+name, inputs, _, _, Read.Entry{_, +body}}:
       Bool.pick(List<&2, String>, String.eq(name, "init"), Nil{},
-        [row.text(name, levels, output(Read.output(body)))])
+        [row.text(name, kinds(inputs), output(Read.output(body)))])
 
 def rows(fs: List<&2, Read.Function>) -> List<&2, String>:
   match fs:

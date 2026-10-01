@@ -75,8 +75,8 @@ def marked():
   {==}
 
 def entry.table() -> List<&2, Calls.Entry>:
-  [Calls.Entry{ir.keep(), IR.Returns{}, 1n},
-  Calls.Entry{ir.grade(), IR.Returns{}, 1n},
-  Calls.Entry{ir.get(), IR.Returns{}, 0n},
-  Calls.Entry{ir.mark(), IR.Stops{}, 1n},
-  Calls.Entry{ir.marked(), IR.Returns{}, 0n}]
+  [Calls.Entry{ir.keep(), IR.Returns{}, [Calls.Word{}]},
+  Calls.Entry{ir.grade(), IR.Returns{}, [Calls.Word{}]},
+  Calls.Entry{ir.get(), IR.Returns{}, []},
+  Calls.Entry{ir.mark(), IR.Stops{}, [Calls.Word{}]},
+  Calls.Entry{ir.marked(), IR.Returns{}, []}]

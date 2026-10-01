@@ -29,5 +29,5 @@ def take(p0):
   {==}
 
 def entry.table() -> List<&2, Calls.Entry>:
-  [Calls.Entry{ir.moved(), IR.Stops{}, 1n},
-  Calls.Entry{ir.take(), IR.Stops{}, 1n}]
+  [Calls.Entry{ir.moved(), IR.Stops{}, [Calls.Word{}]},
+  Calls.Entry{ir.take(), IR.Stops{}, [Calls.Word{}]}]

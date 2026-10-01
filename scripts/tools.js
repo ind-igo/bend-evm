@@ -62,6 +62,7 @@ export const entries = {
   env: ['timestamp', 'chainid', 'origin', 'gasprice', 'coinbase', 'number', 'prevrandao', 'gaslimit', 'basefee',
     'blobbasefee', 'codesize', 'gas', 'selfbalance', 'blockhash', 'blobhash', 'balance', 'extcodesize', 'extcodehash', 'block'],
   transient: ['poke', 'count', 'locked'],
+  bytes: ['note', 'echo', 'size', 'refuse', 'hash', 'forward'],
   values: ['reserves', 'total', 'failing'],
   view: ['mint', 'balanceOf', 'totalSupply', 'holding', 'others'],
   vault: ['init', 'token', 'sharesOf', 'totalShares', 'deposit', 'withdraw', 'ping', 'touch'],

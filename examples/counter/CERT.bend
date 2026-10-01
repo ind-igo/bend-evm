@@ -49,7 +49,7 @@ def set(p0):
   {==}
 
 def entry.table() -> List<&2, Calls.Entry>:
-  [Calls.Entry{ir.get(), IR.Returns{}, 0n},
-  Calls.Entry{ir.increment(), IR.Stops{}, 0n},
-  Calls.Entry{ir.decrement(), IR.Stops{}, 0n},
-  Calls.Entry{ir.set(), IR.Stops{}, 1n}]
+  [Calls.Entry{ir.get(), IR.Returns{}, []},
+  Calls.Entry{ir.increment(), IR.Stops{}, []},
+  Calls.Entry{ir.decrement(), IR.Stops{}, []},
+  Calls.Entry{ir.set(), IR.Stops{}, [Calls.Word{}]}]
